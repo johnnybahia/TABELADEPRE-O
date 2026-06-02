@@ -7,8 +7,24 @@ const SUFIXO_CLIENTE = " CLIENTE";
 const ABA_VENDEDORES = "VENDEDORES";
 const ABA_LOG = "LOG";
 
-// Colunas da aba cliente: A=Referencia B=Descricao C=Preco/metro D=DataInicio E=DataFim F=Observacoes
-// Colunas VENDEDORES: A=ID B=Nome C=Senha D=Clientes (separados por | )
+// Colunas VENDEDORES: A=ID B=Nome C=Senha D=Clientes (separados por | ) E=Email
+
+// ============================================================
+// SCHEMA DAS ABAS DE CLIENTE
+// Ao adicionar uma nova coluna: inclua aqui e rode setup() ou migrarSchema().
+// A ordem define a posição das colunas. Nunca reordene entradas existentes.
+// ============================================================
+const SCHEMA_CLIENTE = [
+  { nome: "Referencia",  largura: 160 },
+  { nome: "Descricao",   largura: 220 },
+  { nome: "Preco",       largura: 120 },
+  { nome: "DataInicio",  largura: 120 },
+  { nome: "DataFim",     largura: 120 },
+  { nome: "Observacoes", largura: 200 },
+  { nome: "Unidade",     largura: 100 },
+  { nome: "MedidaBase",  largura: 100 },
+  // → próximas colunas aqui
+];
 
 // ============================================================
 // PONTO DE ENTRADA WEB
@@ -86,7 +102,7 @@ function getReferencias(nomeAba, busca, vendedorId) {
 
     const resultado = [];
     for (let i = 1; i < dados.length; i++) {
-      const [ref, descricao, preco, dataInicio, dataFim, obs] = dados[i];
+      const [ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase] = dados[i];
       if (!ref) continue;
 
       const refStr = String(ref).toUpperCase();
@@ -111,6 +127,8 @@ function getReferencias(nomeAba, busca, vendedorId) {
         dataInicio: dataInicio ? Utilities.formatDate(new Date(dataInicio), Session.getScriptTimeZone(), "dd/MM/yyyy") : "",
         dataFim: dataFim ? Utilities.formatDate(new Date(dataFim), Session.getScriptTimeZone(), "dd/MM/yyyy") : "Sem vencimento",
         obs: String(obs || ""),
+        unidade: String(unidade || "metros"),
+        medidaBase: Number(medidaBase) || 0,
         vigente
       });
     }
@@ -132,7 +150,7 @@ function salvarReferencia(nomeAba, dados, vendedorId, linhaEdicao) {
     const aba = ss.getSheetByName(nomeAba);
     if (!aba) return { ok: false, erro: "Aba do cliente não encontrada." };
 
-    const { ref, descricao, preco, dataInicio, dataFim, obs } = dados;
+    const { ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase } = dados;
 
     if (!ref || !preco || !dataInicio) return { ok: false, erro: "Referência, preço e data de início são obrigatórios." };
 
@@ -161,11 +179,13 @@ function salvarReferencia(nomeAba, dados, vendedorId, linhaEdicao) {
       Number(String(preco).replace(",", ".")),
       dInicio,
       dFim || "",
-      obs || ""
+      obs || "",
+      unidade || "metros",
+      Number(String(medidaBase || "0").replace(",", ".")) || 0
     ];
 
     if (linhaEdicao) {
-      aba.getRange(linhaEdicao, 1, 1, 6).setValues([linha]);
+      aba.getRange(linhaEdicao, 1, 1, 8).setValues([linha]);
     } else {
       aba.appendRow(linha);
     }
@@ -289,18 +309,23 @@ function enviarEmailAtualizacao(nomeAba, vendedorIdRemetente) {
 
     // Montar linhas da tabela — apenas vigentes no email
     const vigentes = refs.filter(r => r.vigente);
-    const linhasTabela = vigentes.map(r => `
+    const linhasTabela = vigentes.map(r => {
+      const unidLabel = r.unidade === "pares" ? "par" : r.unidade === "pecas" ? "peça" : "metro";
+      const medLabel = r.medidaBase > 0 ? ` (${r.medidaBase}${r.unidade === "metros" ? "mm" : "cm"})` : "";
+      return `
       <tr>
         <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;font-weight:600">${r.ref}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;color:#555">${r.descricao || "–"}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:right;font-weight:700;color:#c07010">
           ${Number(r.preco).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+          <div style="font-size:10px;color:#999;font-weight:400">por ${unidLabel}${medLabel}</div>
         </td>
         <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:12px;color:#888">
           ${r.dataInicio || "–"} → ${r.dataFim}
         </td>
         <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;font-size:12px;color:#777">${r.obs || ""}</td>
-      </tr>`).join("");
+      </tr>`;
+    }).join("");
 
     const erros = [];
     let enviados = 0;
@@ -320,7 +345,7 @@ function enviarEmailAtualizacao(nomeAba, vendedorIdRemetente) {
               <tr style="background:#f9f9f9">
                 <th style="padding:10px 12px;text-align:left;color:#888;font-size:11px;text-transform:uppercase;border-bottom:2px solid #e5e7eb">Referência</th>
                 <th style="padding:10px 12px;text-align:left;color:#888;font-size:11px;text-transform:uppercase;border-bottom:2px solid #e5e7eb">Descrição</th>
-                <th style="padding:10px 12px;text-align:right;color:#888;font-size:11px;text-transform:uppercase;border-bottom:2px solid #e5e7eb">Preço/Metro</th>
+                <th style="padding:10px 12px;text-align:right;color:#888;font-size:11px;text-transform:uppercase;border-bottom:2px solid #e5e7eb">Preço Base</th>
                 <th style="padding:10px 12px;text-align:center;color:#888;font-size:11px;text-transform:uppercase;border-bottom:2px solid #e5e7eb">Vigência</th>
                 <th style="padding:10px 12px;text-align:left;color:#888;font-size:11px;text-transform:uppercase;border-bottom:2px solid #e5e7eb">Obs</th>
               </tr>
@@ -399,7 +424,54 @@ function _datasSeOverlapam(ini1, fim1, ini2, fim2) {
 }
 
 // ============================================================
-// SETUP — rodar UMA VEZ para montar toda a estrutura
+// MIGRAÇÃO DE SCHEMA — aplica colunas ausentes em todas as abas de cliente
+// Chamada automaticamente pelo setup(). Pode ser executada separadamente
+// a qualquer momento sem risco de perda de dados.
+// ============================================================
+function migrarSchema() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const abasCliente = ss.getSheets().filter(s => s.getName().toUpperCase().endsWith(SUFIXO_CLIENTE.toUpperCase()));
+
+  const adicionadas = [];
+  const erros = [];
+
+  for (const aba of abasCliente) {
+    try {
+      // Lê exatamente N colunas por posição (N = tamanho do schema).
+      // Usar posição em vez de busca por nome evita que colunas de dados sem
+      // cabeçalho (criadas por salvarReferencia antes da migração) sejam
+      // detectadas como "ausentes" e adicionadas nas colunas erradas.
+      const cabecalho = aba.getRange(1, 1, 1, SCHEMA_CLIENTE.length).getValues()[0]
+                           .map(v => String(v).trim());
+
+      const colsAdicionadas = [];
+      for (let i = 0; i < SCHEMA_CLIENTE.length; i++) {
+        const colDef = SCHEMA_CLIENTE[i];
+        const colNum = i + 1;
+        if (cabecalho[i].toUpperCase() === colDef.nome.toUpperCase()) continue;
+        if (cabecalho[i] !== "") continue; // posição ocupada por coluna desconhecida — não sobrescreve
+        aba.getRange(1, colNum)
+           .setValue(colDef.nome)
+           .setFontWeight("bold")
+           .setBackground("#0d0f14")
+           .setFontColor("#e8a020");
+        aba.setColumnWidth(colNum, colDef.largura);
+        colsAdicionadas.push(colDef.nome);
+      }
+
+      if (colsAdicionadas.length > 0) {
+        adicionadas.push(`${aba.getName()}: +${colsAdicionadas.join(", ")}`);
+      }
+    } catch(e) {
+      erros.push(`${aba.getName()}: ${e.message}`);
+    }
+  }
+
+  return { adicionadas, erros };
+}
+
+// ============================================================
+// SETUP — rodar para criar a estrutura inicial ou após atualizações
 // ============================================================
 function setup() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -451,16 +523,19 @@ function setup() {
   let abaEx = ss.getSheetByName(abaExemplo);
   if (!abaEx) {
     abaEx = ss.insertSheet(abaExemplo);
-    abaEx.appendRow(["Referencia", "Descricao", "Preco/Metro", "DataInicio", "DataFim", "Observacoes"]);
-    abaEx.getRange(1, 1, 1, 6).setFontWeight("bold").setBackground("#0d0f14").setFontColor("#e8a020");
-    // Linha de exemplo
-    abaEx.appendRow(["CAD001-BRANCO", "Cadarço Tênis Branco 100cm", 2.50, new Date(), "", "Preço por metro"]);
+    abaEx.appendRow(["Referencia", "Descricao", "Preco", "DataInicio", "DataFim", "Observacoes", "Unidade", "MedidaBase"]);
+    abaEx.getRange(1, 1, 1, 8).setFontWeight("bold").setBackground("#0d0f14").setFontColor("#e8a020");
+    // Linhas de exemplo
+    abaEx.appendRow(["CAD001-BRANCO", "Cadarço Tênis Branco", 1.00, new Date(), "", "Preço por par", "pares", 100]);
+    abaEx.appendRow(["FIT001-PRETO", "Fita Elástica Preta 10mm", 0.90, new Date(), "", "Preço por metro", "metros", 10]);
     abaEx.setColumnWidth(1, 160);
     abaEx.setColumnWidth(2, 220);
     abaEx.setColumnWidth(3, 120);
     abaEx.setColumnWidth(4, 120);
     abaEx.setColumnWidth(5, 120);
-    abaEx.setColumnWidth(6, 240);
+    abaEx.setColumnWidth(6, 200);
+    abaEx.setColumnWidth(7, 100);
+    abaEx.setColumnWidth(8, 100);
     // Formatar coluna de datas
     abaEx.getRange(2, 4, 100, 2).setNumberFormat("dd/MM/yyyy");
     criadas.push(abaExemplo);
@@ -478,11 +553,16 @@ function setup() {
     }
   } catch(e) { /* ignora erro de permissão */ }
 
+  // ── MIGRAÇÃO DE SCHEMA ─────────────────────────────────────
+  const migracao = migrarSchema();
+
   // ── RELATÓRIO FINAL ────────────────────────────────────────
   const msg = [
     "✅ Setup concluído!\n",
-    criadas.length    ? "Criadas: " + criadas.join(", ")       : "",
-    jaExistiam.length ? "Já existiam: " + jaExistiam.join(", ") : "",
+    criadas.length              ? "Criadas: "                + criadas.join(", ")           : "",
+    jaExistiam.length           ? "Já existiam: "            + jaExistiam.join(", ")        : "",
+    migracao.adicionadas.length ? "\n── Colunas adicionadas ──\n" + migracao.adicionadas.join("\n") : "── Schema das abas de cliente: OK",
+    migracao.erros.length       ? "\n⚠️ Erros na migração:\n"  + migracao.erros.join("\n")  : "",
     "",
     "── Credencial admin padrão ──",
     "ID: ADMIN",

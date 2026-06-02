@@ -218,7 +218,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
           <div class="form-grid">
             <div class="field full"><label>Referencia *</label><input type="text" id="cad-ref" placeholder="Ex: CAD001-BRANCO"></div>
             <div class="field full"><label>Descricao</label><input type="text" id="cad-desc" placeholder="Ex: Cadarco tenis 100cm"></div>
-            <div class="field"><label>Preco por Metro (R$) *</label><input type="number" id="cad-preco" placeholder="0,00" step="0.01" min="0"></div>
+            <div class="field"><label>Tipo de Unidade *</label><select id="cad-unidade" onchange="atualizarCamposMedida()"><option value="metros">Metros (por largura)</option><option value="pares">Pares (por tamanho)</option><option value="pecas">Pecas (por tamanho)</option></select></div>
+            <div class="field"><label id="cad-medida-label">Largura base (mm) *</label><input type="number" id="cad-medida-base" placeholder="Ex: 10" step="0.01" min="0"></div>
+            <div class="field"><label id="cad-preco-label">Preco base (R$) *</label><input type="number" id="cad-preco" placeholder="0,00" step="0.01" min="0"></div>
             <div class="field"><label>Data de Inicio *</label><input type="date" id="cad-inicio"></div>
             <div class="field"><label>Data de Fim (vazio = sem vencimento)</label><input type="date" id="cad-fim"></div>
             <div class="field full"><label>Observacoes</label><textarea id="cad-obs" rows="3" placeholder="Ex: Valido para pedidos acima de 500m"></textarea></div>
@@ -377,18 +379,31 @@ function renderRefs(r,containerId,modoEdicao){
   if(!r.ok){el.innerHTML="<div class=\"empty-state\"><div class=\"icon\">&#x26A0;&#xFE0F;</div><p>"+r.erro+"</p></div>";return;}
   if(!r.refs.length){el.innerHTML="<div class=\"empty-state\"><div class=\"icon\">&#x1F4ED;</div><p>Nenhuma referencia encontrada</p></div>";return;}
   el.innerHTML=r.refs.map(function(ref){
+    var unidade=ref.unidade||"metros";
+    var medidaBase=ref.medidaBase||0;
+    var unidLabel=unidade==="pares"?"par":unidade==="pecas"?"peca":"metro";
+    var medSufixo=unidade==="metros"?"mm":"cm";
+    var precoLabel="por "+unidLabel+(medidaBase>0?" (base: "+medidaBase+medSufixo+")":"");
+    var calcPlaceholder=unidade==="metros"?"Largura (mm)":"Tamanho (cm)";
     var vigBadge=ref.vigente?"<span class=\"badge ok\">&#x2713; Vigente</span>":"<span class=\"badge err\">&#x2717; Fora de vigencia</span>";
     var obsHtml=ref.obs?"<div class=\"ref-obs\">&#x1F4DD; "+ref.obs+"</div>":"";
     var acoes=modoEdicao?"<div class=\"ref-actions\"><button class=\"btn btn-ghost btn-sm\" onclick=\"editarRef("+JSON.stringify(ref).replace(/"/g,"&quot;")+")\">&#x270F;&#xFE0F; Editar</button></div>":"";
-    var calcHtml=ref.vigente?"<div class=\"calc-row\"><input type=\"number\" placeholder=\"Metros\" step=\"0.01\" min=\"0\" id=\"calc-"+ref.linha+"\" oninput=\"calcular('"+ref.linha+"',"+ref.preco+")\" ><button class=\"btn btn-ghost btn-sm\" onclick=\"calcular('"+ref.linha+"',"+ref.preco+")\" >Calcular</button><span class=\"calc-result\" id=\"result-"+ref.linha+"\"></span></div>":"";
-    return "<div class=\"ref-card "+(ref.vigente?"":"vencida")+"\"><div class=\"ref-card-header\"><div><div class=\"ref-code\">"+ref.ref+"</div>"+(ref.descricao?"<div class=\"ref-desc\">"+ref.descricao+"</div>":"")+"</div><div class=\"ref-price\"><div class=\"ref-price-val\">"+fmt(ref.preco)+"</div><div class=\"ref-price-label\">por metro</div></div></div><div class=\"ref-meta\">"+vigBadge+"<span class=\"badge\">&#x1F4C5; De: "+(ref.dataInicio||"–")+"</span><span class=\"badge\">&#x1F4C5; Ate: "+ref.dataFim+"</span></div>"+obsHtml+calcHtml+acoes+"</div>";
+    var calcHtml=ref.vigente?"<div class=\"calc-row\"><input type=\"number\" placeholder=\""+calcPlaceholder+"\" step=\"0.01\" min=\"0\" id=\"calc-"+ref.linha+"\" oninput=\"calcular('"+ref.linha+"',"+ref.preco+","+medidaBase+")\" ><button class=\"btn btn-ghost btn-sm\" onclick=\"calcular('"+ref.linha+"',"+ref.preco+","+medidaBase+")\">Calcular</button><span class=\"calc-result\" id=\"result-"+ref.linha+"\"></span></div>":"";
+    return "<div class=\"ref-card "+(ref.vigente?"":"vencida")+"\"><div class=\"ref-card-header\"><div><div class=\"ref-code\">"+ref.ref+"</div>"+(ref.descricao?"<div class=\"ref-desc\">"+ref.descricao+"</div>":"")+"</div><div class=\"ref-price\"><div class=\"ref-price-val\">"+fmt(ref.preco)+"</div><div class=\"ref-price-label\">"+precoLabel+"</div></div></div><div class=\"ref-meta\">"+vigBadge+"<span class=\"badge\">&#x1F4C5; De: "+(ref.dataInicio||"–")+"</span><span class=\"badge\">&#x1F4C5; Ate: "+ref.dataFim+"</span></div>"+obsHtml+calcHtml+acoes+"</div>";
   }).join("");
 }
 
-function calcular(id,preco){
-  var metros=document.getElementById("calc-"+id).value;
-  if(!metros||isNaN(metros)||metros<=0){document.getElementById("result-"+id).textContent="";return;}
-  document.getElementById("result-"+id).textContent="= "+fmt(preco*parseFloat(metros));
+function calcular(id,preco,medidaBase){
+  var input=document.getElementById("calc-"+id).value;
+  if(!input||isNaN(input)||input<=0){document.getElementById("result-"+id).textContent="";return;}
+  var total;
+  if(medidaBase&&medidaBase>0){
+    total=(parseFloat(input)/medidaBase)*preco;
+  }else{
+    // compatibilidade com itens antigos sem medida base
+    total=preco*parseFloat(input);
+  }
+  document.getElementById("result-"+id).textContent="= "+fmt(total);
 }
 
 // IMPRESSAO
@@ -430,9 +445,14 @@ function montarPrint(lista,cliente,modo,refFiltro){
   var modoLabel={todos:"Lista Completa",vigentes:"Precos Vigentes",item:"Historico: "+refFiltro}[modo];
   var hoje=new Date().toLocaleDateString("pt-BR");
   var linhas=lista.map(function(ref){
-    return "<tr style=\"border-bottom:1px solid #e5e7eb\"><td style=\"padding:8px 10px;font-weight:600\">"+ref.ref+"</td><td style=\"padding:8px 10px;color:#555\">"+( ref.descricao||"–")+"</td><td style=\"padding:8px 10px;text-align:right;font-weight:700;color:#c07010\">"+Number(ref.preco).toLocaleString("pt-BR",{style:"currency",currency:"BRL"})+"</td><td style=\"padding:8px 10px;text-align:center;font-size:12px\">"+(ref.dataInicio||"–")+"</td><td style=\"padding:8px 10px;text-align:center;font-size:12px\">"+ref.dataFim+"</td><td style=\"padding:8px 10px;text-align:center\"><span style=\"padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;background:"+(ref.vigente?"#d1fae5":"#fee2e2")+";color:"+(ref.vigente?"#065f46":"#991b1b")+"\">"+( ref.vigente?"Vigente":"Vencido")+"</span></td><td style=\"padding:8px 10px;font-size:12px;color:#777\">"+(ref.obs||"")+"</td></tr>";
+    var unidade=ref.unidade||"metros";
+    var medidaBase=ref.medidaBase||0;
+    var unidLabel=unidade==="pares"?"par":unidade==="pecas"?"peca":"metro";
+    var medSufixo=unidade==="metros"?"mm":"cm";
+    var precoInfo=Number(ref.preco).toLocaleString("pt-BR",{style:"currency",currency:"BRL"})+"<br><span style=\"font-size:10px;color:#999\">por "+unidLabel+(medidaBase>0?" ("+medidaBase+medSufixo+")":"")+"</span>";
+    return "<tr style=\"border-bottom:1px solid #e5e7eb\"><td style=\"padding:8px 10px;font-weight:600\">"+ref.ref+"</td><td style=\"padding:8px 10px;color:#555\">"+(ref.descricao||"–")+"</td><td style=\"padding:8px 10px;text-align:right;font-weight:700;color:#c07010\">"+precoInfo+"</td><td style=\"padding:8px 10px;text-align:center;font-size:12px\">"+(ref.dataInicio||"–")+"</td><td style=\"padding:8px 10px;text-align:center;font-size:12px\">"+ref.dataFim+"</td><td style=\"padding:8px 10px;text-align:center\"><span style=\"padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;background:"+(ref.vigente?"#d1fae5":"#fee2e2")+";color:"+(ref.vigente?"#065f46":"#991b1b")+"\">"+( ref.vigente?"Vigente":"Vencido")+"</span></td><td style=\"padding:8px 10px;font-size:12px;color:#777\">"+(ref.obs||"")+"</td></tr>";
   }).join("");
-  var html="<div style=\"font-family:Arial,sans-serif;padding:24px;color:#222;max-width:960px;margin:0 auto\"><div style=\"display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #c07010;padding-bottom:16px;margin-bottom:20px\"><img src=\"https://i.ibb.co/FGGjdsM/LOGO-MARFIM.jpg\" style=\"height:52px;width:auto\"><div style=\"text-align:right\"><div style=\"font-size:18px;font-weight:700;color:#c07010\">TABELA DE PRECOS</div><div style=\"font-size:13px;color:#555\">"+modoLabel+"</div><div style=\"font-size:12px;color:#888;margin-top:2px\">Cliente: <strong>"+nomeCliente+"</strong> &nbsp;|&nbsp; Emitido em: "+hoje+"</div><div style=\"font-size:12px;color:#888\">Vendedor: "+S.vendedor.nome+"</div></div></div>"+(lista.length===0?"<p style=\"text-align:center;color:#999;padding:40px\">Nenhuma referencia encontrada.</p>":"<table style=\"width:100%;border-collapse:collapse\"><thead><tr style=\"background:#f5f5f5\"><th style=\"padding:10px;text-align:left;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">REFERENCIA</th><th style=\"padding:10px;text-align:left;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">DESCRICAO</th><th style=\"padding:10px;text-align:right;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">PRECO/METRO</th><th style=\"padding:10px;text-align:center;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">INICIO</th><th style=\"padding:10px;text-align:center;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">FIM</th><th style=\"padding:10px;text-align:center;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">STATUS</th><th style=\"padding:10px;text-align:left;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">OBSERVACOES</th></tr></thead><tbody>"+linhas+"</tbody></table><div style=\"margin-top:16px;font-size:11px;color:#aaa;text-align:right\">"+lista.length+" registro(s)</div>")+"<div style=\"margin-top:40px;border-top:1px solid #e5e7eb;padding-top:12px;font-size:11px;color:#bbb;text-align:center\">Marfim &mdash; Documento gerado automaticamente pelo sistema de tabela de precos</div></div>";
+  var html="<div style=\"font-family:Arial,sans-serif;padding:24px;color:#222;max-width:960px;margin:0 auto\"><div style=\"display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #c07010;padding-bottom:16px;margin-bottom:20px\"><img src=\"https://i.ibb.co/FGGjdsM/LOGO-MARFIM.jpg\" style=\"height:52px;width:auto\"><div style=\"text-align:right\"><div style=\"font-size:18px;font-weight:700;color:#c07010\">TABELA DE PRECOS</div><div style=\"font-size:13px;color:#555\">"+modoLabel+"</div><div style=\"font-size:12px;color:#888;margin-top:2px\">Cliente: <strong>"+nomeCliente+"</strong> &nbsp;|&nbsp; Emitido em: "+hoje+"</div><div style=\"font-size:12px;color:#888\">Vendedor: "+S.vendedor.nome+"</div></div></div>"+(lista.length===0?"<p style=\"text-align:center;color:#999;padding:40px\">Nenhuma referencia encontrada.</p>":"<table style=\"width:100%;border-collapse:collapse\"><thead><tr style=\"background:#f5f5f5\"><th style=\"padding:10px;text-align:left;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">REFERENCIA</th><th style=\"padding:10px;text-align:left;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">DESCRICAO</th><th style=\"padding:10px;text-align:right;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">PRECO BASE</th><th style=\"padding:10px;text-align:center;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">INICIO</th><th style=\"padding:10px;text-align:center;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">FIM</th><th style=\"padding:10px;text-align:center;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">STATUS</th><th style=\"padding:10px;text-align:left;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">OBSERVACOES</th></tr></thead><tbody>"+linhas+"</tbody></table><div style=\"margin-top:16px;font-size:11px;color:#aaa;text-align:right\">"+lista.length+" registro(s)</div>")+"<div style=\"margin-top:40px;border-top:1px solid #e5e7eb;padding-top:12px;font-size:11px;color:#bbb;text-align:center\">Marfim &mdash; Documento gerado automaticamente pelo sistema de tabela de precos</div></div>";
   var out=document.getElementById("print-output");
   out.innerHTML=html;
   out.style.display="block";
@@ -464,8 +484,9 @@ async function recarregarListaCad(aba){
 async function salvarRef(){
   var aba=document.getElementById("cad-cliente").value;
   if(!aba){toast("Selecione um cliente.","error");return;}
-  var dados={ref:document.getElementById("cad-ref").value.trim(),descricao:document.getElementById("cad-desc").value.trim(),preco:document.getElementById("cad-preco").value,dataInicio:document.getElementById("cad-inicio").value,dataFim:document.getElementById("cad-fim").value,obs:document.getElementById("cad-obs").value.trim()};
+  var dados={ref:document.getElementById("cad-ref").value.trim(),descricao:document.getElementById("cad-desc").value.trim(),preco:document.getElementById("cad-preco").value,dataInicio:document.getElementById("cad-inicio").value,dataFim:document.getElementById("cad-fim").value,obs:document.getElementById("cad-obs").value.trim(),unidade:document.getElementById("cad-unidade").value,medidaBase:document.getElementById("cad-medida-base").value};
   if(!dados.ref||!dados.preco||!dados.dataInicio){toast("Preencha os campos obrigatorios (*).","error");return;}
+  if(!dados.medidaBase||parseFloat(dados.medidaBase)<=0){toast("Informe a medida base (largura ou tamanho).","error");return;}
   var linhaEdicao=document.getElementById("cad-linha-edicao").value;
   loading(true,"Salvando...");
   try{
@@ -482,15 +503,27 @@ function editarRef(ref){
   document.getElementById("cad-preco").value=ref.preco;
   document.getElementById("cad-obs").value=ref.obs;
   document.getElementById("cad-linha-edicao").value=ref.linha;
+  document.getElementById("cad-unidade").value=ref.unidade||"metros";
+  document.getElementById("cad-medida-base").value=ref.medidaBase||"";
+  atualizarCamposMedida();
   var toISO=function(s){if(!s||s==="Sem vencimento")return "";var p=s.split("/");return p[2]&&p[1]&&p[0]?p[2]+"-"+p[1]+"-"+p[0]:"";};
   document.getElementById("cad-inicio").value=toISO(ref.dataInicio);
   document.getElementById("cad-fim").value=toISO(ref.dataFim);
   document.getElementById("cad-form-area").scrollIntoView({behavior:"smooth"});
 }
 function limparFormCad(){
-  ["cad-ref","cad-desc","cad-preco","cad-inicio","cad-fim","cad-obs"].forEach(function(id){document.getElementById(id).value="";});
+  ["cad-ref","cad-desc","cad-preco","cad-inicio","cad-fim","cad-obs","cad-medida-base"].forEach(function(id){document.getElementById(id).value="";});
   document.getElementById("cad-linha-edicao").value="";
+  document.getElementById("cad-unidade").value="metros";
   document.getElementById("cad-form-title").textContent="Nova Referencia";
+  atualizarCamposMedida();
+}
+function atualizarCamposMedida(){
+  var u=document.getElementById("cad-unidade").value;
+  var lbl=document.getElementById("cad-medida-label");
+  var inp=document.getElementById("cad-medida-base");
+  if(u==="metros"){lbl.textContent="Largura base (mm) *";inp.placeholder="Ex: 10";}
+  else{lbl.textContent="Tamanho base (cm) *";inp.placeholder="Ex: 100";}
 }
 
 // ADMIN

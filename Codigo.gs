@@ -7,7 +7,7 @@ const SUFIXO_CLIENTE = " CLIENTE";
 const ABA_VENDEDORES = "VENDEDORES";
 const ABA_LOG = "LOG";
 
-// Colunas da aba cliente: A=Referencia B=Descricao C=Preco/metro D=DataInicio E=DataFim F=Observacoes
+// Colunas da aba cliente: A=Referencia B=Descricao C=Preco D=DataInicio E=DataFim F=Observacoes G=Unidade H=MedidaBase
 // Colunas VENDEDORES: A=ID B=Nome C=Senha D=Clientes (separados por | )
 
 // ============================================================
@@ -86,7 +86,7 @@ function getReferencias(nomeAba, busca, vendedorId) {
 
     const resultado = [];
     for (let i = 1; i < dados.length; i++) {
-      const [ref, descricao, preco, dataInicio, dataFim, obs] = dados[i];
+      const [ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase] = dados[i];
       if (!ref) continue;
 
       const refStr = String(ref).toUpperCase();
@@ -111,6 +111,8 @@ function getReferencias(nomeAba, busca, vendedorId) {
         dataInicio: dataInicio ? Utilities.formatDate(new Date(dataInicio), Session.getScriptTimeZone(), "dd/MM/yyyy") : "",
         dataFim: dataFim ? Utilities.formatDate(new Date(dataFim), Session.getScriptTimeZone(), "dd/MM/yyyy") : "Sem vencimento",
         obs: String(obs || ""),
+        unidade: String(unidade || "metros"),
+        medidaBase: Number(medidaBase) || 0,
         vigente
       });
     }
@@ -132,7 +134,7 @@ function salvarReferencia(nomeAba, dados, vendedorId, linhaEdicao) {
     const aba = ss.getSheetByName(nomeAba);
     if (!aba) return { ok: false, erro: "Aba do cliente não encontrada." };
 
-    const { ref, descricao, preco, dataInicio, dataFim, obs } = dados;
+    const { ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase } = dados;
 
     if (!ref || !preco || !dataInicio) return { ok: false, erro: "Referência, preço e data de início são obrigatórios." };
 
@@ -161,11 +163,13 @@ function salvarReferencia(nomeAba, dados, vendedorId, linhaEdicao) {
       Number(String(preco).replace(",", ".")),
       dInicio,
       dFim || "",
-      obs || ""
+      obs || "",
+      unidade || "metros",
+      Number(String(medidaBase || "0").replace(",", ".")) || 0
     ];
 
     if (linhaEdicao) {
-      aba.getRange(linhaEdicao, 1, 1, 6).setValues([linha]);
+      aba.getRange(linhaEdicao, 1, 1, 8).setValues([linha]);
     } else {
       aba.appendRow(linha);
     }
@@ -289,18 +293,23 @@ function enviarEmailAtualizacao(nomeAba, vendedorIdRemetente) {
 
     // Montar linhas da tabela — apenas vigentes no email
     const vigentes = refs.filter(r => r.vigente);
-    const linhasTabela = vigentes.map(r => `
+    const linhasTabela = vigentes.map(r => {
+      const unidLabel = r.unidade === "pares" ? "par" : r.unidade === "pecas" ? "peça" : "metro";
+      const medLabel = r.medidaBase > 0 ? ` (${r.medidaBase}${r.unidade === "metros" ? "mm" : "cm"})` : "";
+      return `
       <tr>
         <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;font-weight:600">${r.ref}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;color:#555">${r.descricao || "–"}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:right;font-weight:700;color:#c07010">
           ${Number(r.preco).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+          <div style="font-size:10px;color:#999;font-weight:400">por ${unidLabel}${medLabel}</div>
         </td>
         <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:12px;color:#888">
           ${r.dataInicio || "–"} → ${r.dataFim}
         </td>
         <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;font-size:12px;color:#777">${r.obs || ""}</td>
-      </tr>`).join("");
+      </tr>`;
+    }).join("");
 
     const erros = [];
     let enviados = 0;
@@ -320,7 +329,7 @@ function enviarEmailAtualizacao(nomeAba, vendedorIdRemetente) {
               <tr style="background:#f9f9f9">
                 <th style="padding:10px 12px;text-align:left;color:#888;font-size:11px;text-transform:uppercase;border-bottom:2px solid #e5e7eb">Referência</th>
                 <th style="padding:10px 12px;text-align:left;color:#888;font-size:11px;text-transform:uppercase;border-bottom:2px solid #e5e7eb">Descrição</th>
-                <th style="padding:10px 12px;text-align:right;color:#888;font-size:11px;text-transform:uppercase;border-bottom:2px solid #e5e7eb">Preço/Metro</th>
+                <th style="padding:10px 12px;text-align:right;color:#888;font-size:11px;text-transform:uppercase;border-bottom:2px solid #e5e7eb">Preço Base</th>
                 <th style="padding:10px 12px;text-align:center;color:#888;font-size:11px;text-transform:uppercase;border-bottom:2px solid #e5e7eb">Vigência</th>
                 <th style="padding:10px 12px;text-align:left;color:#888;font-size:11px;text-transform:uppercase;border-bottom:2px solid #e5e7eb">Obs</th>
               </tr>
@@ -451,16 +460,19 @@ function setup() {
   let abaEx = ss.getSheetByName(abaExemplo);
   if (!abaEx) {
     abaEx = ss.insertSheet(abaExemplo);
-    abaEx.appendRow(["Referencia", "Descricao", "Preco/Metro", "DataInicio", "DataFim", "Observacoes"]);
-    abaEx.getRange(1, 1, 1, 6).setFontWeight("bold").setBackground("#0d0f14").setFontColor("#e8a020");
-    // Linha de exemplo
-    abaEx.appendRow(["CAD001-BRANCO", "Cadarço Tênis Branco 100cm", 2.50, new Date(), "", "Preço por metro"]);
+    abaEx.appendRow(["Referencia", "Descricao", "Preco", "DataInicio", "DataFim", "Observacoes", "Unidade", "MedidaBase"]);
+    abaEx.getRange(1, 1, 1, 8).setFontWeight("bold").setBackground("#0d0f14").setFontColor("#e8a020");
+    // Linhas de exemplo
+    abaEx.appendRow(["CAD001-BRANCO", "Cadarço Tênis Branco", 1.00, new Date(), "", "Preço por par", "pares", 100]);
+    abaEx.appendRow(["FIT001-PRETO", "Fita Elástica Preta 10mm", 0.90, new Date(), "", "Preço por metro", "metros", 10]);
     abaEx.setColumnWidth(1, 160);
     abaEx.setColumnWidth(2, 220);
     abaEx.setColumnWidth(3, 120);
     abaEx.setColumnWidth(4, 120);
     abaEx.setColumnWidth(5, 120);
-    abaEx.setColumnWidth(6, 240);
+    abaEx.setColumnWidth(6, 200);
+    abaEx.setColumnWidth(7, 100);
+    abaEx.setColumnWidth(8, 100);
     // Formatar coluna de datas
     abaEx.getRange(2, 4, 100, 2).setNumberFormat("dd/MM/yyyy");
     criadas.push(abaExemplo);

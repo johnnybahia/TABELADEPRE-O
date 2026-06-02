@@ -7,8 +7,24 @@ const SUFIXO_CLIENTE = " CLIENTE";
 const ABA_VENDEDORES = "VENDEDORES";
 const ABA_LOG = "LOG";
 
-// Colunas da aba cliente: A=Referencia B=Descricao C=Preco D=DataInicio E=DataFim F=Observacoes G=Unidade H=MedidaBase
-// Colunas VENDEDORES: A=ID B=Nome C=Senha D=Clientes (separados por | )
+// Colunas VENDEDORES: A=ID B=Nome C=Senha D=Clientes (separados por | ) E=Email
+
+// ============================================================
+// SCHEMA DAS ABAS DE CLIENTE
+// Ao adicionar uma nova coluna: inclua aqui e rode setup() ou migrarSchema().
+// A ordem define a posição das colunas. Nunca reordene entradas existentes.
+// ============================================================
+const SCHEMA_CLIENTE = [
+  { nome: "Referencia",  largura: 160 },
+  { nome: "Descricao",   largura: 220 },
+  { nome: "Preco",       largura: 120 },
+  { nome: "DataInicio",  largura: 120 },
+  { nome: "DataFim",     largura: 120 },
+  { nome: "Observacoes", largura: 200 },
+  { nome: "Unidade",     largura: 100 },
+  { nome: "MedidaBase",  largura: 100 },
+  // → próximas colunas aqui
+];
 
 // ============================================================
 // PONTO DE ENTRADA WEB
@@ -408,7 +424,44 @@ function _datasSeOverlapam(ini1, fim1, ini2, fim2) {
 }
 
 // ============================================================
-// SETUP — rodar UMA VEZ para montar toda a estrutura
+// MIGRAÇÃO DE SCHEMA — aplica colunas ausentes em todas as abas de cliente
+// Chamada automaticamente pelo setup(). Pode ser executada separadamente
+// a qualquer momento sem risco de perda de dados.
+// ============================================================
+function migrarSchema() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const abasCliente = ss.getSheets().filter(s => s.getName().toUpperCase().endsWith(SUFIXO_CLIENTE.toUpperCase()));
+
+  const relatorio = [];
+
+  for (const aba of abasCliente) {
+    const ultimaCol = Math.max(aba.getLastColumn(), 1);
+    const cabecalho = aba.getRange(1, 1, 1, ultimaCol).getValues()[0].map(v => String(v).trim().toUpperCase());
+
+    const adicionadas = [];
+    for (const colDef of SCHEMA_CLIENTE) {
+      if (cabecalho.includes(colDef.nome.toUpperCase())) continue;
+
+      const novaCol = aba.getLastColumn() + 1;
+      aba.getRange(1, novaCol)
+         .setValue(colDef.nome)
+         .setFontWeight("bold")
+         .setBackground("#0d0f14")
+         .setFontColor("#e8a020");
+      aba.setColumnWidth(novaCol, colDef.largura);
+      adicionadas.push(colDef.nome);
+    }
+
+    if (adicionadas.length > 0) {
+      relatorio.push(`${aba.getName()}: +${adicionadas.join(", ")}`);
+    }
+  }
+
+  return relatorio;
+}
+
+// ============================================================
+// SETUP — rodar para criar a estrutura inicial ou após atualizações
 // ============================================================
 function setup() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -490,11 +543,15 @@ function setup() {
     }
   } catch(e) { /* ignora erro de permissão */ }
 
+  // ── MIGRAÇÃO DE SCHEMA ─────────────────────────────────────
+  const migradas = migrarSchema();
+
   // ── RELATÓRIO FINAL ────────────────────────────────────────
   const msg = [
     "✅ Setup concluído!\n",
-    criadas.length    ? "Criadas: " + criadas.join(", ")       : "",
-    jaExistiam.length ? "Já existiam: " + jaExistiam.join(", ") : "",
+    criadas.length    ? "Criadas: "      + criadas.join(", ")    : "",
+    jaExistiam.length ? "Já existiam: "  + jaExistiam.join(", ") : "",
+    migradas.length   ? "\n── Colunas adicionadas ──\n" + migradas.join("\n") : "── Schema das abas de cliente: OK",
     "",
     "── Credencial admin padrão ──",
     "ID: ADMIN",

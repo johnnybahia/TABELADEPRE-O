@@ -207,14 +207,16 @@ function criarCliente(nome, vendedorId) {
     const nomeLimpo = String(nome || "").trim();
     if (!nomeLimpo) return { ok: false, erro: "Informe o nome do cliente." };
 
-    // Nomes de abas no Google Sheets não podem ter: \ / ? * [ ] : e nem passar de 100 chars
-    if (/[\\\/\?\*\[\]\:]/.test(nomeLimpo)) return { ok: false, erro: "Nome contém caracteres inválidos (\\  /  ?  *  [  ]  :)." };
+    // Nomes de abas no Google Sheets não podem ter: \ / ? * [ ] : < > e nem passar de 100 chars
+    if (/[\\\/\?\*\[\]\:\<\>]/.test(nomeLimpo)) return { ok: false, erro: "Nome contém caracteres inválidos (\\  /  ?  *  [  ]  :  <  >)." };
     if (nomeLimpo.length > 90) return { ok: false, erro: "Nome muito longo (máximo 90 caracteres)." };
 
     const nomeAba = nomeLimpo.toUpperCase() + SUFIXO_CLIENTE;
 
+    // getSheetByName é case-sensitive no GAS — varrer todas as abas para comparação segura
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    if (ss.getSheetByName(nomeAba)) return { ok: false, erro: `Cliente "${nomeLimpo}" já existe.` };
+    const jaExiste = ss.getSheets().some(s => s.getName().toUpperCase() === nomeAba.toUpperCase());
+    if (jaExiste) return { ok: false, erro: `Cliente "${nomeAba}" já existe.` };
 
     const aba = ss.insertSheet(nomeAba);
 

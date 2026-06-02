@@ -546,12 +546,13 @@ function atualizarCamposMedida(){
 }
 
 // ADMIN
+function escHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
 async function carregarAdminLista(){
   loading(true,"Carregando...");
   try{
     var rV=await gas("getVendedores",S.vendedor.id);
     var elV=document.getElementById("adm-lista");
-    if(!rV.ok){elV.innerHTML="<p style=\"color:var(--danger)\">"+rV.erro+"</p>";}
+    if(!rV.ok){elV.innerHTML="<p style=\"color:var(--danger)\">"+escHtml(rV.erro)+"</p>";loading(false);return;}
     else{elV.innerHTML=rV.vendedores.map(function(v){return "<div class=\"form-card\" style=\"margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px\"><div><div style=\"font-family:sans-serif,sans-serif;font-weight:700\">"+v.nome+" <span style=\"color:var(--text2);font-size:12px\">("+v.id+")</span></div><div style=\"font-size:12px;color:var(--text2);margin-top:4px\">"+(v.clientes||"Sem clientes")+"</div><div style=\"font-size:11px;color:var(--text2);margin-top:2px\">&#x1F4E7; "+(v.email||"Sem email")+"</div></div></div>";}).join("");}
 
     var rC=await gas("getClientes",S.vendedor.id,["*"]);
@@ -568,8 +569,8 @@ async function criarNovoCliente(){
   try{
     var r=await gas("criarCliente",nome,S.vendedor.id);
     var msg=document.getElementById("adm-novo-cliente-msg");
-    if(!r.ok){msg.innerHTML="<span style=\"color:var(--danger)\">"+r.erro+"</span>";loading(false);return;}
-    msg.innerHTML="<span style=\"color:var(--success)\">&#x2713; Aba \""+r.nomeAba+"\" criada com sucesso.</span>";
+    if(!r.ok){msg.innerHTML="<span style=\"color:var(--danger)\">"+escHtml(r.erro)+"</span>";loading(false);return;}
+    msg.innerHTML="<span style=\"color:var(--success)\">&#x2713; Aba \""+escHtml(r.nomeAba)+"\" criada com sucesso.</span>";
     document.getElementById("adm-novo-cliente").value="";
     await carregarAdminLista();
     // Atualiza também o select de cadastro se a aba estiver aberta

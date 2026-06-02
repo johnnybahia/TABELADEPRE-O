@@ -432,32 +432,42 @@ function migrarSchema() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const abasCliente = ss.getSheets().filter(s => s.getName().toUpperCase().endsWith(SUFIXO_CLIENTE.toUpperCase()));
 
-  const relatorio = [];
+  const adicionadas = [];
+  const erros = [];
 
   for (const aba of abasCliente) {
-    const ultimaCol = Math.max(aba.getLastColumn(), 1);
-    const cabecalho = aba.getRange(1, 1, 1, ultimaCol).getValues()[0].map(v => String(v).trim().toUpperCase());
+    try {
+      // Lê exatamente N colunas por posição (N = tamanho do schema).
+      // Usar posição em vez de busca por nome evita que colunas de dados sem
+      // cabeçalho (criadas por salvarReferencia antes da migração) sejam
+      // detectadas como "ausentes" e adicionadas nas colunas erradas.
+      const cabecalho = aba.getRange(1, 1, 1, SCHEMA_CLIENTE.length).getValues()[0]
+                           .map(v => String(v).trim());
 
-    const adicionadas = [];
-    for (const colDef of SCHEMA_CLIENTE) {
-      if (cabecalho.includes(colDef.nome.toUpperCase())) continue;
+      const colsAdicionadas = [];
+      for (let i = 0; i < SCHEMA_CLIENTE.length; i++) {
+        const colDef = SCHEMA_CLIENTE[i];
+        const colNum = i + 1;
+        if (cabecalho[i].toUpperCase() === colDef.nome.toUpperCase()) continue;
+        if (cabecalho[i] !== "") continue; // posição ocupada por coluna desconhecida — não sobrescreve
+        aba.getRange(1, colNum)
+           .setValue(colDef.nome)
+           .setFontWeight("bold")
+           .setBackground("#0d0f14")
+           .setFontColor("#e8a020");
+        aba.setColumnWidth(colNum, colDef.largura);
+        colsAdicionadas.push(colDef.nome);
+      }
 
-      const novaCol = aba.getLastColumn() + 1;
-      aba.getRange(1, novaCol)
-         .setValue(colDef.nome)
-         .setFontWeight("bold")
-         .setBackground("#0d0f14")
-         .setFontColor("#e8a020");
-      aba.setColumnWidth(novaCol, colDef.largura);
-      adicionadas.push(colDef.nome);
-    }
-
-    if (adicionadas.length > 0) {
-      relatorio.push(`${aba.getName()}: +${adicionadas.join(", ")}`);
+      if (colsAdicionadas.length > 0) {
+        adicionadas.push(`${aba.getName()}: +${colsAdicionadas.join(", ")}`);
+      }
+    } catch(e) {
+      erros.push(`${aba.getName()}: ${e.message}`);
     }
   }
 
-  return relatorio;
+  return { adicionadas, erros };
 }
 
 // ============================================================
@@ -544,14 +554,15 @@ function setup() {
   } catch(e) { /* ignora erro de permissão */ }
 
   // ── MIGRAÇÃO DE SCHEMA ─────────────────────────────────────
-  const migradas = migrarSchema();
+  const migracao = migrarSchema();
 
   // ── RELATÓRIO FINAL ────────────────────────────────────────
   const msg = [
     "✅ Setup concluído!\n",
-    criadas.length    ? "Criadas: "      + criadas.join(", ")    : "",
-    jaExistiam.length ? "Já existiam: "  + jaExistiam.join(", ") : "",
-    migradas.length   ? "\n── Colunas adicionadas ──\n" + migradas.join("\n") : "── Schema das abas de cliente: OK",
+    criadas.length              ? "Criadas: "                + criadas.join(", ")           : "",
+    jaExistiam.length           ? "Já existiam: "            + jaExistiam.join(", ")        : "",
+    migracao.adicionadas.length ? "\n── Colunas adicionadas ──\n" + migracao.adicionadas.join("\n") : "── Schema das abas de cliente: OK",
+    migracao.erros.length       ? "\n⚠️ Erros na migração:\n"  + migracao.erros.join("\n")  : "",
     "",
     "── Credencial admin padrão ──",
     "ID: ADMIN",

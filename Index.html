@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Tabela de Preços — Marfim</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#1a3c5e;--navy-light:#234e7a;
+  --bg:#f0f2f5;--surface:#ffffff;--surface2:#f7f8fa;
+  --border:#dde1e8;--accent:#e8a020;--accent2:#f5c060;
+  --text:#1e2530;--text2:#5a6478;--text3:#8e9aac;
+  --danger:#d63031;--success:#2a9d5c;--warn:#e8a020;
+  --radius:6px;--radius-sm:4px;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-serif,sans-serif;font-size:14px;}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+#app{display:flex;flex-direction:column;min-height:100vh;}
+.screen{display:none;flex-direction:column;flex:1;}.screen.active{display:flex;}
+#screen-login{align-items:center;justify-content:center;background:var(--navy);background-image:repeating-linear-gradient(0deg,transparent,transparent 39px,rgba(255,255,255,0.03) 39px,rgba(255,255,255,0.03) 40px),repeating-linear-gradient(90deg,transparent,transparent 39px,rgba(255,255,255,0.03) 39px,rgba(255,255,255,0.03) 40px);padding:24px;}
+.login-card{width:100%;max-width:360px;background:var(--surface);border-radius:8px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.12);}
+.login-header{background:var(--navy);padding:28px 32px 24px;text-align:center;}.login-body{padding:28px 32px;}.brand{text-align:center;margin-bottom:0;}
+.brand-logo{height:72px;width:auto;border-radius:6px;margin-bottom:12px;}.brand p{color:rgba(255,255,255,0.75);font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin-top:4px;}
+.brand p{font-size:11px;color:var(--text2);letter-spacing:.1em;text-transform:uppercase;margin-top:4px;}
+.field{margin-bottom:16px;}
+.field label{display:block;font-size:11px;font-weight:500;color:var(--text2);letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px;}
+.field input,.field textarea,.field select{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px;color:var(--text);font-family:sans-serif,sans-serif;font-size:15px;outline:none;transition:border-color .2s;resize:vertical;}
+.field input:focus,.field textarea:focus,.field select:focus{border-color:var(--accent);}
+.field select option{background:var(--surface2);}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 20px;border:none;border-radius:var(--radius);font-family:sans-serif,sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap;}
+.btn-primary{background:var(--navy);color:white;width:100%;font-size:14px;font-weight:600;margin-top:8px;}
+.btn-primary:hover{background:var(--navy-light);}
+.btn-ghost{background:transparent;color:var(--text2);border:1px solid var(--border);}
+.btn-ghost:hover{border-color:var(--accent);color:var(--accent);}
+.btn-success{background:var(--success);color:white;font-weight:600;}
+.btn-warn{background:var(--warn);color:white;font-weight:600;}
+.btn-sm{padding:7px 14px;font-size:13px;}
+.err-msg{color:var(--danger);font-size:13px;text-align:center;margin-top:12px;min-height:20px;}
+.topbar{background:var(--navy);height:52px;display:flex;align-items:center;padding:0 16px;gap:16px;position:sticky;top:0;z-index:100;flex-shrink:0;}
+.topbar-logo{height:34px;width:auto;border-radius:4px;display:block;}
+.topbar-right{display:flex;align-items:center;gap:10px;margin-left:auto;}
+.topbar-user{font-size:13px;color:rgba(255,255,255,0.8);}
+.topbar-tabs{display:flex;gap:4px;flex:1;}
+.tab-btn{background:transparent;border:none;color:var(--text2);padding:6px 12px;border-radius:var(--radius-sm);font-family:sans-serif,sans-serif;font-size:13px;cursor:pointer;transition:all .2s;}
+.tab-btn.active{background:rgba(255,255,255,0.12);color:white;font-weight:600;}
+.tab-btn:hover:not(.active){color:var(--text);background:var(--surface2);}
+.btn-sair{padding:5px 12px;border:1px solid rgba(255,255,255,0.25);background:transparent;color:rgba(255,255,255,0.7);font-family:sans-serif,sans-serif;font-size:12px;cursor:pointer;border-radius:4px;transition:all .15s;}.btn-sair:hover{border-color:rgba(255,255,255,0.6);color:white;}.main-content{flex:1;overflow-y:auto;padding:20px 16px;max-width:800px;margin:0 auto;width:100%;}
+.panel{display:none;}.panel.active{display:block;}
+.section-title{font-size:12px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--text3,var(--text2));margin-bottom:10px;}
+.client-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:20px;}
+.client-chip{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px;cursor:pointer;transition:all .2s;text-align:center;font-size:13px;font-weight:500;}
+.client-chip:hover{border-color:var(--accent);color:var(--accent);}
+.client-chip.selected{background:var(--navy);color:white;border-color:var(--navy);font-weight:600;}
+.search-bar{display:flex;gap:8px;margin-bottom:16px;}
+.search-bar input{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:11px 14px;color:var(--text);font-family:sans-serif,sans-serif;font-size:15px;outline:none;transition:border-color .2s;}
+.search-bar input:focus{border-color:var(--accent);}
+.search-bar input::placeholder{color:var(--text2);}
+.ref-list{display:flex;flex-direction:column;gap:10px;}
+.ref-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;transition:border-color .2s;}
+.ref-card.vencida{opacity:.5;border-color:var(--danger);}
+.ref-card-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px;}
+.ref-code{font-family:"IBM Plex Mono",monospace;font-size:15px;font-weight:600;color:var(--navy);}
+.ref-desc{font-size:13px;color:var(--text2);margin-top:2px;}
+.ref-price{text-align:right;flex-shrink:0;}
+.ref-price-val{font-family:"IBM Plex Mono",monospace;font-size:20px;font-weight:700;color:var(--navy);}
+.ref-price-label{font-size:11px;color:var(--text2);}
+.ref-meta{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;}
+.badge{display:inline-block;padding:2px 9px;border-radius:12px;font-size:11px;font-weight:600;background:var(--surface2);color:var(--text2);border:1px solid var(--border);}
+.badge.ok{background:rgba(64,192,128,.12);color:var(--success);border-color:rgba(64,192,128,.3);}
+.badge.err{background:rgba(224,80,80,.12);color:var(--danger);border-color:rgba(224,80,80,.3);}
+.ref-obs{font-size:13px;color:var(--text2);background:var(--surface2);border-radius:var(--radius);padding:8px 10px;margin-bottom:10px;border-left:3px solid var(--accent);}
+.calc-row{display:flex;gap:8px;align-items:center;}
+.calc-row input{width:110px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:9px 12px;color:var(--text);font-family:sans-serif,sans-serif;font-size:14px;outline:none;transition:border-color .2s;}
+.calc-row input:focus{border-color:var(--accent);}
+.calc-result{font-family:"IBM Plex Mono",monospace;font-size:16px;font-weight:700;color:var(--success);}
+.ref-actions{display:flex;gap:6px;margin-top:10px;justify-content:flex-end;}
+.empty-state{text-align:center;padding:60px 20px;color:var(--text2);}
+.empty-state .icon{font-size:40px;margin-bottom:12px;}
+.form-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:20px;box-shadow:0 2px 8px rgba(0,0,0,.06);}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.form-grid .full{grid-column:1/-1;}
+.form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:4px;}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:500;padding:16px;}
+.modal-overlay.active{display:flex;}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;width:100%;max-width:460px;}
+.modal h3{font-family:sans-serif,sans-serif;font-size:16px;font-weight:600;margin-bottom:6px;color:var(--navy);}
+.modal-sub{font-size:13px;color:var(--text2);margin-bottom:20px;}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:20px;}
+.print-option{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;cursor:pointer;transition:all .2s;margin-bottom:10px;display:flex;align-items:center;gap:14px;}
+.print-option:hover{border-color:var(--accent);}
+.print-option .po-icon{font-size:24px;flex-shrink:0;}
+.print-option .po-title{font-weight:600;font-size:14px;}
+.print-option .po-desc{font-size:12px;color:var(--text2);margin-top:2px;}
+.print-ref-input{display:none;margin-top:12px;}
+.print-ref-input.show{display:block;}
+.loading-overlay{position:fixed;inset:0;background:rgba(13,15,20,.85);display:none;align-items:center;justify-content:center;z-index:999;flex-direction:column;gap:12px;}
+.loading-overlay.active{display:flex;}
+.spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-overlay p{color:var(--text2);font-size:13px;}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 20px;font-size:14px;color:var(--text);transition:transform .3s ease;z-index:9999;white-space:nowrap;}
+.toast.show{transform:translateX(-50%) translateY(0);}
+.toast.success{border-color:var(--success);color:var(--success);}
+.toast.error{border-color:var(--danger);color:var(--danger);}
+@media print{
+  body{background:#fff !important;color:#000 !important;}
+  #app{display:none !important;}
+  #print-output{display:block !important;}
+}
+#print-output{display:none;}
+@media(max-width:500px){
+  .form-grid{grid-template-columns:1fr;}.form-grid .full{grid-column:1;}
+  .topbar-tabs .tab-btn{padding:6px 8px;font-size:12px;}
+  .ref-price-val{font-size:18px;}
+  .client-grid{grid-template-columns:repeat(auto-fill,minmax(110px,1fr));}
+}
+</style>
+</head>
+<body>
+<div id="app">
+<div class="loading-overlay" id="loading"><div class="spinner"></div><p id="loading-msg">Aguarde...</p></div>
+<div class="toast" id="toast"></div>
+
+<!-- MODAL IMPRESSAO -->
+<div class="modal-overlay" id="modal-print">
+  <div class="modal">
+    <h3>Imprimir Relatorio</h3>
+    <p class="modal-sub" id="modal-print-cliente"></p>
+    <div class="print-option" onclick="setPrintMode('todos')">
+      <div class="po-icon">&#x1F4CB;</div>
+      <div><div class="po-title">Lista completa do cliente</div><div class="po-desc">Todas as referencias com precos vigentes e vencidos</div></div>
+    </div>
+    <div class="print-option" onclick="setPrintMode('vigentes')">
+      <div class="po-icon">&#x2705;</div>
+      <div><div class="po-title">Somente precos vigentes</div><div class="po-desc">Referencias dentro do prazo de validade atual</div></div>
+    </div>
+    <div class="print-option" onclick="setPrintMode('item')">
+      <div class="po-icon">&#x1F50E;</div>
+      <div><div class="po-title">Referencia especifica</div><div class="po-desc">Historico completo de precos de um item</div></div>
+    </div>
+    <div class="print-ref-input" id="print-ref-wrap">
+      <div class="field"><label>Digite a Referencia</label><input type="text" id="print-ref-input" placeholder="Ex: CAD001-BRANCO"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModalPrint()">Cancelar</button>
+      <button class="btn btn-primary" style="background:var(--navy)" onclick="gerarImpressao()">&#x1F5A8; Gerar Relatorio</button>
+    </div>
+  </div>
+</div>
+
+<!-- LOGIN -->
+<div class="screen active" id="screen-login">
+  <div class="login-card">
+    <div class="login-header brand">
+      <img src="https://i.ibb.co/FGGjdsM/LOGO-MARFIM.jpg" alt="Marfim" class="brand-logo">
+      <p>Tabela de Precos</p>
+    </div>
+    <div class="login-body">
+      <div class="field"><label>Codigo do Vendedor</label><input type="text" id="login-id" placeholder="Ex: V01" autocomplete="off"></div>
+      <div class="field"><label>Senha</label><input type="password" id="login-senha" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;"></div>
+      <button class="btn-primary-login" onclick="fazerLogin()">Entrar</button>
+      <div class="err-msg" id="login-erro"></div>
+    </div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="screen" id="screen-main">
+  <div class="topbar">
+    <img src="https://i.ibb.co/FGGjdsM/LOGO-MARFIM.jpg" alt="Marfim" class="topbar-logo">
+    <div class="topbar-tabs">
+      <button class="tab-btn active" id="tab-consulta" onclick="trocarTab('consulta')">Consultar</button>
+      <button class="tab-btn" id="tab-cadastro" onclick="trocarTab('cadastro')" style="display:none">Cadastrar</button>
+      <button class="tab-btn" id="tab-admin" onclick="trocarTab('admin')" style="display:none">Admin</button>
+    </div>
+    <div class="topbar-right">
+      <span class="topbar-user" id="topbar-nome"></span>
+      <button class="btn-sair" onclick="fazerLogout()">Sair</button>
+    </div>
+  </div>
+  <div class="main-content">
+
+    <!-- CONSULTAR -->
+    <div class="panel active" id="panel-consulta">
+      <p class="section-title">Cliente</p>
+      <div class="client-grid" id="client-grid"></div>
+      <div id="busca-area" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <p class="section-title" style="margin-bottom:0">Referencias &mdash; <span id="cliente-selecionado-label" style="color:var(--accent)"></span></p>
+          <button class="btn btn-ghost btn-sm" style="border-color:var(--navy);color:var(--navy)" onclick="abrirModalPrint()">&#x1F5A8; Imprimir</button>
+        </div>
+        <div class="search-bar">
+          <input type="text" id="busca-input" placeholder="Buscar referencia..." oninput="buscarRefs()" autocomplete="off">
+          <button class="btn btn-ghost btn-sm" onclick="limparBusca()">&#x2715;</button>
+        </div>
+        <div class="ref-list" id="ref-list">
+          <div class="empty-state"><div class="icon">&#x1F50D;</div><p>Digite para buscar</p></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CADASTRAR -->
+    <div class="panel" id="panel-cadastro">
+      <p class="section-title">Cliente</p>
+      <div class="field" style="margin-bottom:20px">
+        <select id="cad-cliente" onchange="atualizarClienteCad()">
+          <option value="">Selecione o cliente...</option>
+        </select>
+      </div>
+      <div id="cad-form-area" style="display:none">
+        <div style="display:flex;justify-content:flex-end;margin-bottom:16px;">
+          <button class="btn btn-ghost btn-sm" style="border-color:var(--navy);color:var(--navy)" onclick="abrirModalNotificar()">&#x1F4E7; Notificar Vendedores</button>
+        </div>
+        <div class="form-card">
+          <p class="section-title" id="cad-form-title">Nova Referencia</p>
+          <div class="form-grid">
+            <div class="field full"><label>Referencia *</label><input type="text" id="cad-ref" placeholder="Ex: CAD001-BRANCO"></div>
+            <div class="field full"><label>Descricao</label><input type="text" id="cad-desc" placeholder="Ex: Cadarco tenis 100cm"></div>
+            <div class="field"><label>Preco por Metro (R$) *</label><input type="number" id="cad-preco" placeholder="0,00" step="0.01" min="0"></div>
+            <div class="field"><label>Data de Inicio *</label><input type="date" id="cad-inicio"></div>
+            <div class="field"><label>Data de Fim (vazio = sem vencimento)</label><input type="date" id="cad-fim"></div>
+            <div class="field full"><label>Observacoes</label><textarea id="cad-obs" rows="3" placeholder="Ex: Valido para pedidos acima de 500m"></textarea></div>
+          </div>
+          <input type="hidden" id="cad-linha-edicao" value="">
+          <div class="form-actions">
+            <button class="btn btn-ghost" onclick="limparFormCad()">Limpar</button>
+            <button class="btn btn-success" style="background:var(--navy)" onclick="salvarRef()">&#x1F4BE; Salvar</button>
+          </div>
+        </div>
+        <p class="section-title">Referencias Cadastradas</p>
+        <div class="ref-list" id="ref-list-cad"></div>
+      </div>
+    </div>
+
+    <!-- ADMIN -->
+    <div class="panel" id="panel-admin">
+      <p class="section-title">Vendedores</p>
+      <div class="form-card" style="margin-bottom:16px">
+        <div class="form-grid">
+          <div class="field"><label>ID *</label><input type="text" id="adm-id" placeholder="V03"></div>
+          <div class="field"><label>Nome *</label><input type="text" id="adm-nome" placeholder="Nome completo"></div>
+          <div class="field"><label>Senha *</label><input type="text" id="adm-senha" placeholder="Senha de acesso"></div>
+          <div class="field"><label>Clientes (separar por | ou * para todos)</label><input type="text" id="adm-clientes" placeholder="DASS CLIENTE|DILLY CLIENTE"></div>
+          <div class="field full"><label>Email</label><input type="email" id="adm-email" placeholder="vendedor@email.com"></div>
+        </div>
+        <input type="hidden" id="adm-linha" value="">
+        <div class="form-actions">
+          <button class="btn btn-ghost" onclick="limparAdm()">Limpar</button>
+          <button class="btn btn-success" style="background:var(--navy)" onclick="salvarVendedor()">&#x1F4BE; Salvar Vendedor</button>
+        </div>
+      </div>
+      <div id="adm-lista"></div>
+    </div>
+
+  </div>
+</div>
+<!-- MODAL NOTIFICAR -->
+<div class="modal-overlay" id="modal-notificar">
+  <div class="modal">
+    <h3>&#x1F4E7; Notificar Vendedores</h3>
+    <p class="modal-sub" id="modal-notificar-cliente"></p>
+    <div id="modal-notificar-preview" style="margin-bottom:16px"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModalNotificar()">Cancelar</button>
+      <button class="btn btn-success" onclick="confirmarNotificar()">&#x1F4E4; Enviar Emails</button>
+    </div>
+  </div>
+</div>
+</div><!-- /app -->
+
+<!-- AREA DE IMPRESSAO (fora do #app) -->
+<div id="print-output"></div>
+
+<script>
+var S={vendedor:null,clienteSelecionado:null,buscarTimer:null,printMode:null};
+
+function gas(fn){
+  var args=Array.prototype.slice.call(arguments,1);
+  return new Promise(function(res,rej){
+    var r=google.script.run.withSuccessHandler(res).withFailureHandler(rej);
+    r[fn].apply(r,args);
+  });
+}
+function loading(show,msg){document.getElementById("loading").classList.toggle("active",show);if(msg)document.getElementById("loading-msg").textContent=msg;}
+function toast(msg,type){var el=document.getElementById("toast");el.textContent=msg;el.className="toast show "+(type||"");setTimeout(function(){el.classList.remove("show");},3000);}
+function fmt(v){return Number(v).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});}
+
+async function fazerLogin(){
+  var id=document.getElementById("login-id").value.trim();
+  var senha=document.getElementById("login-senha").value.trim();
+  if(!id||!senha){document.getElementById("login-erro").textContent="Preencha todos os campos.";return;}
+  loading(true,"Autenticando...");
+  try{
+    var r=await gas("login",id,senha);
+    if(!r.ok){document.getElementById("login-erro").textContent=r.erro;loading(false);return;}
+    S.vendedor=r.vendedor;
+    document.getElementById("topbar-nome").textContent=r.vendedor.nome;
+    document.getElementById("screen-login").classList.remove("active");
+    document.getElementById("screen-main").classList.add("active");
+    document.getElementById("login-erro").textContent="";
+    var admin=r.vendedor.clientes.includes("*");
+    if(admin){document.getElementById("tab-cadastro").style.display="";document.getElementById("tab-admin").style.display="";}
+    await carregarClientes();
+  }catch(e){document.getElementById("login-erro").textContent="Erro de conexao.";}
+  loading(false);
+}
+document.getElementById("login-senha").addEventListener("keydown",function(e){if(e.key==="Enter")fazerLogin();});
+
+function fazerLogout(){
+  S={vendedor:null,clienteSelecionado:null,buscarTimer:null,printMode:null};
+  document.getElementById("screen-main").classList.remove("active");
+  document.getElementById("screen-login").classList.add("active");
+  document.getElementById("login-id").value="";
+  document.getElementById("login-senha").value="";
+  document.getElementById("tab-cadastro").style.display="none";
+  document.getElementById("tab-admin").style.display="none";
+  trocarTab("consulta");
+}
+
+function trocarTab(tab){
+  ["consulta","cadastro","admin"].forEach(function(t){
+    document.getElementById("panel-"+t).classList.toggle("active",t===tab);
+    var btn=document.getElementById("tab-"+t);
+    if(btn)btn.classList.toggle("active",t===tab);
+  });
+  if(tab==="cadastro")carregarClientesCad();
+  if(tab==="admin")carregarAdminLista();
+}
+
+async function carregarClientes(){
+  loading(true,"Carregando clientes...");
+  try{
+    var r=await gas("getClientes",S.vendedor.id,S.vendedor.clientes);
+    var grid=document.getElementById("client-grid");
+    grid.innerHTML="";
+    if(!r.ok||!r.clientes.length){grid.innerHTML="<p style=\"color:var(--text2);font-size:13px\">Nenhum cliente disponivel.</p>";loading(false);return;}
+    r.clientes.forEach(function(c){
+      var d=document.createElement("div");
+      d.className="client-chip";
+      d.textContent=c.replace(/ CLIENTE$/i,"");
+      d.dataset.aba=c;
+      d.onclick=function(){selecionarCliente(c,d);};
+      grid.appendChild(d);
+    });
+  }catch(e){toast("Erro ao carregar clientes.","error");}
+  loading(false);
+}
+
+async function selecionarCliente(nomeAba,el){
+  document.querySelectorAll(".client-chip").forEach(function(c){c.classList.remove("selected");});
+  el.classList.add("selected");
+  S.clienteSelecionado=nomeAba;
+  document.getElementById("busca-area").style.display="block";
+  document.getElementById("cliente-selecionado-label").textContent=nomeAba.replace(/ CLIENTE$/i,"");
+  document.getElementById("busca-input").value="";
+  await buscarRefs();
+}
+
+function limparBusca(){document.getElementById("busca-input").value="";buscarRefs();}
+
+async function buscarRefs(){
+  if(!S.clienteSelecionado)return;
+  clearTimeout(S.buscarTimer);
+  S.buscarTimer=setTimeout(async function(){
+    var busca=document.getElementById("busca-input").value.trim();
+    loading(true,"Buscando...");
+    try{var r=await gas("getReferencias",S.clienteSelecionado,busca,S.vendedor.id);renderRefs(r,"ref-list",false);}
+    catch(e){toast("Erro ao buscar.","error");}
+    loading(false);
+  },400);
+}
+
+function renderRefs(r,containerId,modoEdicao){
+  var el=document.getElementById(containerId);
+  if(!r.ok){el.innerHTML="<div class=\"empty-state\"><div class=\"icon\">&#x26A0;&#xFE0F;</div><p>"+r.erro+"</p></div>";return;}
+  if(!r.refs.length){el.innerHTML="<div class=\"empty-state\"><div class=\"icon\">&#x1F4ED;</div><p>Nenhuma referencia encontrada</p></div>";return;}
+  el.innerHTML=r.refs.map(function(ref){
+    var vigBadge=ref.vigente?"<span class=\"badge ok\">&#x2713; Vigente</span>":"<span class=\"badge err\">&#x2717; Fora de vigencia</span>";
+    var obsHtml=ref.obs?"<div class=\"ref-obs\">&#x1F4DD; "+ref.obs+"</div>":"";
+    var acoes=modoEdicao?"<div class=\"ref-actions\"><button class=\"btn btn-ghost btn-sm\" onclick=\"editarRef("+JSON.stringify(ref).replace(/"/g,"&quot;")+")\">&#x270F;&#xFE0F; Editar</button></div>":"";
+    var calcHtml=ref.vigente?"<div class=\"calc-row\"><input type=\"number\" placeholder=\"Metros\" step=\"0.01\" min=\"0\" id=\"calc-"+ref.linha+"\" oninput=\"calcular('"+ref.linha+"',"+ref.preco+")\" ><button class=\"btn btn-ghost btn-sm\" onclick=\"calcular('"+ref.linha+"',"+ref.preco+")\" >Calcular</button><span class=\"calc-result\" id=\"result-"+ref.linha+"\"></span></div>":"";
+    return "<div class=\"ref-card "+(ref.vigente?"":"vencida")+"\"><div class=\"ref-card-header\"><div><div class=\"ref-code\">"+ref.ref+"</div>"+(ref.descricao?"<div class=\"ref-desc\">"+ref.descricao+"</div>":"")+"</div><div class=\"ref-price\"><div class=\"ref-price-val\">"+fmt(ref.preco)+"</div><div class=\"ref-price-label\">por metro</div></div></div><div class=\"ref-meta\">"+vigBadge+"<span class=\"badge\">&#x1F4C5; De: "+(ref.dataInicio||"–")+"</span><span class=\"badge\">&#x1F4C5; Ate: "+ref.dataFim+"</span></div>"+obsHtml+calcHtml+acoes+"</div>";
+  }).join("");
+}
+
+function calcular(id,preco){
+  var metros=document.getElementById("calc-"+id).value;
+  if(!metros||isNaN(metros)||metros<=0){document.getElementById("result-"+id).textContent="";return;}
+  document.getElementById("result-"+id).textContent="= "+fmt(preco*parseFloat(metros));
+}
+
+// IMPRESSAO
+function abrirModalPrint(){
+  if(!S.clienteSelecionado){toast("Selecione um cliente primeiro.","error");return;}
+  document.getElementById("modal-print-cliente").textContent="Cliente: "+S.clienteSelecionado.replace(/ CLIENTE$/i,"");
+  document.getElementById("print-ref-wrap").classList.remove("show");
+  document.getElementById("print-ref-input").value="";
+  S.printMode=null;
+  document.querySelectorAll(".print-option").forEach(function(el){el.style.borderColor="";});
+  document.getElementById("modal-print").classList.add("active");
+}
+function fecharModalPrint(){document.getElementById("modal-print").classList.remove("active");}
+function setPrintMode(mode){
+  S.printMode=mode;
+  document.querySelectorAll(".print-option").forEach(function(el){el.style.borderColor="";});
+  var idx={todos:0,vigentes:1,item:2}[mode];
+  document.querySelectorAll(".print-option")[idx].style.borderColor="var(--accent)";
+  document.getElementById("print-ref-wrap").classList.toggle("show",mode==="item");
+}
+async function gerarImpressao(){
+  if(!S.printMode){toast("Selecione um tipo de relatorio.","error");return;}
+  var buscaRef="";
+  if(S.printMode==="item"){buscaRef=document.getElementById("print-ref-input").value.trim();if(!buscaRef){toast("Digite a referencia.","error");return;}}
+  fecharModalPrint();
+  loading(true,"Gerando relatorio...");
+  try{
+    var r=await gas("getReferencias",S.clienteSelecionado,"",S.vendedor.id);
+    if(!r.ok){toast(r.erro,"error");loading(false);return;}
+    var lista=r.refs;
+    if(S.printMode==="vigentes")lista=lista.filter(function(x){return x.vigente;});
+    if(S.printMode==="item")lista=lista.filter(function(x){return x.ref.toUpperCase().includes(buscaRef.toUpperCase());});
+    montarPrint(lista,S.clienteSelecionado,S.printMode,buscaRef);
+  }catch(e){toast("Erro ao gerar relatorio.","error");}
+  loading(false);
+}
+function montarPrint(lista,cliente,modo,refFiltro){
+  var nomeCliente=cliente.replace(/ CLIENTE$/i,"");
+  var modoLabel={todos:"Lista Completa",vigentes:"Precos Vigentes",item:"Historico: "+refFiltro}[modo];
+  var hoje=new Date().toLocaleDateString("pt-BR");
+  var linhas=lista.map(function(ref){
+    return "<tr style=\"border-bottom:1px solid #e5e7eb\"><td style=\"padding:8px 10px;font-weight:600\">"+ref.ref+"</td><td style=\"padding:8px 10px;color:#555\">"+( ref.descricao||"–")+"</td><td style=\"padding:8px 10px;text-align:right;font-weight:700;color:#c07010\">"+Number(ref.preco).toLocaleString("pt-BR",{style:"currency",currency:"BRL"})+"</td><td style=\"padding:8px 10px;text-align:center;font-size:12px\">"+(ref.dataInicio||"–")+"</td><td style=\"padding:8px 10px;text-align:center;font-size:12px\">"+ref.dataFim+"</td><td style=\"padding:8px 10px;text-align:center\"><span style=\"padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;background:"+(ref.vigente?"#d1fae5":"#fee2e2")+";color:"+(ref.vigente?"#065f46":"#991b1b")+"\">"+( ref.vigente?"Vigente":"Vencido")+"</span></td><td style=\"padding:8px 10px;font-size:12px;color:#777\">"+(ref.obs||"")+"</td></tr>";
+  }).join("");
+  var html="<div style=\"font-family:Arial,sans-serif;padding:24px;color:#222;max-width:960px;margin:0 auto\"><div style=\"display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #c07010;padding-bottom:16px;margin-bottom:20px\"><img src=\"https://i.ibb.co/FGGjdsM/LOGO-MARFIM.jpg\" style=\"height:52px;width:auto\"><div style=\"text-align:right\"><div style=\"font-size:18px;font-weight:700;color:#c07010\">TABELA DE PRECOS</div><div style=\"font-size:13px;color:#555\">"+modoLabel+"</div><div style=\"font-size:12px;color:#888;margin-top:2px\">Cliente: <strong>"+nomeCliente+"</strong> &nbsp;|&nbsp; Emitido em: "+hoje+"</div><div style=\"font-size:12px;color:#888\">Vendedor: "+S.vendedor.nome+"</div></div></div>"+(lista.length===0?"<p style=\"text-align:center;color:#999;padding:40px\">Nenhuma referencia encontrada.</p>":"<table style=\"width:100%;border-collapse:collapse\"><thead><tr style=\"background:#f5f5f5\"><th style=\"padding:10px;text-align:left;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">REFERENCIA</th><th style=\"padding:10px;text-align:left;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">DESCRICAO</th><th style=\"padding:10px;text-align:right;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">PRECO/METRO</th><th style=\"padding:10px;text-align:center;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">INICIO</th><th style=\"padding:10px;text-align:center;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">FIM</th><th style=\"padding:10px;text-align:center;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">STATUS</th><th style=\"padding:10px;text-align:left;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">OBSERVACOES</th></tr></thead><tbody>"+linhas+"</tbody></table><div style=\"margin-top:16px;font-size:11px;color:#aaa;text-align:right\">"+lista.length+" registro(s)</div>")+"<div style=\"margin-top:40px;border-top:1px solid #e5e7eb;padding-top:12px;font-size:11px;color:#bbb;text-align:center\">Marfim &mdash; Documento gerado automaticamente pelo sistema de tabela de precos</div></div>";
+  var out=document.getElementById("print-output");
+  out.innerHTML=html;
+  out.style.display="block";
+  setTimeout(function(){window.print();out.style.display="none";},300);
+}
+
+// CADASTRAR
+async function carregarClientesCad(){
+  var r=await gas("getClientes",S.vendedor.id,S.vendedor.clientes);
+  var sel=document.getElementById("cad-cliente");
+  sel.innerHTML="<option value=\"\">Selecione o cliente...</option>";
+  if(r.ok)r.clientes.forEach(function(c){var o=document.createElement("option");o.value=c;o.textContent=c.replace(/ CLIENTE$/i,"");sel.appendChild(o);});
+  document.getElementById("cad-form-area").style.display="none";
+}
+async function atualizarClienteCad(){
+  var aba=document.getElementById("cad-cliente").value;
+  if(!aba){document.getElementById("cad-form-area").style.display="none";return;}
+  document.getElementById("cad-form-area").style.display="block";
+  limparFormCad();
+  await recarregarListaCad(aba);
+}
+async function recarregarListaCad(aba){
+  if(!aba)aba=document.getElementById("cad-cliente").value;
+  loading(true,"Carregando...");
+  var r=await gas("getReferencias",aba,"",S.vendedor.id);
+  renderRefs(r,"ref-list-cad",true);
+  loading(false);
+}
+async function salvarRef(){
+  var aba=document.getElementById("cad-cliente").value;
+  if(!aba){toast("Selecione um cliente.","error");return;}
+  var dados={ref:document.getElementById("cad-ref").value.trim(),descricao:document.getElementById("cad-desc").value.trim(),preco:document.getElementById("cad-preco").value,dataInicio:document.getElementById("cad-inicio").value,dataFim:document.getElementById("cad-fim").value,obs:document.getElementById("cad-obs").value.trim()};
+  if(!dados.ref||!dados.preco||!dados.dataInicio){toast("Preencha os campos obrigatorios (*).","error");return;}
+  var linhaEdicao=document.getElementById("cad-linha-edicao").value;
+  loading(true,"Salvando...");
+  try{
+    var r=await gas("salvarReferencia",aba,dados,S.vendedor.id,linhaEdicao?Number(linhaEdicao):null);
+    if(!r.ok){toast(r.erro,"error");loading(false);return;}
+    toast("Referencia salva!","success");limparFormCad();await recarregarListaCad(aba);
+  }catch(e){toast("Erro ao salvar.","error");}
+  loading(false);
+}
+function editarRef(ref){
+  document.getElementById("cad-form-title").textContent="Editar Referencia";
+  document.getElementById("cad-ref").value=ref.ref;
+  document.getElementById("cad-desc").value=ref.descricao;
+  document.getElementById("cad-preco").value=ref.preco;
+  document.getElementById("cad-obs").value=ref.obs;
+  document.getElementById("cad-linha-edicao").value=ref.linha;
+  var toISO=function(s){if(!s||s==="Sem vencimento")return "";var p=s.split("/");return p[2]&&p[1]&&p[0]?p[2]+"-"+p[1]+"-"+p[0]:"";};
+  document.getElementById("cad-inicio").value=toISO(ref.dataInicio);
+  document.getElementById("cad-fim").value=toISO(ref.dataFim);
+  document.getElementById("cad-form-area").scrollIntoView({behavior:"smooth"});
+}
+function limparFormCad(){
+  ["cad-ref","cad-desc","cad-preco","cad-inicio","cad-fim","cad-obs"].forEach(function(id){document.getElementById(id).value="";});
+  document.getElementById("cad-linha-edicao").value="";
+  document.getElementById("cad-form-title").textContent="Nova Referencia";
+}
+
+// ADMIN
+async function carregarAdminLista(){
+  loading(true,"Carregando vendedores...");
+  try{
+    var r=await gas("getVendedores",S.vendedor.id);
+    var el=document.getElementById("adm-lista");
+    if(!r.ok){el.innerHTML="<p style=\"color:var(--danger)\">"+r.erro+"</p>";loading(false);return;}
+    el.innerHTML=r.vendedores.map(function(v){return "<div class=\"form-card\" style=\"margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px\"><div><div style=\"font-family:sans-serif,sans-serif;font-weight:700\">"+v.nome+" <span style=\"color:var(--text2);font-size:12px\">("+v.id+")</span></div><div style=\"font-size:12px;color:var(--text2);margin-top:4px\">"+(v.clientes||"Sem clientes")+"</div><div style=\"font-size:11px;color:var(--text2);margin-top:2px\">&#x1F4E7; "+(v.email||"Sem email")+"</div></div></div>";}).join("");
+  }catch(e){toast("Erro.","error");}
+  loading(false);
+}
+async function salvarVendedor(){
+  var dados={id:document.getElementById("adm-id").value.trim(),nome:document.getElementById("adm-nome").value.trim(),senha:document.getElementById("adm-senha").value.trim(),clientes:document.getElementById("adm-clientes").value.trim(),email:document.getElementById("adm-email").value.trim()};
+  if(!dados.id||!dados.nome||!dados.senha){toast("ID, nome e senha sao obrigatorios.","error");return;}
+  loading(true,"Salvando...");
+  try{
+    var r=await gas("salvarVendedor",S.vendedor.id,dados,null);
+    if(!r.ok){toast(r.erro,"error");loading(false);return;}
+    toast("Vendedor salvo!","success");limparAdm();await carregarAdminLista();
+  }catch(e){toast("Erro.","error");}
+  loading(false);
+}
+function limparAdm(){["adm-id","adm-nome","adm-senha","adm-clientes","adm-email","adm-linha"].forEach(function(id){document.getElementById(id).value="";});}
+
+// NOTIFICAR VENDEDORES
+async function abrirModalNotificar(){
+  var aba=document.getElementById("cad-cliente").value;
+  if(!aba){toast("Selecione um cliente.","error");return;}
+  loading(true,"Verificando destinatarios...");
+  try{
+    var r=await gas("getVendedores",S.vendedor.id);
+    loading(false);
+    if(!r.ok){toast(r.erro,"error");return;}
+    var comEmail=[];var semEmail=[];
+    r.vendedores.forEach(function(v){
+      var clientes=v.clientes.split("|").map(function(c){return c.trim().toUpperCase();});
+      var temAcesso=clientes.includes("*")||clientes.includes(aba.toUpperCase());
+      if(!temAcesso)return;
+      if(v.email&&v.email.includes("@"))comEmail.push(v);
+      else semEmail.push(v.nome);
+    });
+    var nomeCliente=aba.replace(/ CLIENTE$/i,"");
+    document.getElementById("modal-notificar-cliente").textContent="Cliente: "+nomeCliente;
+    var html="";
+    if(comEmail.length){
+      html+="<p style=\"font-size:13px;margin-bottom:8px;color:var(--text2)\">Serao notificados:</p><div style=\"display:flex;flex-direction:column;gap:6px;margin-bottom:12px\">";
+      comEmail.forEach(function(v){html+="<div style=\"background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;font-size:13px\">&#x1F464; <strong>"+v.nome+"</strong> &nbsp;<span style=\"color:var(--text2)\">"+v.email+"</span></div>";});
+      html+="</div>";
+    }else{html="<div class=\"empty-state\" style=\"padding:24px\"><div class=\"icon\">&#x1F4ED;</div><p>Nenhum vendedor com email cadastrado para este cliente.</p></div>";}
+    if(semEmail.length)html+="<p style=\"font-size:12px;color:var(--warn)\">&#x26A0; Sem email: "+semEmail.join(", ")+"</p>";
+    document.getElementById("modal-notificar-preview").innerHTML=html;
+    document.getElementById("btn-confirmar-notificar") && (document.getElementById("btn-confirmar-notificar").disabled=comEmail.length===0);
+    document.getElementById("modal-notificar").classList.add("active");
+  }catch(e){loading(false);toast("Erro ao verificar.","error");}
+}
+function fecharModalNotificar(){document.getElementById("modal-notificar").classList.remove("active");}
+async function confirmarNotificar(){
+  var aba=document.getElementById("cad-cliente").value;
+  fecharModalNotificar();
+  loading(true,"Enviando emails...");
+  try{
+    var r=await gas("enviarEmailAtualizacao",aba,S.vendedor.id);
+    if(!r.ok){toast(r.erro,"error");}
+    else{toast(r.msg,"success");}
+  }catch(e){toast("Erro ao enviar.","error");}
+  loading(false);
+}
+</script>
+</body>
+</html>

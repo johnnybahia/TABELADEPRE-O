@@ -1,0 +1,506 @@
+// ============================================================
+// TABELA DE PREÇOS MARFIM — Google Apps Script Backend
+// ============================================================
+
+const SHEET_ID = SpreadsheetApp.getActiveSpreadsheet().getId();
+const SUFIXO_CLIENTE = " CLIENTE";
+const ABA_VENDEDORES = "VENDEDORES";
+const ABA_LOG = "LOG";
+
+// Colunas da aba cliente: A=Referencia B=Descricao C=Preco/metro D=DataInicio E=DataFim F=Observacoes
+// Colunas VENDEDORES: A=ID B=Nome C=Senha D=Clientes (separados por | )
+
+// ============================================================
+// PONTO DE ENTRADA WEB
+// ============================================================
+function doGet(e) {
+  return HtmlService.createHtmlOutputFromFile("Index")
+    .setTitle("Tabela de Preços")
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// ============================================================
+// AUTENTICAÇÃO
+// ============================================================
+function login(id, senha) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const aba = ss.getSheetByName(ABA_VENDEDORES);
+    if (!aba) return { ok: false, erro: "Aba VENDEDORES não encontrada." };
+
+    const dados = aba.getDataRange().getValues();
+    for (let i = 1; i < dados.length; i++) {
+      const [vid, nome, vsenha, clientes] = dados[i];
+      if (String(vid).trim() === String(id).trim() &&
+          String(vsenha).trim() === String(senha).trim()) {
+        const clientesPermitidos = String(clientes).split("|").map(c => c.trim()).filter(Boolean);
+        _log(nome, "LOGIN", "");
+        return { ok: true, vendedor: { id: vid, nome, clientes: clientesPermitidos } };
+      }
+    }
+    return { ok: false, erro: "Credenciais inválidas." };
+  } catch (e) {
+    return { ok: false, erro: e.message };
+  }
+}
+
+// ============================================================
+// LISTAR CLIENTES DISPONÍVEIS PARA O VENDEDOR
+// ============================================================
+function getClientes(vendedorId, clientesPermitidos) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const todasAbas = ss.getSheets().map(s => s.getName());
+    const abasCliente = todasAbas.filter(n => n.toUpperCase().endsWith(SUFIXO_CLIENTE));
+
+    if (!clientesPermitidos || clientesPermitidos.length === 0) return { ok: true, clientes: [] };
+
+    // Se lista contém "*", libera todos
+    const liberaTudo = clientesPermitidos.includes("*");
+
+    const resultado = abasCliente.filter(nome => {
+      if (liberaTudo) return true;
+      return clientesPermitidos.some(p => p.toUpperCase() === nome.toUpperCase());
+    });
+
+    return { ok: true, clientes: resultado };
+  } catch (e) {
+    return { ok: false, erro: e.message };
+  }
+}
+
+// ============================================================
+// BUSCAR REFERÊNCIAS POR CLIENTE (com filtro de busca e vigência)
+// ============================================================
+function getReferencias(nomeAba, busca, vendedorId) {
+  try {
+    if (!_validarAcesso(vendedorId, nomeAba)) return { ok: false, erro: "Acesso não autorizado." };
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const aba = ss.getSheetByName(nomeAba);
+    if (!aba) return { ok: false, erro: "Cliente não encontrado." };
+
+    const dados = aba.getDataRange().getValues();
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+
+    const resultado = [];
+    for (let i = 1; i < dados.length; i++) {
+      const [ref, descricao, preco, dataInicio, dataFim, obs] = dados[i];
+      if (!ref) continue;
+
+      const refStr = String(ref).toUpperCase();
+      const buscaStr = String(busca || "").toUpperCase().trim();
+      if (buscaStr && !refStr.includes(buscaStr)) continue;
+
+      // Validar vigência
+      const inicio = dataInicio ? new Date(dataInicio) : null;
+      const fim = dataFim ? new Date(dataFim) : null;
+      if (inicio) inicio.setHours(0, 0, 0, 0);
+      if (fim) fim.setHours(0, 0, 0, 0);
+
+      const vigenteInicio = !inicio || hoje >= inicio;
+      const vigenteFim = !fim || hoje <= fim;
+      const vigente = vigenteInicio && vigenteFim;
+
+      resultado.push({
+        linha: i + 1,
+        ref: String(ref),
+        descricao: String(descricao || ""),
+        preco: Number(preco) || 0,
+        dataInicio: dataInicio ? Utilities.formatDate(new Date(dataInicio), Session.getScriptTimeZone(), "dd/MM/yyyy") : "",
+        dataFim: dataFim ? Utilities.formatDate(new Date(dataFim), Session.getScriptTimeZone(), "dd/MM/yyyy") : "Sem vencimento",
+        obs: String(obs || ""),
+        vigente
+      });
+    }
+
+    return { ok: true, refs: resultado };
+  } catch (e) {
+    return { ok: false, erro: e.message };
+  }
+}
+
+// ============================================================
+// CADASTRAR / EDITAR REFERÊNCIA
+// ============================================================
+function salvarReferencia(nomeAba, dados, vendedorId, linhaEdicao) {
+  try {
+    if (!_validarAcesso(vendedorId, nomeAba)) return { ok: false, erro: "Acesso não autorizado." };
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const aba = ss.getSheetByName(nomeAba);
+    if (!aba) return { ok: false, erro: "Aba do cliente não encontrada." };
+
+    const { ref, descricao, preco, dataInicio, dataFim, obs } = dados;
+
+    if (!ref || !preco || !dataInicio) return { ok: false, erro: "Referência, preço e data de início são obrigatórios." };
+
+    const dInicio = new Date(dataInicio);
+    const dFim = dataFim ? new Date(dataFim) : null;
+
+    if (dFim && dFim < dInicio) return { ok: false, erro: "Data de fim não pode ser anterior à data de início." };
+
+    // Verificar sobreposição de datas para mesma referência
+    const todasLinhas = aba.getDataRange().getValues();
+    for (let i = 1; i < todasLinhas.length; i++) {
+      if (linhaEdicao && (i + 1) === linhaEdicao) continue; // pula linha sendo editada
+      const [rRef, , , rInicio, rFim] = todasLinhas[i];
+      if (String(rRef).toUpperCase().trim() !== String(ref).toUpperCase().trim()) continue;
+
+      const existInicio = rInicio ? new Date(rInicio) : null;
+      const existFim = rFim ? new Date(rFim) : null;
+
+      const sobreposicao = _datasSeOverlapam(dInicio, dFim, existInicio, existFim);
+      if (sobreposicao) return { ok: false, erro: `Conflito de vigência com registro existente na linha ${i + 1}.` };
+    }
+
+    const linha = [
+      ref.toUpperCase().trim(),
+      descricao || "",
+      Number(String(preco).replace(",", ".")),
+      dInicio,
+      dFim || "",
+      obs || ""
+    ];
+
+    if (linhaEdicao) {
+      aba.getRange(linhaEdicao, 1, 1, 6).setValues([linha]);
+    } else {
+      aba.appendRow(linha);
+    }
+
+    _log(vendedorId, linhaEdicao ? "EDITAR" : "CADASTRAR", `${nomeAba} | ${ref}`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, erro: e.message };
+  }
+}
+
+// ============================================================
+// CALCULAR PREÇO PROPORCIONAL
+// ============================================================
+function calcularPreco(preco, metros) {
+  try {
+    const p = Number(String(preco).replace(",", "."));
+    const m = Number(String(metros).replace(",", "."));
+    if (isNaN(p) || isNaN(m) || m <= 0) return { ok: false, erro: "Valores inválidos." };
+    return { ok: true, total: (p * m).toFixed(2) };
+  } catch (e) {
+    return { ok: false, erro: e.message };
+  }
+}
+
+// ============================================================
+// ADMIN: LISTAR VENDEDORES
+// ============================================================
+function getVendedores(vendedorId) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const aba = ss.getSheetByName(ABA_VENDEDORES);
+    if (!aba) return { ok: false, erro: "Aba VENDEDORES não encontrada." };
+
+    if (!_ehAdmin(vendedorId)) return { ok: false, erro: "Sem permissão." };
+
+    const dados = aba.getDataRange().getValues();
+    const lista = [];
+    for (let i = 1; i < dados.length; i++) {
+      if (!dados[i][0]) continue;
+      lista.push({
+        id:       String(dados[i][0] || ""),
+        nome:     String(dados[i][1] || ""),
+        clientes: String(dados[i][3] || ""),
+        email:    String(dados[i][4] || "")   // coluna E
+      });
+    }
+    return { ok: true, vendedores: lista };
+  } catch (e) {
+    return { ok: false, erro: e.message };
+  }
+}
+
+// ============================================================
+// ADMIN: SALVAR VENDEDOR  (coluna E = email)
+// ============================================================
+function salvarVendedor(vendedorId, dados, linhaEdicao) {
+  try {
+    if (!_ehAdmin(vendedorId)) return { ok: false, erro: "Sem permissão." };
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const aba = ss.getSheetByName(ABA_VENDEDORES);
+    if (!aba) return { ok: false, erro: "Aba VENDEDORES não encontrada." };
+
+    const linha = [dados.id, dados.nome, dados.senha, dados.clientes, dados.email || ""];
+
+    if (linhaEdicao) {
+      aba.getRange(linhaEdicao, 1, 1, 5).setValues([linha]);
+    } else {
+      aba.appendRow(linha);
+    }
+
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, erro: e.message };
+  }
+}
+
+// ============================================================
+// ADMIN: ENVIAR EMAIL DE ATUALIZAÇÃO DE PREÇOS
+// ============================================================
+function enviarEmailAtualizacao(nomeAba, vendedorIdRemetente) {
+  try {
+    if (!_ehAdmin(vendedorIdRemetente)) return { ok: false, erro: "Sem permissão." };
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const abaV = ss.getSheetByName(ABA_VENDEDORES);
+    if (!abaV) return { ok: false, erro: "Aba VENDEDORES não encontrada." };
+
+    // Buscar referências vigentes do cliente para montar o email
+    const resRefs = getReferencias(nomeAba, "", vendedorIdRemetente);
+    if (!resRefs.ok) return { ok: false, erro: resRefs.erro };
+    const refs = resRefs.refs;
+
+    // Identificar vendedores com acesso ao cliente e com email cadastrado
+    const dadosV = abaV.getDataRange().getValues();
+    const destinatarios = [];
+    const semEmail = [];
+
+    for (let i = 1; i < dadosV.length; i++) {
+      if (!dadosV[i][0]) continue;
+      const clientes = String(dadosV[i][3] || "").split("|").map(c => c.trim().toUpperCase());
+      const temAcesso = clientes.includes("*") || clientes.includes(nomeAba.toUpperCase());
+      if (!temAcesso) continue;
+
+      const email = String(dadosV[i][4] || "").trim();
+      const nome  = String(dadosV[i][1] || "");
+      if (email && email.includes("@")) {
+        destinatarios.push({ nome, email });
+      } else {
+        semEmail.push(nome);
+      }
+    }
+
+    if (destinatarios.length === 0) {
+      return { ok: false, erro: "Nenhum vendedor com email cadastrado para este cliente.", semEmail };
+    }
+
+    const nomeCliente = nomeAba.replace(/ CLIENTE$/i, "");
+    const hoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
+
+    // Montar linhas da tabela — apenas vigentes no email
+    const vigentes = refs.filter(r => r.vigente);
+    const linhasTabela = vigentes.map(r => `
+      <tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;font-weight:600">${r.ref}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;color:#555">${r.descricao || "–"}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:right;font-weight:700;color:#c07010">
+          ${Number(r.preco).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+        </td>
+        <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:12px;color:#888">
+          ${r.dataInicio || "–"} → ${r.dataFim}
+        </td>
+        <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;font-size:12px;color:#777">${r.obs || ""}</td>
+      </tr>`).join("");
+
+    const erros = [];
+    let enviados = 0;
+
+    for (const dest of destinatarios) {
+      const corpoHtml = `
+      <div style="font-family:Arial,sans-serif;max-width:700px;margin:0 auto;color:#222">
+        <div style="background:#0d0f14;padding:20px 24px;border-radius:8px 8px 0 0;display:flex;align-items:center;justify-content:space-between">
+          <img src="https://i.ibb.co/FGGjdsM/LOGO-MARFIM.jpg" style="height:44px;width:auto">
+          <div style="color:#e8a020;font-size:13px;text-align:right">Atualização de Tabela de Preços<br><span style="color:#8890a8;font-size:11px">${hoje}</span></div>
+        </div>
+        <div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 8px 8px">
+          <p style="margin-bottom:6px">Olá, <strong>${dest.nome}</strong>.</p>
+          <p style="margin-bottom:20px;color:#555">A tabela de preços do cliente <strong>${nomeCliente}</strong> foi atualizada. Confira abaixo os preços vigentes:</p>
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead>
+              <tr style="background:#f9f9f9">
+                <th style="padding:10px 12px;text-align:left;color:#888;font-size:11px;text-transform:uppercase;border-bottom:2px solid #e5e7eb">Referência</th>
+                <th style="padding:10px 12px;text-align:left;color:#888;font-size:11px;text-transform:uppercase;border-bottom:2px solid #e5e7eb">Descrição</th>
+                <th style="padding:10px 12px;text-align:right;color:#888;font-size:11px;text-transform:uppercase;border-bottom:2px solid #e5e7eb">Preço/Metro</th>
+                <th style="padding:10px 12px;text-align:center;color:#888;font-size:11px;text-transform:uppercase;border-bottom:2px solid #e5e7eb">Vigência</th>
+                <th style="padding:10px 12px;text-align:left;color:#888;font-size:11px;text-transform:uppercase;border-bottom:2px solid #e5e7eb">Obs</th>
+              </tr>
+            </thead>
+            <tbody>${linhasTabela}</tbody>
+          </table>
+          ${vigentes.length === 0 ? '<p style="color:#999;text-align:center;padding:20px">Nenhum preço vigente no momento.</p>' : ""}
+          <p style="margin-top:24px;font-size:12px;color:#aaa">Este é um email automático gerado pelo sistema de tabela de preços Marfim. Não responda a este email.</p>
+        </div>
+      </div>`;
+
+      try {
+        MailApp.sendEmail({
+          to: dest.email,
+          subject: `[Marfim] Atualização de preços — ${nomeCliente}`,
+          htmlBody: corpoHtml
+        });
+        enviados++;
+        _log(vendedorIdRemetente, "EMAIL", `${nomeAba} → ${dest.email}`);
+      } catch (e) {
+        erros.push(`${dest.nome} (${dest.email}): ${e.message}`);
+      }
+    }
+
+    return {
+      ok: true,
+      enviados,
+      semEmail,
+      erros,
+      msg: `${enviados} email(s) enviado(s).${semEmail.length ? " Sem email: " + semEmail.join(", ") + "." : ""}${erros.length ? " Falhas: " + erros.join("; ") : ""}`
+    };
+  } catch (e) {
+    return { ok: false, erro: e.message };
+  }
+}
+
+// ============================================================
+// UTILITÁRIOS INTERNOS
+// ============================================================
+function _validarAcesso(vendedorId, nomeAba) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const aba = ss.getSheetByName(ABA_VENDEDORES);
+  if (!aba) return false;
+
+  const dados = aba.getDataRange().getValues();
+  for (let i = 1; i < dados.length; i++) {
+    if (String(dados[i][0]).trim() !== String(vendedorId).trim()) continue;
+    const clientes = String(dados[i][3] || "").split("|").map(c => c.trim().toUpperCase());
+    if (clientes.includes("*")) return true;
+    if (clientes.includes(nomeAba.toUpperCase())) return true;
+    return false;
+  }
+  return false;
+}
+
+function _ehAdmin(vendedorId) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const aba = ss.getSheetByName(ABA_VENDEDORES);
+  if (!aba) return false;
+  const dados = aba.getDataRange().getValues();
+  for (let i = 1; i < dados.length; i++) {
+    if (String(dados[i][0]).trim() !== String(vendedorId).trim()) continue;
+    const clientes = String(dados[i][3] || "").split("|").map(c => c.trim());
+    return clientes.includes("*");
+  }
+  return false;
+}
+
+function _datasSeOverlapam(ini1, fim1, ini2, fim2) {
+  // Trata null/undefined como infinito
+  const s1 = ini1 ? ini1.getTime() : -Infinity;
+  const e1 = fim1 ? fim1.getTime() : Infinity;
+  const s2 = ini2 ? ini2.getTime() : -Infinity;
+  const e2 = fim2 ? fim2.getTime() : Infinity;
+  return s1 <= e2 && s2 <= e1;
+}
+
+// ============================================================
+// SETUP — rodar UMA VEZ para montar toda a estrutura
+// ============================================================
+function setup() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+
+  let criadas = [];
+  let jaExistiam = [];
+
+  // ── ABA VENDEDORES ──────────────────────────────────────────
+  let abaV = ss.getSheetByName(ABA_VENDEDORES);
+  if (!abaV) {
+    abaV = ss.insertSheet(ABA_VENDEDORES);
+    abaV.appendRow(["ID", "Nome", "Senha", "Clientes", "Email"]);
+    // Admin padrão: id=ADMIN, senha=1234, acesso total
+    abaV.appendRow(["ADMIN", "Administrador", "1234", "*", ""]);
+    abaV.getRange(1, 1, 1, 5).setFontWeight("bold").setBackground("#0d0f14").setFontColor("#e8a020");
+    abaV.setColumnWidth(1, 80);
+    abaV.setColumnWidth(2, 180);
+    abaV.setColumnWidth(3, 100);
+    abaV.setColumnWidth(4, 280);
+    abaV.setColumnWidth(5, 200);
+    criadas.push(ABA_VENDEDORES);
+  } else {
+    // Garantir coluna Email no cabeçalho se já existir a aba
+    const cab = abaV.getRange(1, 1, 1, 5).getValues()[0];
+    if (!cab[4] || cab[4].toString().trim() === "") {
+      abaV.getRange(1, 5).setValue("Email");
+    }
+    jaExistiam.push(ABA_VENDEDORES);
+  }
+
+  // ── ABA LOG ────────────────────────────────────────────────
+  let abaLog = ss.getSheetByName(ABA_LOG);
+  if (!abaLog) {
+    abaLog = ss.insertSheet(ABA_LOG);
+    abaLog.appendRow(["Data/Hora", "Vendedor", "Ação", "Detalhe"]);
+    abaLog.getRange(1, 1, 1, 4).setFontWeight("bold").setBackground("#0d0f14").setFontColor("#e8a020");
+    abaLog.setColumnWidth(1, 160);
+    abaLog.setColumnWidth(2, 140);
+    abaLog.setColumnWidth(3, 120);
+    abaLog.setColumnWidth(4, 300);
+    criadas.push(ABA_LOG);
+  } else {
+    jaExistiam.push(ABA_LOG);
+  }
+
+  // ── ABA EXEMPLO DE CLIENTE ─────────────────────────────────
+  const abaExemplo = "EXEMPLO CLIENTE";
+  let abaEx = ss.getSheetByName(abaExemplo);
+  if (!abaEx) {
+    abaEx = ss.insertSheet(abaExemplo);
+    abaEx.appendRow(["Referencia", "Descricao", "Preco/Metro", "DataInicio", "DataFim", "Observacoes"]);
+    abaEx.getRange(1, 1, 1, 6).setFontWeight("bold").setBackground("#0d0f14").setFontColor("#e8a020");
+    // Linha de exemplo
+    abaEx.appendRow(["CAD001-BRANCO", "Cadarço Tênis Branco 100cm", 2.50, new Date(), "", "Preço por metro"]);
+    abaEx.setColumnWidth(1, 160);
+    abaEx.setColumnWidth(2, 220);
+    abaEx.setColumnWidth(3, 120);
+    abaEx.setColumnWidth(4, 120);
+    abaEx.setColumnWidth(5, 120);
+    abaEx.setColumnWidth(6, 240);
+    // Formatar coluna de datas
+    abaEx.getRange(2, 4, 100, 2).setNumberFormat("dd/MM/yyyy");
+    criadas.push(abaExemplo);
+  } else {
+    jaExistiam.push(abaExemplo);
+  }
+
+  // ── PROTEGER ABA LOG (somente leitura para editores) ───────
+  try {
+    const protecoes = abaLog.getProtections(SpreadsheetApp.ProtectionType.SHEET);
+    if (protecoes.length === 0) {
+      const prot = abaLog.protect().setDescription("LOG protegido — não editar manualmente");
+      prot.removeEditors(prot.getEditors());
+      if (prot.canDomainEdit()) prot.setDomainEdit(false);
+    }
+  } catch(e) { /* ignora erro de permissão */ }
+
+  // ── RELATÓRIO FINAL ────────────────────────────────────────
+  const msg = [
+    "✅ Setup concluído!\n",
+    criadas.length    ? "Criadas: " + criadas.join(", ")       : "",
+    jaExistiam.length ? "Já existiam: " + jaExistiam.join(", ") : "",
+    "",
+    "── Credencial admin padrão ──",
+    "ID: ADMIN",
+    "Senha: 1234",
+    "(Altere a senha após o primeiro acesso)"
+  ].filter(Boolean).join("\n");
+
+  ui.alert("Setup — Tabela de Preços Marfim", msg, ui.ButtonSet.OK);
+}
+
+function _log(vendedor, acao, detalhe) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let aba = ss.getSheetByName(ABA_LOG);
+    if (!aba) {
+      aba = ss.insertSheet(ABA_LOG);
+      aba.appendRow(["Data/Hora", "Vendedor", "Ação", "Detalhe"]);
+    }
+    aba.appendRow([new Date(), vendedor, acao, detalhe]);
+  } catch (e) { /* log não pode travar o sistema */ }
+}

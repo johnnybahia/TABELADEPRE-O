@@ -238,6 +238,25 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
 
     <!-- ADMIN -->
     <div class="panel" id="panel-admin">
+
+      <!-- NOVO CLIENTE -->
+      <p class="section-title">Novo Cliente</p>
+      <div class="form-card" style="margin-bottom:24px">
+        <div style="display:flex;gap:10px;align-items:flex-end">
+          <div class="field" style="flex:1;margin-bottom:0">
+            <label>Nome do cliente *</label>
+            <input type="text" id="adm-novo-cliente" placeholder="Ex: Bibi" autocomplete="off" onkeydown="if(event.key==='Enter')criarNovoCliente()">
+          </div>
+          <button class="btn btn-success" style="background:var(--navy);flex-shrink:0" onclick="criarNovoCliente()">&#x2795; Criar Cliente</button>
+        </div>
+        <div id="adm-novo-cliente-msg" style="font-size:13px;margin-top:10px;min-height:18px"></div>
+      </div>
+
+      <!-- CLIENTES EXISTENTES -->
+      <p class="section-title">Clientes Cadastrados</p>
+      <div id="adm-clientes-lista" style="margin-bottom:24px"></div>
+
+      <!-- VENDEDORES -->
       <p class="section-title">Vendedores</p>
       <div class="form-card" style="margin-bottom:16px">
         <div class="form-grid">
@@ -527,14 +546,36 @@ function atualizarCamposMedida(){
 }
 
 // ADMIN
+function escHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
 async function carregarAdminLista(){
-  loading(true,"Carregando vendedores...");
+  loading(true,"Carregando...");
   try{
-    var r=await gas("getVendedores",S.vendedor.id);
-    var el=document.getElementById("adm-lista");
-    if(!r.ok){el.innerHTML="<p style=\"color:var(--danger)\">"+r.erro+"</p>";loading(false);return;}
-    el.innerHTML=r.vendedores.map(function(v){return "<div class=\"form-card\" style=\"margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px\"><div><div style=\"font-family:sans-serif,sans-serif;font-weight:700\">"+v.nome+" <span style=\"color:var(--text2);font-size:12px\">("+v.id+")</span></div><div style=\"font-size:12px;color:var(--text2);margin-top:4px\">"+(v.clientes||"Sem clientes")+"</div><div style=\"font-size:11px;color:var(--text2);margin-top:2px\">&#x1F4E7; "+(v.email||"Sem email")+"</div></div></div>";}).join("");
+    var rV=await gas("getVendedores",S.vendedor.id);
+    var elV=document.getElementById("adm-lista");
+    if(!rV.ok){elV.innerHTML="<p style=\"color:var(--danger)\">"+escHtml(rV.erro)+"</p>";loading(false);return;}
+    else{elV.innerHTML=rV.vendedores.map(function(v){return "<div class=\"form-card\" style=\"margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px\"><div><div style=\"font-family:sans-serif,sans-serif;font-weight:700\">"+v.nome+" <span style=\"color:var(--text2);font-size:12px\">("+v.id+")</span></div><div style=\"font-size:12px;color:var(--text2);margin-top:4px\">"+(v.clientes||"Sem clientes")+"</div><div style=\"font-size:11px;color:var(--text2);margin-top:2px\">&#x1F4E7; "+(v.email||"Sem email")+"</div></div></div>";}).join("");}
+
+    var rC=await gas("getClientes",S.vendedor.id,["*"]);
+    var elC=document.getElementById("adm-clientes-lista");
+    if(!rC.ok||!rC.clientes.length){elC.innerHTML="<p style=\"color:var(--text2);font-size:13px\">Nenhum cliente cadastrado.</p>";}
+    else{elC.innerHTML="<div class=\"client-grid\">"+rC.clientes.map(function(c){return "<div class=\"client-chip\" style=\"cursor:default;text-align:left;font-size:12px\">&#x1F4C2; "+c.replace(/ CLIENTE$/i,"")+"</div>";}).join("")+"</div>";}
   }catch(e){toast("Erro.","error");}
+  loading(false);
+}
+async function criarNovoCliente(){
+  var nome=document.getElementById("adm-novo-cliente").value.trim();
+  if(!nome){document.getElementById("adm-novo-cliente-msg").innerHTML="<span style=\"color:var(--danger)\">Informe o nome do cliente.</span>";return;}
+  loading(true,"Criando cliente...");
+  try{
+    var r=await gas("criarCliente",nome,S.vendedor.id);
+    var msg=document.getElementById("adm-novo-cliente-msg");
+    if(!r.ok){msg.innerHTML="<span style=\"color:var(--danger)\">"+escHtml(r.erro)+"</span>";loading(false);return;}
+    msg.innerHTML="<span style=\"color:var(--success)\">&#x2713; Aba \""+escHtml(r.nomeAba)+"\" criada com sucesso.</span>";
+    document.getElementById("adm-novo-cliente").value="";
+    await carregarAdminLista();
+    // Atualiza também o select de cadastro se a aba estiver aberta
+    if(document.getElementById("panel-cadastro").classList.contains("active"))carregarClientesCad();
+  }catch(e){document.getElementById("adm-novo-cliente-msg").innerHTML="<span style=\"color:var(--danger)\">Erro ao criar cliente.</span>";}
   loading(false);
 }
 async function salvarVendedor(){

@@ -198,6 +198,46 @@ function salvarReferencia(nomeAba, dados, vendedorId, linhaEdicao) {
 }
 
 // ============================================================
+// ADMIN: CRIAR NOVO CLIENTE (nova aba na planilha)
+// ============================================================
+function criarCliente(nome, vendedorId) {
+  try {
+    if (!_ehAdmin(vendedorId)) return { ok: false, erro: "Sem permissão." };
+
+    const nomeLimpo = String(nome || "").trim();
+    if (!nomeLimpo) return { ok: false, erro: "Informe o nome do cliente." };
+
+    // Nomes de abas no Google Sheets não podem ter: \ / ? * [ ] : < > e nem passar de 100 chars
+    if (/[\\\/\?\*\[\]\:\<\>]/.test(nomeLimpo)) return { ok: false, erro: "Nome contém caracteres inválidos (\\  /  ?  *  [  ]  :  <  >)." };
+    if (nomeLimpo.length > 90) return { ok: false, erro: "Nome muito longo (máximo 90 caracteres)." };
+
+    const nomeAba = nomeLimpo.toUpperCase() + SUFIXO_CLIENTE;
+
+    // getSheetByName é case-sensitive no GAS — varrer todas as abas para comparação segura
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const jaExiste = ss.getSheets().some(s => s.getName().toUpperCase() === nomeAba.toUpperCase());
+    if (jaExiste) return { ok: false, erro: `Cliente "${nomeAba}" já existe.` };
+
+    const aba = ss.insertSheet(nomeAba);
+
+    // Cabeçalho conforme SCHEMA_CLIENTE
+    const headers = SCHEMA_CLIENTE.map(c => c.nome);
+    aba.appendRow(headers);
+    aba.getRange(1, 1, 1, headers.length)
+       .setFontWeight("bold")
+       .setBackground("#0d0f14")
+       .setFontColor("#e8a020");
+    SCHEMA_CLIENTE.forEach((c, i) => aba.setColumnWidth(i + 1, c.largura));
+    aba.getRange(2, 4, 500, 2).setNumberFormat("dd/MM/yyyy");
+
+    _log(vendedorId, "CRIAR_CLIENTE", nomeAba);
+    return { ok: true, nomeAba };
+  } catch (e) {
+    return { ok: false, erro: e.message };
+  }
+}
+
+// ============================================================
 // CALCULAR PREÇO PROPORCIONAL
 // ============================================================
 function calcularPreco(preco, metros) {

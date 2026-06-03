@@ -594,9 +594,9 @@ function atualizarCamposMedida(){
 
 function filtrarListaCad(){
   var termo=document.getElementById("cad-busca").value.trim().toUpperCase();
-  if(!S.refsCad.length)return;
+  if(!S.refsCad.length){renderRefs({ok:true,refs:[]},"ref-list-cad",true);return;}
   var filtradas=!termo?S.refsCad:S.refsCad.filter(function(r){
-    return r.ref.toUpperCase().includes(termo)||r.descricao.toUpperCase().includes(termo);
+    return r.ref.toUpperCase().includes(termo)||(r.descricao||"").toUpperCase().includes(termo);
   });
   renderRefs({ok:true,refs:filtradas},"ref-list-cad",true);
 }
@@ -617,7 +617,7 @@ function verHistorico(refCode){
     return "<div style=\"display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);gap:12px\">"
       +"<div style=\"flex:1\">"
       +"<div style=\"font-size:11px;color:var(--text3)\">"+(r.dataInicio||"–")+" → "+r.dataFim+"</div>"
-      +(r.descricao?"<div style=\"font-size:12px;color:var(--text2);margin-top:2px\">"+r.descricao+"</div>":"")
+      +(r.descricao?"<div style=\"font-size:12px;color:var(--text2);margin-top:2px\">"+escHtml(r.descricao)+"</div>":"")
       +"</div>"
       +"<div style=\"text-align:right;flex-shrink:0\">"
       +"<div style=\"font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--navy)\">"+fmt(r.preco)+"</div>"

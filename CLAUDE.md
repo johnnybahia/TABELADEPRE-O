@@ -26,6 +26,10 @@ const SCHEMA_CLIENTE = [
   { nome: "Observacoes", largura: 200 },
   { nome: "Unidade",     largura: 100 },
   { nome: "MedidaBase",  largura: 100 },
+  { nome: "PrecoRS",     largura: 100 },
+  { nome: "PrecoBA",     largura: 100 },
+  { nome: "PrecoCE",     largura: 100 },
+  { nome: "PrecoMG",     largura: 100 },
   // → adicione novas colunas SEMPRE ao final
 ];
 ```

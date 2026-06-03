@@ -224,6 +224,15 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
             <div class="field"><label>Data de Inicio *</label><input type="date" id="cad-inicio"></div>
             <div class="field"><label>Data de Fim (vazio = sem vencimento)</label><input type="date" id="cad-fim"></div>
             <div class="field full"><label>Observacoes</label><textarea id="cad-obs" rows="3" placeholder="Ex: Valido para pedidos acima de 500m"></textarea></div>
+            <div class="field full">
+              <label>Precos por Estado (opcional &mdash; deixe vazio para usar o preco base)</label>
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:4px">
+                <div><label style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">RS&nbsp;(R$)</label><input type="text" inputmode="decimal" id="cad-preco-rs" placeholder="0,00" style="margin-top:4px"></div>
+                <div><label style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">BA&nbsp;(R$)</label><input type="text" inputmode="decimal" id="cad-preco-ba" placeholder="0,00" style="margin-top:4px"></div>
+                <div><label style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">CE&nbsp;(R$)</label><input type="text" inputmode="decimal" id="cad-preco-ce" placeholder="0,00" style="margin-top:4px"></div>
+                <div><label style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">MG&nbsp;(R$)</label><input type="text" inputmode="decimal" id="cad-preco-mg" placeholder="0,00" style="margin-top:4px"></div>
+              </div>
+            </div>
           </div>
           <input type="hidden" id="cad-linha-edicao" value="">
           <div class="form-actions">
@@ -415,24 +424,40 @@ function renderRefs(r,containerId,modoEdicao){
   el.innerHTML=r.refs.map(function(ref){
     var unidade=ref.unidade||"metros";
     var medidaBase=ref.medidaBase||0;
+    var rs=ref.precoRS||0,ba=ref.precoBA||0,ce=ref.precoCE||0,mg=ref.precoMG||0;
     var unidLabel=unidade==="pares"?"par":unidade==="pecas"?"peca":"metro";
     var medSufixo=unidade==="metros"?"mm":"cm";
     var precoLabel="por "+unidLabel+(medidaBase>0?" (base: "+medidaBase+medSufixo+")":"");
     var calcPlaceholder=unidade==="metros"?"Largura (mm)":"Tamanho (cm)";
+    var estadosCard=(rs||ba||ce||mg)?"<div style=\"display:flex;flex-wrap:wrap;gap:6px;margin-top:6px\">"
+      +(rs?"<span class=\"badge\">RS: "+fmt(rs)+"</span>":"")
+      +(ba?"<span class=\"badge\">BA: "+fmt(ba)+"</span>":"")
+      +(ce?"<span class=\"badge\">CE: "+fmt(ce)+"</span>":"")
+      +(mg?"<span class=\"badge\">MG: "+fmt(mg)+"</span>":"")
+      +"</div>":"";
     var vigBadge=ref.vigente?"<span class=\"badge ok\">&#x2713; Vigente</span>":"<span class=\"badge err\">&#x2717; Fora de vigencia</span>";
     var obsHtml=ref.obs?"<div class=\"ref-obs\">&#x1F4DD; "+ref.obs+"</div>":"";
     var acoes=modoEdicao?"<div class=\"ref-actions\"><button class=\"btn btn-ghost btn-sm\" onclick=\"verHistorico('"+ref.ref.replace(/'/g,"\\'")+"')\">&#x1F4C8; Historico</button><button class=\"btn btn-ghost btn-sm\" onclick=\"editarRef("+JSON.stringify(ref).replace(/"/g,"&quot;")+")\">&#x270F;&#xFE0F; Editar</button></div>":"";
-    var calcHtml=ref.vigente?"<div class=\"calc-row\"><input type=\"text\" inputmode=\"decimal\" placeholder=\""+calcPlaceholder+"\" id=\"calc-"+ref.linha+"\" oninput=\"calcular('"+ref.linha+"',"+ref.preco+","+medidaBase+")\" style=\"width:120px\"><button class=\"btn btn-ghost btn-sm\" onclick=\"calcular('"+ref.linha+"',"+ref.preco+","+medidaBase+")\">Calcular</button><span class=\"calc-result\" id=\"result-"+ref.linha+"\"></span></div>":"";
-    return "<div class=\"ref-card "+(ref.vigente?"":"vencida")+"\"><div class=\"ref-card-header\"><div><div class=\"ref-code\">"+ref.ref+"</div>"+(ref.descricao?"<div class=\"ref-desc\">"+ref.descricao+"</div>":"")+"</div><div class=\"ref-price\"><div class=\"ref-price-val\">"+fmt(ref.preco)+"</div><div class=\"ref-price-label\">"+precoLabel+"</div></div></div><div class=\"ref-meta\">"+vigBadge+"<span class=\"badge\">&#x1F4C5; De: "+(ref.dataInicio||"–")+"</span><span class=\"badge\">&#x1F4C5; Ate: "+ref.dataFim+"</span></div>"+obsHtml+calcHtml+acoes+"</div>";
+    var calcArgs="'"+ref.linha+"',"+ref.preco+","+medidaBase+","+rs+","+ba+","+ce+","+mg;
+    var calcHtml=ref.vigente?"<div class=\"calc-row\"><input type=\"text\" inputmode=\"decimal\" placeholder=\""+calcPlaceholder+"\" id=\"calc-"+ref.linha+"\" oninput=\"calcular("+calcArgs+")\" style=\"width:120px\"><button class=\"btn btn-ghost btn-sm\" onclick=\"calcular("+calcArgs+")\">Calcular</button><span class=\"calc-result\" id=\"result-"+ref.linha+"\"></span></div><div id=\"estados-"+ref.linha+"\" style=\"display:flex;flex-wrap:wrap;gap:6px;margin-top:6px\"></div>":"";
+    return "<div class=\"ref-card "+(ref.vigente?"":"vencida")+"\"><div class=\"ref-card-header\"><div><div class=\"ref-code\">"+ref.ref+"</div>"+(ref.descricao?"<div class=\"ref-desc\">"+ref.descricao+"</div>":"")+"</div><div class=\"ref-price\"><div class=\"ref-price-val\">"+fmt(ref.preco)+"</div><div class=\"ref-price-label\">"+precoLabel+"</div></div></div>"+estadosCard+"<div class=\"ref-meta\" style=\"margin-top:8px\">"+vigBadge+"<span class=\"badge\">&#x1F4C5; De: "+(ref.dataInicio||"–")+"</span><span class=\"badge\">&#x1F4C5; Ate: "+ref.dataFim+"</span></div>"+obsHtml+calcHtml+acoes+"</div>";
   }).join("");
 }
 
-function calcular(id,preco,medidaBase){
+function calcular(id,preco,medidaBase,precoRS,precoBA,precoCE,precoMG){
   var raw=document.getElementById("calc-"+id).value.trim().replace(",",".");
   var input=parseFloat(raw);
-  if(!raw||isNaN(input)||input<=0){document.getElementById("result-"+id).textContent="";return;}
-  var total=medidaBase>0?(input/medidaBase)*preco:preco*input;
-  document.getElementById("result-"+id).textContent="= "+fmt(total);
+  var elRes=document.getElementById("result-"+id);
+  var elEst=document.getElementById("estados-"+id);
+  if(!raw||isNaN(input)||input<=0){elRes.textContent="";if(elEst)elEst.innerHTML="";return;}
+  var c=function(p){return medidaBase>0?(input/medidaBase)*p:p*input;};
+  elRes.textContent="= "+fmt(c(preco));
+  if(elEst){
+    var tags=[["RS",precoRS],["BA",precoBA],["CE",precoCE],["MG",precoMG]]
+      .filter(function(e){return e[1]>0;})
+      .map(function(e){return "<span class=\"badge\">"+e[0]+": "+fmt(c(e[1]))+"</span>";});
+    elEst.innerHTML=tags.join(" ");
+  }
 }
 
 // IMPRESSAO
@@ -515,7 +540,7 @@ async function recarregarListaCad(aba){
 async function salvarRef(){
   var aba=document.getElementById("cad-cliente").value;
   if(!aba){toast("Selecione um cliente.","error");return;}
-  var dados={ref:document.getElementById("cad-ref").value.trim(),descricao:document.getElementById("cad-desc").value.trim(),preco:document.getElementById("cad-preco").value,dataInicio:document.getElementById("cad-inicio").value,dataFim:document.getElementById("cad-fim").value,obs:document.getElementById("cad-obs").value.trim(),unidade:document.getElementById("cad-unidade").value,medidaBase:document.getElementById("cad-medida-base").value};
+  var dados={ref:document.getElementById("cad-ref").value.trim(),descricao:document.getElementById("cad-desc").value.trim(),preco:document.getElementById("cad-preco").value,dataInicio:document.getElementById("cad-inicio").value,dataFim:document.getElementById("cad-fim").value,obs:document.getElementById("cad-obs").value.trim(),unidade:document.getElementById("cad-unidade").value,medidaBase:document.getElementById("cad-medida-base").value,precoRS:document.getElementById("cad-preco-rs").value,precoBA:document.getElementById("cad-preco-ba").value,precoCE:document.getElementById("cad-preco-ce").value,precoMG:document.getElementById("cad-preco-mg").value};
   if(!dados.ref||!dados.preco||!dados.dataInicio){toast("Preencha os campos obrigatorios (*).","error");return;}
   if(!dados.medidaBase||parseFloat(dados.medidaBase)<=0){toast("Informe a medida base (largura ou tamanho).","error");return;}
   var linhaEdicao=document.getElementById("cad-linha-edicao").value;
@@ -536,6 +561,10 @@ function editarRef(ref){
   document.getElementById("cad-linha-edicao").value=ref.linha;
   document.getElementById("cad-unidade").value=ref.unidade||"metros";
   document.getElementById("cad-medida-base").value=ref.medidaBase||"";
+  document.getElementById("cad-preco-rs").value=ref.precoRS||"";
+  document.getElementById("cad-preco-ba").value=ref.precoBA||"";
+  document.getElementById("cad-preco-ce").value=ref.precoCE||"";
+  document.getElementById("cad-preco-mg").value=ref.precoMG||"";
   atualizarCamposMedida();
   var toISO=function(s){if(!s||s==="Sem vencimento")return "";var p=s.split("/");return p[2]&&p[1]&&p[0]?p[2]+"-"+p[1]+"-"+p[0]:"";};
   document.getElementById("cad-inicio").value=toISO(ref.dataInicio);
@@ -543,7 +572,7 @@ function editarRef(ref){
   document.getElementById("cad-form-area").scrollIntoView({behavior:"smooth"});
 }
 function limparFormCad(){
-  ["cad-ref","cad-desc","cad-preco","cad-inicio","cad-fim","cad-obs","cad-medida-base"].forEach(function(id){document.getElementById(id).value="";});
+  ["cad-ref","cad-desc","cad-preco","cad-inicio","cad-fim","cad-obs","cad-medida-base","cad-preco-rs","cad-preco-ba","cad-preco-ce","cad-preco-mg"].forEach(function(id){document.getElementById(id).value="";});
   document.getElementById("cad-linha-edicao").value="";
   document.getElementById("cad-unidade").value="metros";
   document.getElementById("cad-form-title").textContent="Nova Referencia";

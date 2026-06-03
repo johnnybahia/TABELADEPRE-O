@@ -582,19 +582,12 @@ function setup() {
   let abaEx = ss.getSheetByName(abaExemplo);
   if (!abaEx) {
     abaEx = ss.insertSheet(abaExemplo);
-    abaEx.appendRow(["Referencia", "Descricao", "Preco", "DataInicio", "DataFim", "Observacoes", "Unidade", "MedidaBase"]);
-    abaEx.getRange(1, 1, 1, 8).setFontWeight("bold").setBackground("#0d0f14").setFontColor("#e8a020");
+    abaEx.appendRow(SCHEMA_CLIENTE.map(c => c.nome));
+    abaEx.getRange(1, 1, 1, SCHEMA_CLIENTE.length).setFontWeight("bold").setBackground("#0d0f14").setFontColor("#e8a020");
     // Linhas de exemplo
-    abaEx.appendRow(["CAD001-BRANCO", "Cadarço Tênis Branco", 1.00, new Date(), "", "Preço por par", "pares", 100]);
-    abaEx.appendRow(["FIT001-PRETO", "Fita Elástica Preta 10mm", 0.90, new Date(), "", "Preço por metro", "metros", 10]);
-    abaEx.setColumnWidth(1, 160);
-    abaEx.setColumnWidth(2, 220);
-    abaEx.setColumnWidth(3, 120);
-    abaEx.setColumnWidth(4, 120);
-    abaEx.setColumnWidth(5, 120);
-    abaEx.setColumnWidth(6, 200);
-    abaEx.setColumnWidth(7, 100);
-    abaEx.setColumnWidth(8, 100);
+    abaEx.appendRow(["CAD001-BRANCO", "Cadarço Tênis Branco", 1.00, new Date(), "", "Preço por par", "pares", 100, 0, 0, 0, 0]);
+    abaEx.appendRow(["FIT001-PRETO", "Fita Elástica Preta 10mm", 0.90, new Date(), "", "Preço por metro", "metros", 10, 0, 0, 0, 0]);
+    SCHEMA_CLIENTE.forEach((c, i) => abaEx.setColumnWidth(i + 1, c.largura));
     // Formatar coluna de datas
     abaEx.getRange(2, 4, 100, 2).setNumberFormat("dd/MM/yyyy");
     criadas.push(abaExemplo);

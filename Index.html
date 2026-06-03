@@ -71,6 +71,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
 .badge.ok{background:rgba(64,192,128,.12);color:var(--success);border-color:rgba(64,192,128,.3);}
 .badge.err{background:rgba(224,80,80,.12);color:var(--danger);border-color:rgba(224,80,80,.3);}
 .ref-obs{font-size:13px;color:var(--text2);background:var(--surface2);border-radius:var(--radius);padding:8px 10px;margin-bottom:10px;border-left:3px solid var(--accent);}
+.estados-strip{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);}
+.estados-strip-label{width:100%;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--text3,var(--text2));margin-bottom:2px;}
+.estado-pill{flex:1;min-width:64px;background:linear-gradient(135deg,var(--surface2) 0%,rgba(232,160,32,.07) 100%);border:1px solid rgba(232,160,32,.3);border-radius:var(--radius-sm);padding:8px 10px;text-align:center;}
+.estado-uf{font-size:10px;font-weight:700;letter-spacing:.1em;color:var(--text2);text-transform:uppercase;}
+.estado-val{font-family:"IBM Plex Mono",monospace;font-size:14px;font-weight:700;color:var(--accent);margin-top:3px;}
 .calc-row{display:flex;gap:8px;align-items:center;}
 .calc-row input{width:110px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:9px 12px;color:var(--text);font-family:sans-serif,sans-serif;font-size:14px;outline:none;transition:border-color .2s;}
 .calc-row input:focus{border-color:var(--accent);}
@@ -429,12 +434,13 @@ function renderRefs(r,containerId,modoEdicao){
     var medSufixo=unidade==="metros"?"mm":"cm";
     var precoLabel="por "+unidLabel+(medidaBase>0?" (base: "+medidaBase+medSufixo+")":"");
     var calcPlaceholder=unidade==="metros"?"Largura (mm)":"Tamanho (cm)";
-    var estadosCard=(rs||ba||ce||mg)?"<div style=\"display:flex;flex-wrap:wrap;gap:6px;margin-top:6px\">"
-      +(rs?"<span class=\"badge\">RS: "+fmt(rs)+"</span>":"")
-      +(ba?"<span class=\"badge\">BA: "+fmt(ba)+"</span>":"")
-      +(ce?"<span class=\"badge\">CE: "+fmt(ce)+"</span>":"")
-      +(mg?"<span class=\"badge\">MG: "+fmt(mg)+"</span>":"")
-      +"</div>":"";
+    var estadosCard=(rs||ba||ce||mg)
+      ?"<div class=\"estados-strip\"><div class=\"estados-strip-label\">Preco por Estado</div>"
+        +(rs?"<div class=\"estado-pill\"><div class=\"estado-uf\">RS</div><div class=\"estado-val\">"+fmt(rs)+"</div></div>":"")
+        +(ba?"<div class=\"estado-pill\"><div class=\"estado-uf\">BA</div><div class=\"estado-val\">"+fmt(ba)+"</div></div>":"")
+        +(ce?"<div class=\"estado-pill\"><div class=\"estado-uf\">CE</div><div class=\"estado-val\">"+fmt(ce)+"</div></div>":"")
+        +(mg?"<div class=\"estado-pill\"><div class=\"estado-uf\">MG</div><div class=\"estado-val\">"+fmt(mg)+"</div></div>":"")
+        +"</div>":"";
     var vigBadge=ref.vigente?"<span class=\"badge ok\">&#x2713; Vigente</span>":"<span class=\"badge err\">&#x2717; Fora de vigencia</span>";
     var obsHtml=ref.obs?"<div class=\"ref-obs\">&#x1F4DD; "+escHtml(ref.obs)+"</div>":"";
     var acoes=modoEdicao?"<div class=\"ref-actions\"><button class=\"btn btn-ghost btn-sm\" onclick=\"verHistorico('"+escHtml(ref.ref.replace(/'/g,"\\'"))+"')\">&#x1F4C8; Historico</button><button class=\"btn btn-ghost btn-sm\" onclick=\"editarRef("+escHtml(JSON.stringify(ref))+")\">&#x270F;&#xFE0F; Editar</button></div>":"";

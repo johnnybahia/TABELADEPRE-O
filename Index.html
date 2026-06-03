@@ -232,6 +232,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
           </div>
         </div>
         <p class="section-title">Referencias Cadastradas</p>
+        <div class="search-bar" style="margin-bottom:12px">
+          <input type="text" id="cad-busca" placeholder="Filtrar por referencia ou descricao..." oninput="filtrarListaCad()" autocomplete="off">
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('cad-busca').value='';filtrarListaCad()">&#x2715;</button>
+        </div>
         <div class="ref-list" id="ref-list-cad"></div>
       </div>
     </div>
@@ -277,6 +281,17 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
 
   </div>
 </div>
+<!-- MODAL HISTORICO DE PRECOS -->
+<div class="modal-overlay" id="modal-historico">
+  <div class="modal" style="max-width:540px">
+    <h3>&#x1F4C8; Historico de Precos</h3>
+    <p class="modal-sub" id="modal-historico-ref"></p>
+    <div id="modal-historico-lista" style="max-height:340px;overflow-y:auto"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModalHistorico()">Fechar</button>
+    </div>
+  </div>
+</div>
 <!-- MODAL NOTIFICAR -->
 <div class="modal-overlay" id="modal-notificar">
   <div class="modal">
@@ -295,7 +310,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
 <div id="print-output"></div>
 
 <script>
-var S={vendedor:null,clienteSelecionado:null,buscarTimer:null,printMode:null};
+var S={vendedor:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[]};
 
 function gas(fn){
   var args=Array.prototype.slice.call(arguments,1);
@@ -406,22 +421,17 @@ function renderRefs(r,containerId,modoEdicao){
     var calcPlaceholder=unidade==="metros"?"Largura (mm)":"Tamanho (cm)";
     var vigBadge=ref.vigente?"<span class=\"badge ok\">&#x2713; Vigente</span>":"<span class=\"badge err\">&#x2717; Fora de vigencia</span>";
     var obsHtml=ref.obs?"<div class=\"ref-obs\">&#x1F4DD; "+ref.obs+"</div>":"";
-    var acoes=modoEdicao?"<div class=\"ref-actions\"><button class=\"btn btn-ghost btn-sm\" onclick=\"editarRef("+JSON.stringify(ref).replace(/"/g,"&quot;")+")\">&#x270F;&#xFE0F; Editar</button></div>":"";
-    var calcHtml=ref.vigente?"<div class=\"calc-row\"><input type=\"number\" placeholder=\""+calcPlaceholder+"\" step=\"0.01\" min=\"0\" id=\"calc-"+ref.linha+"\" oninput=\"calcular('"+ref.linha+"',"+ref.preco+","+medidaBase+")\" ><button class=\"btn btn-ghost btn-sm\" onclick=\"calcular('"+ref.linha+"',"+ref.preco+","+medidaBase+")\">Calcular</button><span class=\"calc-result\" id=\"result-"+ref.linha+"\"></span></div>":"";
+    var acoes=modoEdicao?"<div class=\"ref-actions\"><button class=\"btn btn-ghost btn-sm\" onclick=\"verHistorico('"+ref.ref.replace(/'/g,"\\'")+"')\">&#x1F4C8; Historico</button><button class=\"btn btn-ghost btn-sm\" onclick=\"editarRef("+JSON.stringify(ref).replace(/"/g,"&quot;")+")\">&#x270F;&#xFE0F; Editar</button></div>":"";
+    var calcHtml=ref.vigente?"<div class=\"calc-row\"><input type=\"text\" inputmode=\"decimal\" placeholder=\""+calcPlaceholder+"\" id=\"calc-"+ref.linha+"\" oninput=\"calcular('"+ref.linha+"',"+ref.preco+","+medidaBase+")\" style=\"width:120px\"><button class=\"btn btn-ghost btn-sm\" onclick=\"calcular('"+ref.linha+"',"+ref.preco+","+medidaBase+")\">Calcular</button><span class=\"calc-result\" id=\"result-"+ref.linha+"\"></span></div>":"";
     return "<div class=\"ref-card "+(ref.vigente?"":"vencida")+"\"><div class=\"ref-card-header\"><div><div class=\"ref-code\">"+ref.ref+"</div>"+(ref.descricao?"<div class=\"ref-desc\">"+ref.descricao+"</div>":"")+"</div><div class=\"ref-price\"><div class=\"ref-price-val\">"+fmt(ref.preco)+"</div><div class=\"ref-price-label\">"+precoLabel+"</div></div></div><div class=\"ref-meta\">"+vigBadge+"<span class=\"badge\">&#x1F4C5; De: "+(ref.dataInicio||"–")+"</span><span class=\"badge\">&#x1F4C5; Ate: "+ref.dataFim+"</span></div>"+obsHtml+calcHtml+acoes+"</div>";
   }).join("");
 }
 
 function calcular(id,preco,medidaBase){
-  var input=document.getElementById("calc-"+id).value;
-  if(!input||isNaN(input)||input<=0){document.getElementById("result-"+id).textContent="";return;}
-  var total;
-  if(medidaBase&&medidaBase>0){
-    total=(parseFloat(input)/medidaBase)*preco;
-  }else{
-    // compatibilidade com itens antigos sem medida base
-    total=preco*parseFloat(input);
-  }
+  var raw=document.getElementById("calc-"+id).value.trim().replace(",",".");
+  var input=parseFloat(raw);
+  if(!raw||isNaN(input)||input<=0){document.getElementById("result-"+id).textContent="";return;}
+  var total=medidaBase>0?(input/medidaBase)*preco:preco*input;
   document.getElementById("result-"+id).textContent="= "+fmt(total);
 }
 
@@ -497,6 +507,8 @@ async function recarregarListaCad(aba){
   if(!aba)aba=document.getElementById("cad-cliente").value;
   loading(true,"Carregando...");
   var r=await gas("getReferencias",aba,"",S.vendedor.id);
+  S.refsCad=r.ok?r.refs:[];
+  document.getElementById("cad-busca").value="";
   renderRefs(r,"ref-list-cad",true);
   loading(false);
 }
@@ -544,6 +556,45 @@ function atualizarCamposMedida(){
   if(u==="metros"){lbl.textContent="Largura base (mm) *";inp.placeholder="Ex: 10";}
   else{lbl.textContent="Tamanho base (cm) *";inp.placeholder="Ex: 100";}
 }
+
+function filtrarListaCad(){
+  var termo=document.getElementById("cad-busca").value.trim().toUpperCase();
+  if(!S.refsCad.length)return;
+  var filtradas=!termo?S.refsCad:S.refsCad.filter(function(r){
+    return r.ref.toUpperCase().includes(termo)||r.descricao.toUpperCase().includes(termo);
+  });
+  renderRefs({ok:true,refs:filtradas},"ref-list-cad",true);
+}
+function verHistorico(refCode){
+  var entradas=S.refsCad.filter(function(r){return r.ref.toUpperCase()===refCode.toUpperCase();});
+  entradas.sort(function(a,b){
+    var da=a.dataInicio?a.dataInicio.split("/").reverse().join(""):"0";
+    var db=b.dataInicio?b.dataInicio.split("/").reverse().join(""):"0";
+    return db.localeCompare(da);
+  });
+  document.getElementById("modal-historico-ref").textContent="Referencia: "+refCode;
+  var unidLabel=function(u){return u==="pares"?"par":u==="pecas"?"peca":"metro";};
+  var html=entradas.map(function(r,i){
+    var unidade=r.unidade||"metros";
+    var medSufixo=unidade==="metros"?"mm":"cm";
+    var vigClass=r.vigente?"color:var(--success)":"color:var(--text3)";
+    var vigTxt=r.vigente?"&#x2713; Vigente":"Vencido";
+    return "<div style=\"display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);gap:12px\">"
+      +"<div style=\"flex:1\">"
+      +"<div style=\"font-size:11px;color:var(--text3)\">"+(r.dataInicio||"–")+" → "+r.dataFim+"</div>"
+      +(r.descricao?"<div style=\"font-size:12px;color:var(--text2);margin-top:2px\">"+r.descricao+"</div>":"")
+      +"</div>"
+      +"<div style=\"text-align:right;flex-shrink:0\">"
+      +"<div style=\"font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--navy)\">"+fmt(r.preco)+"</div>"
+      +"<div style=\"font-size:10px;color:var(--text3)\">por "+unidLabel(unidade)+(r.medidaBase>0?" ("+r.medidaBase+medSufixo+")":"")+"</div>"
+      +"<div style=\"font-size:10px;"+vigClass+"\">"+vigTxt+"</div>"
+      +"</div>"
+      +"</div>";
+  }).join("");
+  document.getElementById("modal-historico-lista").innerHTML=html||"<p style=\"color:var(--text2);font-size:13px;padding:16px 0\">Nenhuma entrada encontrada.</p>";
+  document.getElementById("modal-historico").classList.add("active");
+}
+function fecharModalHistorico(){document.getElementById("modal-historico").classList.remove("active");}
 
 // ADMIN
 function escHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}

@@ -104,6 +104,7 @@ function getReferencias(nomeAba, busca, vendedorId) {
     const hoje = new Date();
     hoje.setHours(0, 0, 0, 0);
 
+    const pN = v => Number(String(v || "0").replace(",", ".")) || 0;
     const resultado = [];
     for (let i = 1; i < dados.length; i++) {
       const [ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase, precoRS, precoBA, precoCE, precoMG] = dados[i];
@@ -127,16 +128,16 @@ function getReferencias(nomeAba, busca, vendedorId) {
         linha: i + 1,
         ref: String(ref),
         descricao: String(descricao || ""),
-        preco: Number(preco) || 0,
+        preco: pN(preco),
         dataInicio: dataInicio ? Utilities.formatDate(new Date(dataInicio), Session.getScriptTimeZone(), "dd/MM/yyyy") : "",
         dataFim: dataFim ? Utilities.formatDate(new Date(dataFim), Session.getScriptTimeZone(), "dd/MM/yyyy") : "Sem vencimento",
         obs: String(obs || ""),
         unidade: String(unidade || "metros"),
-        medidaBase: Number(medidaBase) || 0,
-        precoRS: Number(precoRS) || 0,
-        precoBA: Number(precoBA) || 0,
-        precoCE: Number(precoCE) || 0,
-        precoMG: Number(precoMG) || 0,
+        medidaBase: pN(medidaBase),
+        precoRS: pN(precoRS),
+        precoBA: pN(precoBA),
+        precoCE: pN(precoCE),
+        precoMG: pN(precoMG),
         vigente
       });
     }

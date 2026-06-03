@@ -23,6 +23,10 @@ const SCHEMA_CLIENTE = [
   { nome: "Observacoes", largura: 200 },
   { nome: "Unidade",     largura: 100 },
   { nome: "MedidaBase",  largura: 100 },
+  { nome: "PrecoRS",     largura: 100 },
+  { nome: "PrecoBA",     largura: 100 },
+  { nome: "PrecoCE",     largura: 100 },
+  { nome: "PrecoMG",     largura: 100 },
   // → próximas colunas aqui
 ];
 
@@ -102,7 +106,7 @@ function getReferencias(nomeAba, busca, vendedorId) {
 
     const resultado = [];
     for (let i = 1; i < dados.length; i++) {
-      const [ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase] = dados[i];
+      const [ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase, precoRS, precoBA, precoCE, precoMG] = dados[i];
       if (!ref) continue;
 
       const refStr = String(ref).toUpperCase();
@@ -129,6 +133,10 @@ function getReferencias(nomeAba, busca, vendedorId) {
         obs: String(obs || ""),
         unidade: String(unidade || "metros"),
         medidaBase: Number(medidaBase) || 0,
+        precoRS: Number(precoRS) || 0,
+        precoBA: Number(precoBA) || 0,
+        precoCE: Number(precoCE) || 0,
+        precoMG: Number(precoMG) || 0,
         vigente
       });
     }
@@ -150,7 +158,8 @@ function salvarReferencia(nomeAba, dados, vendedorId, linhaEdicao) {
     const aba = ss.getSheetByName(nomeAba);
     if (!aba) return { ok: false, erro: "Aba do cliente não encontrada." };
 
-    const { ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase } = dados;
+    const { ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase, precoRS, precoBA, precoCE, precoMG } = dados;
+    const pN = v => Number(String(v || "0").replace(",", ".")) || 0;
 
     if (!ref || !preco || !dataInicio) return { ok: false, erro: "Referência, preço e data de início são obrigatórios." };
 
@@ -176,16 +185,20 @@ function salvarReferencia(nomeAba, dados, vendedorId, linhaEdicao) {
     const linha = [
       ref.toUpperCase().trim(),
       descricao || "",
-      Number(String(preco).replace(",", ".")),
+      pN(preco),
       dInicio,
       dFim || "",
       obs || "",
       unidade || "metros",
-      Number(String(medidaBase || "0").replace(",", ".")) || 0
+      pN(medidaBase),
+      pN(precoRS),
+      pN(precoBA),
+      pN(precoCE),
+      pN(precoMG)
     ];
 
     if (linhaEdicao) {
-      aba.getRange(linhaEdicao, 1, 1, 8).setValues([linha]);
+      aba.getRange(linhaEdicao, 1, 1, 12).setValues([linha]);
     } else {
       aba.appendRow(linha);
     }
@@ -349,16 +362,22 @@ function enviarEmailAtualizacao(nomeAba, vendedorIdRemetente) {
 
     // Montar linhas da tabela — apenas vigentes no email
     const vigentes = refs.filter(r => r.vigente);
+    const fmtBRL = v => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
     const linhasTabela = vigentes.map(r => {
       const unidLabel = r.unidade === "pares" ? "par" : r.unidade === "pecas" ? "peça" : "metro";
       const medLabel = r.medidaBase > 0 ? ` (${r.medidaBase}${r.unidade === "metros" ? "mm" : "cm"})` : "";
+      const estados = [["RS", r.precoRS], ["BA", r.precoBA], ["CE", r.precoCE], ["MG", r.precoMG]]
+        .filter(([, p]) => p > 0)
+        .map(([uf, p]) => `<span style="background:#f5f5f5;border-radius:4px;padding:1px 6px;font-size:11px">${uf}: ${fmtBRL(p)}</span>`)
+        .join(" ");
       return `
       <tr>
         <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;font-weight:600">${r.ref}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;color:#555">${r.descricao || "–"}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:right;font-weight:700;color:#c07010">
-          ${Number(r.preco).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+          ${fmtBRL(r.preco)}
           <div style="font-size:10px;color:#999;font-weight:400">por ${unidLabel}${medLabel}</div>
+          ${estados ? `<div style="margin-top:4px;text-align:left">${estados}</div>` : ""}
         </td>
         <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:12px;color:#888">
           ${r.dataInicio || "–"} → ${r.dataFim}
@@ -563,19 +582,12 @@ function setup() {
   let abaEx = ss.getSheetByName(abaExemplo);
   if (!abaEx) {
     abaEx = ss.insertSheet(abaExemplo);
-    abaEx.appendRow(["Referencia", "Descricao", "Preco", "DataInicio", "DataFim", "Observacoes", "Unidade", "MedidaBase"]);
-    abaEx.getRange(1, 1, 1, 8).setFontWeight("bold").setBackground("#0d0f14").setFontColor("#e8a020");
+    abaEx.appendRow(SCHEMA_CLIENTE.map(c => c.nome));
+    abaEx.getRange(1, 1, 1, SCHEMA_CLIENTE.length).setFontWeight("bold").setBackground("#0d0f14").setFontColor("#e8a020");
     // Linhas de exemplo
-    abaEx.appendRow(["CAD001-BRANCO", "Cadarço Tênis Branco", 1.00, new Date(), "", "Preço por par", "pares", 100]);
-    abaEx.appendRow(["FIT001-PRETO", "Fita Elástica Preta 10mm", 0.90, new Date(), "", "Preço por metro", "metros", 10]);
-    abaEx.setColumnWidth(1, 160);
-    abaEx.setColumnWidth(2, 220);
-    abaEx.setColumnWidth(3, 120);
-    abaEx.setColumnWidth(4, 120);
-    abaEx.setColumnWidth(5, 120);
-    abaEx.setColumnWidth(6, 200);
-    abaEx.setColumnWidth(7, 100);
-    abaEx.setColumnWidth(8, 100);
+    abaEx.appendRow(["CAD001-BRANCO", "Cadarço Tênis Branco", 1.00, new Date(), "", "Preço por par", "pares", 100, 0, 0, 0, 0]);
+    abaEx.appendRow(["FIT001-PRETO", "Fita Elástica Preta 10mm", 0.90, new Date(), "", "Preço por metro", "metros", 10, 0, 0, 0, 0]);
+    SCHEMA_CLIENTE.forEach((c, i) => abaEx.setColumnWidth(i + 1, c.largura));
     // Formatar coluna de datas
     abaEx.getRange(2, 4, 100, 2).setNumberFormat("dd/MM/yyyy");
     criadas.push(abaExemplo);

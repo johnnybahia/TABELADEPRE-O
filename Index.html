@@ -349,7 +349,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
 <div id="print-output"></div>
 
 <script>
-var S={vendedor:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[]};
+var S={vendedor:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],refsConsulta:[]};
 
 function gas(fn){
   var args=Array.prototype.slice.call(arguments,1);
@@ -384,7 +384,7 @@ async function fazerLogin(){
 document.getElementById("login-senha").addEventListener("keydown",function(e){if(e.key==="Enter")fazerLogin();});
 
 function fazerLogout(){
-  S={vendedor:null,clienteSelecionado:null,buscarTimer:null,printMode:null};
+  S={vendedor:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],refsConsulta:[]};
   document.getElementById("screen-main").classList.remove("active");
   document.getElementById("screen-login").classList.add("active");
   document.getElementById("login-id").value="";
@@ -441,7 +441,7 @@ async function buscarRefs(){
   S.buscarTimer=setTimeout(async function(){
     var busca=document.getElementById("busca-input").value.trim();
     loading(true,"Buscando...");
-    try{var r=await gas("getReferencias",S.clienteSelecionado,busca,S.vendedor.id);renderRefs(r,"ref-list",false);}
+    try{var r=await gas("getReferencias",S.clienteSelecionado,busca,S.vendedor.id);if(r.ok)S.refsConsulta=r.refs;renderRefs(r,"ref-list",false);}
     catch(e){toast("Erro ao buscar.","error");}
     loading(false);
   },400);
@@ -451,7 +451,11 @@ function renderRefs(r,containerId,modoEdicao){
   var el=document.getElementById(containerId);
   if(!r.ok){el.innerHTML="<div class=\"empty-state\"><div class=\"icon\">&#x26A0;&#xFE0F;</div><p>"+r.erro+"</p></div>";return;}
   if(!r.refs.length){el.innerHTML="<div class=\"empty-state\"><div class=\"icon\">&#x1F4ED;</div><p>Nenhuma referencia encontrada</p></div>";return;}
-  el.innerHTML=r.refs.map(function(ref){
+  var groupedRefs={};var refOrder=[];
+  r.refs.forEach(function(ref){var key=ref.ref.toUpperCase();if(!groupedRefs[key]){groupedRefs[key]=[];refOrder.push(key);}groupedRefs[key].push(ref);});
+  var refsToRender=refOrder.map(function(key){var g=groupedRefs[key];return g.sort(function(a,b){var da=a.dataInicio?a.dataInicio.split("/").reverse().join(""):"0";var db=b.dataInicio?b.dataInicio.split("/").reverse().join(""):"0";return db.localeCompare(da);})[0];});
+  el.innerHTML=refsToRender.map(function(ref){
+    var numHist=(groupedRefs[ref.ref.toUpperCase()]||[]).length-1;
     var unidade=ref.unidade||"metros";
     var medidaBase=ref.medidaBase||0;
     var rs=ref.precoRS||0,ba=ref.precoBA||0,ce=ref.precoCE||0,mg=ref.precoMG||0;
@@ -470,7 +474,9 @@ function renderRefs(r,containerId,modoEdicao){
     var medidaHtml=medidaLabel?"<div class=\"ref-medida\">"+escHtml(medidaLabel)+"</div>":"";
     var obsHtml=ref.obs?"<div class=\"ref-obs\">&#x1F4DD; "+escHtml(ref.obs)+"</div>":"";
     var refJson=escHtml(JSON.stringify(ref));
-    var acoes=modoEdicao?"<div class=\"ref-actions\"><button class=\"btn btn-ghost btn-sm\" onclick=\"verHistorico('"+escHtml(ref.ref.replace(/'/g,"\\'"))+"')\">&#x1F4C8; Historico</button><button class=\"btn btn-ghost btn-sm\" onclick=\"editarRef("+refJson+")\">&#x270F;&#xFE0F; Editar</button>"+(ref.vigente?"<button class=\"btn btn-ghost btn-sm\" style=\"color:var(--accent);border-color:var(--accent)\" onclick=\"abrirModalAtualizar("+refJson+")\">&#x1F504; Atualizar Preco</button>":"")+"</div>":"";
+    var refSafe=escHtml(ref.ref.replace(/'/g,"\\'"));
+    var acoesHistBtn="<button class=\"btn btn-ghost btn-sm\" onclick=\"verHistorico('"+refSafe+"')\">&#x1F4C8; Historico"+(numHist>0?" ("+numHist+")":"")+"</button>";
+    var acoes=modoEdicao?"<div class=\"ref-actions\">"+acoesHistBtn+"<button class=\"btn btn-ghost btn-sm\" onclick=\"editarRef("+refJson+")\">&#x270F;&#xFE0F; Editar</button>"+(ref.vigente?"<button class=\"btn btn-ghost btn-sm\" style=\"color:var(--accent);border-color:var(--accent)\" onclick=\"abrirModalAtualizar("+refJson+")\">&#x1F504; Atualizar Preco</button>":"")+"</div>":(numHist>0?"<div class=\"ref-actions\"><button class=\"btn btn-ghost btn-sm\" onclick=\"verHistorico('"+refSafe+"','consulta')\">&#x1F4C8; Historico ("+numHist+")</button></div>":"");
     var calcArgs="'"+parseInt(ref.linha,10)+"',"+medidaBase+","+rs+","+ba+","+ce+","+mg;
     var usaCalc=/mm/i.test(medidaLabel)?false:/cm/i.test(medidaLabel)?true:unidade!=="metros";
     var calcHtml=(ref.vigente&&usaCalc)?"<div class=\"calc-row\"><input type=\"text\" inputmode=\"decimal\" placeholder=\""+calcPlaceholder+"\" id=\"calc-"+ref.linha+"\" oninput=\"calcular("+calcArgs+")\" style=\"width:120px\"><button class=\"btn btn-ghost btn-sm\" onclick=\"calcular("+calcArgs+")\">Calcular</button></div><div id=\"estados-"+ref.linha+"\" style=\"display:flex;flex-wrap:wrap;gap:6px;margin-top:6px\"></div>":"";
@@ -627,8 +633,9 @@ function filtrarListaCad(){
   });
   renderRefs({ok:true,refs:filtradas},"ref-list-cad",true);
 }
-function verHistorico(refCode){
-  var entradas=S.refsCad.filter(function(r){return r.ref.toUpperCase()===refCode.toUpperCase();});
+function verHistorico(refCode,fonte){
+  var pool=(fonte==="consulta")?S.refsConsulta:S.refsCad;
+  var entradas=pool.filter(function(r){return r.ref.toUpperCase()===refCode.toUpperCase();});
   entradas.sort(function(a,b){
     var da=a.dataInicio?a.dataInicio.split("/").reverse().join(""):"0";
     var db=b.dataInicio?b.dataInicio.split("/").reverse().join(""):"0";

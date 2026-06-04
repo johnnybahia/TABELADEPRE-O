@@ -240,13 +240,6 @@ function renovarReferencia(nomeAba, linhaOrigem, dados, vendedorId) {
     const linha = Number(linhaOrigem);
     const rowData = aba.getRange(linha, 1, 1, SCHEMA_CLIENTE.length).getValues()[0];
 
-    // Fecha período atual: DataFim = novaDataInicio − 1 dia
-    const dataFimAntiga = new Date(novaDataInicio);
-    dataFimAntiga.setDate(dataFimAntiga.getDate() - 1);
-    const celFim = aba.getRange(linha, 5);
-    celFim.setValue(dataFimAntiga);
-    celFim.setNumberFormat("dd/MM/yyyy");
-
     // Nova linha: mesmos dados base + novos preços/datas
     const novaLinha = [
       rowData[0],                        // ref

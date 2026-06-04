@@ -719,7 +719,7 @@ async function carregarAdminLista(){
     var rV=await gas("getVendedores",S.vendedor.id);
     var elV=document.getElementById("adm-lista");
     if(!rV.ok){elV.innerHTML="<p style=\"color:var(--danger)\">"+escHtml(rV.erro)+"</p>";loading(false);return;}
-    else{elV.innerHTML=rV.vendedores.map(function(v){return "<div class=\"form-card\" style=\"margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px\"><div><div style=\"font-family:sans-serif,sans-serif;font-weight:700\">"+v.nome+" <span style=\"color:var(--text2);font-size:12px\">("+v.id+")</span></div><div style=\"font-size:12px;color:var(--text2);margin-top:4px\">"+(v.clientes||"Sem clientes")+"</div><div style=\"font-size:11px;color:var(--text2);margin-top:2px\">&#x1F4E7; "+(v.email||"Sem email")+"</div></div></div>";}).join("");}
+    else{elV.innerHTML=rV.vendedores.map(function(v){return "<div class=\"form-card\" style=\"margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px\"><div><div style=\"font-family:sans-serif,sans-serif;font-weight:700\">"+escHtml(v.nome)+" <span style=\"color:var(--text2);font-size:12px\">("+escHtml(v.id)+")</span></div><div style=\"font-size:12px;color:var(--text2);margin-top:4px\">"+escHtml(v.clientes||"Sem clientes")+"</div><div style=\"font-size:11px;color:var(--text2);margin-top:2px\">&#x1F4E7; "+escHtml(v.email||"Sem email")+"</div></div></div>";}).join("");}
 
     var rC=await gas("getClientes",S.vendedor.id,["*"]);
     var elC=document.getElementById("adm-clientes-lista");
@@ -779,10 +779,10 @@ async function abrirModalNotificar(){
     var html="";
     if(comEmail.length){
       html+="<p style=\"font-size:13px;margin-bottom:8px;color:var(--text2)\">Serao notificados:</p><div style=\"display:flex;flex-direction:column;gap:6px;margin-bottom:12px\">";
-      comEmail.forEach(function(v){html+="<div style=\"background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;font-size:13px\">&#x1F464; <strong>"+v.nome+"</strong> &nbsp;<span style=\"color:var(--text2)\">"+v.email+"</span></div>";});
+      comEmail.forEach(function(v){html+="<div style=\"background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;font-size:13px\">&#x1F464; <strong>"+escHtml(v.nome)+"</strong> &nbsp;<span style=\"color:var(--text2)\">"+escHtml(v.email)+"</span></div>";});
       html+="</div>";
     }else{html="<div class=\"empty-state\" style=\"padding:24px\"><div class=\"icon\">&#x1F4ED;</div><p>Nenhum vendedor com email cadastrado para este cliente.</p></div>";}
-    if(semEmail.length)html+="<p style=\"font-size:12px;color:var(--warn)\">&#x26A0; Sem email: "+semEmail.join(", ")+"</p>";
+    if(semEmail.length)html+="<p style=\"font-size:12px;color:var(--warn)\">&#x26A0; Sem email: "+semEmail.map(escHtml).join(", ")+"</p>";
     document.getElementById("modal-notificar-preview").innerHTML=html;
     document.getElementById("btn-confirmar-notificar") && (document.getElementById("btn-confirmar-notificar").disabled=comEmail.length===0);
     document.getElementById("modal-notificar").classList.add("active");

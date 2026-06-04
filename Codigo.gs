@@ -204,7 +204,7 @@ function salvarReferencia(nomeAba, dados, vendedorId, linhaEdicao) {
     ];
 
     if (linhaEdicao) {
-      aba.getRange(linhaEdicao, 1, 1, 13).setValues([linha]);
+      aba.getRange(linhaEdicao, 1, 1, SCHEMA_CLIENTE.length).setValues([linha]);
     } else {
       aba.appendRow(linha);
     }

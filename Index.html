@@ -59,7 +59,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
 .search-bar input::placeholder{color:var(--text2);}
 .ref-list{display:flex;flex-direction:column;gap:10px;}
 .ref-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;transition:border-color .2s;}
-.ref-card.vencida{opacity:.5;border-color:var(--danger);}
+.ref-card.vencida{border-color:var(--danger);border-width:2px;}
+.preco-desatualizado-banner{background:rgba(214,48,49,.09);border-bottom:1px solid rgba(214,48,49,.28);color:var(--danger);font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:8px 16px;margin:-16px -16px 14px -16px;border-radius:5px 5px 0 0;display:flex;align-items:center;gap:6px;}
 .ref-card-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px;}
 .ref-code{font-family:"IBM Plex Mono",monospace;font-size:15px;font-weight:600;color:var(--navy);}
 .ref-desc{font-size:13px;color:var(--text2);margin-top:2px;}
@@ -479,7 +480,8 @@ function renderRefs(r,containerId,modoEdicao){
     var calcArgs="'"+parseInt(ref.linha,10)+"',"+medidaBase+","+rs+","+ba+","+ce+","+mg;
     var usaCalc=/mm/i.test(medidaLabel)?false:/cm/i.test(medidaLabel)?true:unidade!=="metros";
     var calcHtml=(ref.vigente&&usaCalc)?"<div class=\"calc-row\"><input type=\"text\" inputmode=\"decimal\" placeholder=\""+calcPlaceholder+"\" id=\"calc-"+ref.linha+"\" oninput=\"calcular("+calcArgs+")\" style=\"width:120px\"><button class=\"btn btn-ghost btn-sm\" onclick=\"calcular("+calcArgs+")\">Calcular</button></div><div id=\"estados-"+ref.linha+"\" style=\"display:flex;flex-wrap:wrap;gap:6px;margin-top:6px\"></div>":"";
-    return "<div class=\"ref-card "+(ref.vigente?"":"vencida")+"\"><div class=\"ref-card-header\"><div><div class=\"ref-code\">"+escHtml(ref.ref)+"</div>"+(ref.descricao?"<div class=\"ref-desc\">"+escHtml(ref.descricao)+"</div>":"")+medidaHtml+"</div></div>"+estadosCard+"<div class=\"ref-meta\" style=\"margin-top:8px\">"+vigBadge+"<span class=\"badge\">&#x1F4C5; De: "+escHtml(ref.dataInicio||"–")+"</span><span class=\"badge\">&#x1F4C5; Ate: "+escHtml(ref.dataFim)+"</span>"+pesoBadge+"</div>"+obsHtml+calcHtml+acoes+"</div>";
+    var vencidaBanner=!ref.vigente?"<div class=\"preco-desatualizado-banner\"><span>&#x26A0;</span> Preco desatualizado"+(ref.dataFim&&ref.dataFim!=="Sem vencimento"?" &mdash; vencido em "+escHtml(ref.dataFim):"")+". Consulte nova tabela.</div>":"";
+    return "<div class=\"ref-card "+(ref.vigente?"":"vencida")+"\">"+vencidaBanner+"<div class=\"ref-card-header\"><div><div class=\"ref-code\">"+escHtml(ref.ref)+"</div>"+(ref.descricao?"<div class=\"ref-desc\">"+escHtml(ref.descricao)+"</div>":"")+medidaHtml+"</div></div>"+estadosCard+"<div class=\"ref-meta\" style=\"margin-top:8px\">"+vigBadge+"<span class=\"badge\">&#x1F4C5; De: "+escHtml(ref.dataInicio||"–")+"</span><span class=\"badge\">&#x1F4C5; Ate: "+escHtml(ref.dataFim)+"</span>"+pesoBadge+"</div>"+obsHtml+calcHtml+acoes+"</div>";
   }).join("");
 }
 

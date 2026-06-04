@@ -135,6 +135,7 @@ function getReferencias(nomeAba, busca, vendedorId) {
         obs: String(obs || ""),
         unidade: String(unidade || "metros"),
         medidaBase: pN(medidaBase),
+        medidaBaseLabel: String(medidaBase || "").trim(),
         precoRS: pN(precoRS),
         precoBA: pN(precoBA),
         precoCE: pN(precoCE),

@@ -470,7 +470,8 @@ function renderRefs(r,containerId,modoEdicao){
         +"</div>":"";
     var vigBadge=ref.vigente?"<span class=\"badge ok\">&#x2713; Vigente</span>":"<span class=\"badge err\">&#x2717; Fora de vigencia</span>";
     var pesoBadge=ref.peso>0?"<span class=\"badge\">&#x2696;&#xFE0F; "+escHtml(String(ref.peso))+"g</span>":"";
-    var medidaHtml=medidaBase>0?"<div class=\"ref-medida\">"+medidaBase+medSufixo+"</div>":"";
+    var medidaLabel=ref.medidaBaseLabel&&ref.medidaBaseLabel!=="0"?ref.medidaBaseLabel:(medidaBase>0?medidaBase+medSufixo:"");
+    var medidaHtml=medidaLabel?"<div class=\"ref-medida\">"+escHtml(medidaLabel)+"</div>":"";
     var obsHtml=ref.obs?"<div class=\"ref-obs\">&#x1F4DD; "+escHtml(ref.obs)+"</div>":"";
     var refJson=escHtml(JSON.stringify(ref));
     var acoes=modoEdicao?"<div class=\"ref-actions\"><button class=\"btn btn-ghost btn-sm\" onclick=\"verHistorico('"+escHtml(ref.ref.replace(/'/g,"\\'"))+"')\">&#x1F4C8; Historico</button><button class=\"btn btn-ghost btn-sm\" onclick=\"editarRef("+refJson+")\">&#x270F;&#xFE0F; Editar</button>"+(ref.vigente?"<button class=\"btn btn-ghost btn-sm\" style=\"color:var(--accent);border-color:var(--accent)\" onclick=\"abrirModalAtualizar("+refJson+")\">&#x1F504; Atualizar Preco</button>":"")+"</div>":"";
@@ -644,16 +645,29 @@ function verHistorico(refCode){
   var html=entradas.map(function(r,i){
     var unidade=r.unidade||"metros";
     var medSufixo=unidade==="metros"?"mm":"cm";
+    var medLabel=r.medidaBaseLabel&&r.medidaBaseLabel!=="0"?r.medidaBaseLabel:(r.medidaBase>0?r.medidaBase+medSufixo:"");
     var vigClass=r.vigente?"color:var(--success)":"color:var(--text3)";
     var vigTxt=r.vigente?"&#x2713; Vigente":"Vencido";
+    var precoHtml;
+    if(r.preco>0){
+      precoHtml="<div style=\"font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--navy)\">"+fmt(r.preco)+"</div>"
+        +"<div style=\"font-size:10px;color:var(--text3)\">por "+unidLabel(unidade)+(medLabel?" ("+escHtml(medLabel)+")":"")+"</div>";
+    }else{
+      var estadoTags=[["RS",r.precoRS],["BA",r.precoBA],["CE",r.precoCE],["MG",r.precoMG]]
+        .filter(function(e){return e[1]>0;})
+        .map(function(e){return "<span style=\"font-size:11px\"><b>"+e[0]+":</b> "+fmt(e[1])+"</span>";})
+        .join("<br>");
+      precoHtml=estadoTags
+        ?"<div style=\"font-family:'IBM Plex Mono',monospace;color:var(--navy)\">"+estadoTags+"</div>"
+        :"<div style=\"font-size:12px;color:var(--text3)\">—</div>";
+    }
     return "<div style=\"display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);gap:12px\">"
       +"<div style=\"flex:1\">"
       +"<div style=\"font-size:11px;color:var(--text3)\">"+(r.dataInicio||"–")+" → "+r.dataFim+"</div>"
-      +(r.descricao?"<div style=\"font-size:12px;color:var(--text2);margin-top:2px\">"+escHtml(r.descricao)+"</div>":"")
+      +(medLabel?"<div style=\"font-size:11px;color:var(--text2);margin-top:2px\">"+escHtml(medLabel)+"</div>":"")
       +"</div>"
       +"<div style=\"text-align:right;flex-shrink:0\">"
-      +"<div style=\"font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--navy)\">"+fmt(r.preco)+"</div>"
-      +"<div style=\"font-size:10px;color:var(--text3)\">por "+unidLabel(unidade)+(r.medidaBase>0?" ("+r.medidaBase+medSufixo+")":"")+"</div>"
+      +precoHtml
       +"<div style=\"font-size:10px;"+vigClass+"\">"+vigTxt+"</div>"
       +"</div>"
       +"</div>";

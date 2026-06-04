@@ -105,7 +105,7 @@ function getReferencias(nomeAba, busca, vendedorId) {
     const hoje = new Date();
     hoje.setHours(0, 0, 0, 0);
 
-    const pN = v => Number(String(v || "0").replace(",", ".")) || 0;
+    const pN = v => parseFloat(String(v || "0").replace(",", ".")) || 0;
     const resultado = [];
     for (let i = 1; i < dados.length; i++) {
       const [ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase, precoRS, precoBA, precoCE, precoMG, peso] = dados[i];
@@ -162,7 +162,7 @@ function salvarReferencia(nomeAba, dados, vendedorId, linhaEdicao) {
     if (!aba) return { ok: false, erro: "Aba do cliente não encontrada." };
 
     const { ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase, precoRS, precoBA, precoCE, precoMG, peso } = dados;
-    const pN = v => Number(String(v || "0").replace(",", ".")) || 0;
+    const pN = v => parseFloat(String(v || "0").replace(",", ".")) || 0;
 
     if (!ref || !preco || !dataInicio) return { ok: false, erro: "Referência, preço e data de início são obrigatórios." };
     if (!medidaBase || pN(medidaBase) <= 0) return { ok: false, erro: "Informe a medida base (valor maior que zero)." };
@@ -226,7 +226,7 @@ function renovarReferencia(nomeAba, linhaOrigem, dados, vendedorId) {
     const aba = ss.getSheetByName(nomeAba);
     if (!aba) return { ok: false, erro: "Aba do cliente não encontrada." };
 
-    const pN = v => Number(String(v || "0").replace(",", ".")) || 0;
+    const pN = v => parseFloat(String(v || "0").replace(",", ".")) || 0;
     const { preco, precoRS, precoBA, precoCE, precoMG, dataInicio, dataFim } = dados;
 
     if (!dataInicio) return { ok: false, erro: "Data de início é obrigatória." };

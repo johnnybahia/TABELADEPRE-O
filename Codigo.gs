@@ -27,6 +27,7 @@ const SCHEMA_CLIENTE = [
   { nome: "PrecoBA",     largura: 100 },
   { nome: "PrecoCE",     largura: 100 },
   { nome: "PrecoMG",     largura: 100 },
+  { nome: "Peso",        largura: 100 },
   // → próximas colunas aqui
 ];
 
@@ -107,7 +108,7 @@ function getReferencias(nomeAba, busca, vendedorId) {
     const pN = v => Number(String(v || "0").replace(",", ".")) || 0;
     const resultado = [];
     for (let i = 1; i < dados.length; i++) {
-      const [ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase, precoRS, precoBA, precoCE, precoMG] = dados[i];
+      const [ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase, precoRS, precoBA, precoCE, precoMG, peso] = dados[i];
       if (!ref) continue;
 
       const refStr = String(ref).toUpperCase();
@@ -138,6 +139,7 @@ function getReferencias(nomeAba, busca, vendedorId) {
         precoBA: pN(precoBA),
         precoCE: pN(precoCE),
         precoMG: pN(precoMG),
+        peso: pN(peso),
         vigente
       });
     }
@@ -159,7 +161,7 @@ function salvarReferencia(nomeAba, dados, vendedorId, linhaEdicao) {
     const aba = ss.getSheetByName(nomeAba);
     if (!aba) return { ok: false, erro: "Aba do cliente não encontrada." };
 
-    const { ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase, precoRS, precoBA, precoCE, precoMG } = dados;
+    const { ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase, precoRS, precoBA, precoCE, precoMG, peso } = dados;
     const pN = v => Number(String(v || "0").replace(",", ".")) || 0;
 
     if (!ref || !preco || !dataInicio) return { ok: false, erro: "Referência, preço e data de início são obrigatórios." };
@@ -196,16 +198,76 @@ function salvarReferencia(nomeAba, dados, vendedorId, linhaEdicao) {
       pN(precoRS),
       pN(precoBA),
       pN(precoCE),
-      pN(precoMG)
+      pN(precoMG),
+      pN(peso)
     ];
 
     if (linhaEdicao) {
-      aba.getRange(linhaEdicao, 1, 1, 12).setValues([linha]);
+      aba.getRange(linhaEdicao, 1, 1, 13).setValues([linha]);
     } else {
       aba.appendRow(linha);
     }
 
     _log(vendedorId, linhaEdicao ? "EDITAR" : "CADASTRAR", `${nomeAba} | ${ref}`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, erro: e.message };
+  }
+}
+
+// ============================================================
+// RENOVAR REFERÊNCIA — fecha período atual e abre novo
+// ============================================================
+function renovarReferencia(nomeAba, linhaOrigem, dados, vendedorId) {
+  try {
+    if (!_validarAcesso(vendedorId, nomeAba)) return { ok: false, erro: "Acesso não autorizado." };
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const aba = ss.getSheetByName(nomeAba);
+    if (!aba) return { ok: false, erro: "Aba do cliente não encontrada." };
+
+    const pN = v => Number(String(v || "0").replace(",", ".")) || 0;
+    const { preco, precoRS, precoBA, precoCE, precoMG, dataInicio, dataFim } = dados;
+
+    if (!dataInicio) return { ok: false, erro: "Data de início é obrigatória." };
+    if (!pN(preco) && !pN(precoRS) && !pN(precoBA) && !pN(precoCE) && !pN(precoMG))
+      return { ok: false, erro: "Informe pelo menos um preço." };
+
+    const novaDataInicio = new Date(dataInicio);
+
+    // Lê a linha existente para copiar dados base
+    const linha = Number(linhaOrigem);
+    const rowData = aba.getRange(linha, 1, 1, SCHEMA_CLIENTE.length).getValues()[0];
+
+    // Fecha período atual: DataFim = novaDataInicio − 1 dia
+    const dataFimAntiga = new Date(novaDataInicio);
+    dataFimAntiga.setDate(dataFimAntiga.getDate() - 1);
+    const celFim = aba.getRange(linha, 5);
+    celFim.setValue(dataFimAntiga);
+    celFim.setNumberFormat("dd/MM/yyyy");
+
+    // Nova linha: mesmos dados base + novos preços/datas
+    const novaLinha = [
+      rowData[0],                        // ref
+      rowData[1],                        // descricao
+      pN(preco),                         // preco
+      novaDataInicio,                    // dataInicio
+      dataFim ? new Date(dataFim) : "",  // dataFim
+      rowData[5],                        // obs
+      rowData[6],                        // unidade
+      rowData[7],                        // medidaBase
+      pN(precoRS),
+      pN(precoBA),
+      pN(precoCE),
+      pN(precoMG),
+      rowData[12] || 0,                  // peso (copiado)
+    ];
+
+    aba.appendRow(novaLinha);
+    const ultimaLinha = aba.getLastRow();
+    aba.getRange(ultimaLinha, 4, 1, 2).setNumberFormat("dd/MM/yyyy");
+
+    _log(vendedorId, "RENOVAR", `${nomeAba} | ${rowData[0]} | L${linha}→L${ultimaLinha}`);
     return { ok: true };
   } catch (e) {
     return { ok: false, erro: e.message };

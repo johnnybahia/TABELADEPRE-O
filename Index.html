@@ -470,7 +470,7 @@ function renderRefs(r,containerId,modoEdicao){
         +"</div>":"";
     var vigBadge=ref.vigente?"<span class=\"badge ok\">&#x2713; Vigente</span>":"<span class=\"badge err\">&#x2717; Fora de vigencia</span>";
     var pesoBadge=ref.peso>0?"<span class=\"badge\">&#x2696;&#xFE0F; "+escHtml(String(ref.peso))+"g</span>":"";
-    var medidaLabel=ref.medidaBaseLabel&&ref.medidaBaseLabel!=="0"?ref.medidaBaseLabel:(medidaBase>0?medidaBase+medSufixo:"");
+    var medidaLabel=/[a-zA-Z]/.test(ref.medidaBaseLabel||"")?ref.medidaBaseLabel:(medidaBase>0?medidaBase+medSufixo:"");
     var medidaHtml=medidaLabel?"<div class=\"ref-medida\">"+escHtml(medidaLabel)+"</div>":"";
     var obsHtml=ref.obs?"<div class=\"ref-obs\">&#x1F4DD; "+escHtml(ref.obs)+"</div>":"";
     var refJson=escHtml(JSON.stringify(ref));
@@ -645,7 +645,7 @@ function verHistorico(refCode){
   var html=entradas.map(function(r,i){
     var unidade=r.unidade||"metros";
     var medSufixo=unidade==="metros"?"mm":"cm";
-    var medLabel=r.medidaBaseLabel&&r.medidaBaseLabel!=="0"?r.medidaBaseLabel:(r.medidaBase>0?r.medidaBase+medSufixo:"");
+    var medLabel=/[a-zA-Z]/.test(r.medidaBaseLabel||"")?r.medidaBaseLabel:(r.medidaBase>0?r.medidaBase+medSufixo:"");
     var vigClass=r.vigente?"color:var(--success)":"color:var(--text3)";
     var vigTxt=r.vigente?"&#x2713; Vigente":"Vencido";
     var precoHtml;

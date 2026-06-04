@@ -165,7 +165,7 @@ function salvarReferencia(nomeAba, dados, vendedorId, linhaEdicao) {
     const { ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase, precoRS, precoBA, precoCE, precoMG, peso } = dados;
     const pN = v => parseFloat(String(v || "0").replace(",", ".")) || 0;
 
-    if (!ref || !preco || !dataInicio) return { ok: false, erro: "Referência, preço e data de início são obrigatórios." };
+    if (!ref || !dataInicio) return { ok: false, erro: "Referência e data de início são obrigatórios." };
     if (!medidaBase || pN(medidaBase) <= 0) return { ok: false, erro: "Informe a medida base (valor maior que zero)." };
 
     const dInicio = new Date(dataInicio);
@@ -231,8 +231,8 @@ function renovarReferencia(nomeAba, linhaOrigem, dados, vendedorId) {
     const { preco, precoRS, precoBA, precoCE, precoMG, dataInicio, dataFim } = dados;
 
     if (!dataInicio) return { ok: false, erro: "Data de início é obrigatória." };
-    if (!pN(preco) && !pN(precoRS) && !pN(precoBA) && !pN(precoCE) && !pN(precoMG))
-      return { ok: false, erro: "Informe pelo menos um preço." };
+    if (!pN(precoRS) && !pN(precoBA) && !pN(precoCE) && !pN(precoMG))
+      return { ok: false, erro: "Informe pelo menos um preço por estado." };
 
     const novaDataInicio = new Date(dataInicio);
 

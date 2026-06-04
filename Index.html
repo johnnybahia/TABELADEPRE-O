@@ -226,13 +226,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
             <div class="field full"><label>Descricao</label><input type="text" id="cad-desc" placeholder="Ex: Cadarco tenis 100cm"></div>
             <div class="field"><label>Tipo de Unidade *</label><select id="cad-unidade" onchange="atualizarCamposMedida()"><option value="metros">Metros (por largura)</option><option value="pares">Pares (por tamanho)</option><option value="pecas">Pecas (por tamanho)</option></select></div>
             <div class="field"><label id="cad-medida-label">Largura base (mm) *</label><input type="number" id="cad-medida-base" placeholder="Ex: 10" step="0.01" min="0"></div>
-            <div class="field"><label id="cad-preco-label">Preco base (R$) *</label><input type="number" id="cad-preco" placeholder="0,00" step="0.01" min="0"></div>
             <div class="field"><label>Data de Inicio *</label><input type="date" id="cad-inicio"></div>
             <div class="field"><label>Data de Fim (vazio = sem vencimento)</label><input type="date" id="cad-fim"></div>
             <div class="field"><label>Peso (opcional)</label><input type="text" inputmode="decimal" id="cad-peso" placeholder="Ex: 25"></div>
             <div class="field full"><label>Observacoes</label><textarea id="cad-obs" rows="3" placeholder="Ex: Valido para pedidos acima de 500m"></textarea></div>
             <div class="field full">
-              <label>Precos por Estado (opcional &mdash; deixe vazio para usar o preco base)</label>
+              <label>Precos por Estado *</label>
               <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:4px">
                 <div><label style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">RS&nbsp;(R$)</label><input type="text" inputmode="decimal" id="cad-preco-rs" placeholder="0,00" style="margin-top:4px"></div>
                 <div><label style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">BA&nbsp;(R$)</label><input type="text" inputmode="decimal" id="cad-preco-ba" placeholder="0,00" style="margin-top:4px"></div>
@@ -314,7 +313,6 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
     <h3>&#x1F504; Atualizar Preco</h3>
     <p class="modal-sub" id="modal-atualizar-ref"></p>
     <div class="form-grid" style="margin-bottom:16px">
-      <div class="field"><label>Novo Preco Base (R$)</label><input type="text" inputmode="decimal" id="atu-preco" placeholder="0,00"></div>
       <div class="field"><label>Nova Data de Inicio *</label><input type="date" id="atu-inicio"></div>
       <div class="field full"><label>Nova Data de Fim (vazio = sem vencimento)</label><input type="date" id="atu-fim"></div>
       <div class="field full">
@@ -457,9 +455,7 @@ function renderRefs(r,containerId,modoEdicao){
     var unidade=ref.unidade||"metros";
     var medidaBase=ref.medidaBase||0;
     var rs=ref.precoRS||0,ba=ref.precoBA||0,ce=ref.precoCE||0,mg=ref.precoMG||0;
-    var unidLabel=unidade==="pares"?"par":unidade==="pecas"?"peca":"metro";
     var medSufixo=unidade==="metros"?"mm":"cm";
-    var precoLabel="por "+unidLabel+(medidaBase>0?" (base: "+medidaBase+medSufixo+")":"");
     var calcPlaceholder=unidade==="metros"?"Largura (mm)":"Tamanho (cm)";
     var estadosCard=(rs||ba||ce||mg)
       ?"<div class=\"estados-strip\"><div class=\"estados-strip-label\">Preco por Estado</div>"
@@ -475,22 +471,19 @@ function renderRefs(r,containerId,modoEdicao){
     var obsHtml=ref.obs?"<div class=\"ref-obs\">&#x1F4DD; "+escHtml(ref.obs)+"</div>":"";
     var refJson=escHtml(JSON.stringify(ref));
     var acoes=modoEdicao?"<div class=\"ref-actions\"><button class=\"btn btn-ghost btn-sm\" onclick=\"verHistorico('"+escHtml(ref.ref.replace(/'/g,"\\'"))+"')\">&#x1F4C8; Historico</button><button class=\"btn btn-ghost btn-sm\" onclick=\"editarRef("+refJson+")\">&#x270F;&#xFE0F; Editar</button>"+(ref.vigente?"<button class=\"btn btn-ghost btn-sm\" style=\"color:var(--accent);border-color:var(--accent)\" onclick=\"abrirModalAtualizar("+refJson+")\">&#x1F504; Atualizar Preco</button>":"")+"</div>":"";
-    var calcArgs="'"+parseInt(ref.linha,10)+"',"+ref.preco+","+medidaBase+","+rs+","+ba+","+ce+","+mg;
+    var calcArgs="'"+parseInt(ref.linha,10)+"',"+medidaBase+","+rs+","+ba+","+ce+","+mg;
     var usaCalc=/mm/i.test(medidaLabel)?false:/cm/i.test(medidaLabel)?true:unidade!=="metros";
-    var calcHtml=(ref.vigente&&usaCalc)?"<div class=\"calc-row\"><input type=\"text\" inputmode=\"decimal\" placeholder=\""+calcPlaceholder+"\" id=\"calc-"+ref.linha+"\" oninput=\"calcular("+calcArgs+")\" style=\"width:120px\"><button class=\"btn btn-ghost btn-sm\" onclick=\"calcular("+calcArgs+")\">Calcular</button><span class=\"calc-result\" id=\"result-"+ref.linha+"\"></span></div><div id=\"estados-"+ref.linha+"\" style=\"display:flex;flex-wrap:wrap;gap:6px;margin-top:6px\"></div>":"";
-    var precoBaseHtml=ref.preco>0?"<div class=\"ref-price\"><div class=\"ref-price-val\">"+fmt(ref.preco)+"</div><div class=\"ref-price-label\">"+precoLabel+"</div></div>":"";
-    return "<div class=\"ref-card "+(ref.vigente?"":"vencida")+"\"><div class=\"ref-card-header\"><div><div class=\"ref-code\">"+escHtml(ref.ref)+"</div>"+(ref.descricao?"<div class=\"ref-desc\">"+escHtml(ref.descricao)+"</div>":"")+medidaHtml+"</div>"+precoBaseHtml+"</div>"+estadosCard+"<div class=\"ref-meta\" style=\"margin-top:8px\">"+vigBadge+"<span class=\"badge\">&#x1F4C5; De: "+escHtml(ref.dataInicio||"–")+"</span><span class=\"badge\">&#x1F4C5; Ate: "+escHtml(ref.dataFim)+"</span>"+pesoBadge+"</div>"+obsHtml+calcHtml+acoes+"</div>";
+    var calcHtml=(ref.vigente&&usaCalc)?"<div class=\"calc-row\"><input type=\"text\" inputmode=\"decimal\" placeholder=\""+calcPlaceholder+"\" id=\"calc-"+ref.linha+"\" oninput=\"calcular("+calcArgs+")\" style=\"width:120px\"><button class=\"btn btn-ghost btn-sm\" onclick=\"calcular("+calcArgs+")\">Calcular</button></div><div id=\"estados-"+ref.linha+"\" style=\"display:flex;flex-wrap:wrap;gap:6px;margin-top:6px\"></div>":"";
+    return "<div class=\"ref-card "+(ref.vigente?"":"vencida")+"\"><div class=\"ref-card-header\"><div><div class=\"ref-code\">"+escHtml(ref.ref)+"</div>"+(ref.descricao?"<div class=\"ref-desc\">"+escHtml(ref.descricao)+"</div>":"")+medidaHtml+"</div></div>"+estadosCard+"<div class=\"ref-meta\" style=\"margin-top:8px\">"+vigBadge+"<span class=\"badge\">&#x1F4C5; De: "+escHtml(ref.dataInicio||"–")+"</span><span class=\"badge\">&#x1F4C5; Ate: "+escHtml(ref.dataFim)+"</span>"+pesoBadge+"</div>"+obsHtml+calcHtml+acoes+"</div>";
   }).join("");
 }
 
-function calcular(id,preco,medidaBase,precoRS,precoBA,precoCE,precoMG){
+function calcular(id,medidaBase,precoRS,precoBA,precoCE,precoMG){
   var raw=document.getElementById("calc-"+id).value.trim().replace(",",".");
   var input=parseFloat(raw);
-  var elRes=document.getElementById("result-"+id);
   var elEst=document.getElementById("estados-"+id);
-  if(!raw||isNaN(input)||input<=0){elRes.textContent="";if(elEst)elEst.innerHTML="";return;}
+  if(!raw||isNaN(input)||input<=0){if(elEst)elEst.innerHTML="";return;}
   var c=function(p){return medidaBase>0?(input/medidaBase)*p:p*input;};
-  elRes.textContent=preco>0?"= "+fmt(c(preco)):"";
   if(elEst){
     var tags=[["RS",precoRS],["BA",precoBA],["CE",precoCE],["MG",precoMG]]
       .filter(function(e){return e[1]>0;})
@@ -540,12 +533,13 @@ function montarPrint(lista,cliente,modo,refFiltro){
   var linhas=lista.map(function(ref){
     var unidade=ref.unidade||"metros";
     var medidaBase=ref.medidaBase||0;
-    var unidLabel=unidade==="pares"?"par":unidade==="pecas"?"peca":"metro";
-    var medSufixo=unidade==="metros"?"mm":"cm";
-    var precoInfo=Number(ref.preco).toLocaleString("pt-BR",{style:"currency",currency:"BRL"})+"<br><span style=\"font-size:10px;color:#999\">por "+unidLabel+(medidaBase>0?" ("+medidaBase+medSufixo+")":"")+"</span>";
-    return "<tr style=\"border-bottom:1px solid #e5e7eb\"><td style=\"padding:8px 10px;font-weight:600\">"+escHtml(ref.ref)+"</td><td style=\"padding:8px 10px;color:#555\">"+escHtml(ref.descricao||"–")+"</td><td style=\"padding:8px 10px;text-align:right;font-weight:700;color:#c07010\">"+precoInfo+"</td><td style=\"padding:8px 10px;text-align:center;font-size:12px\">"+escHtml(ref.dataInicio||"–")+"</td><td style=\"padding:8px 10px;text-align:center;font-size:12px\">"+escHtml(ref.dataFim)+"</td><td style=\"padding:8px 10px;text-align:center\"><span style=\"padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;background:"+(ref.vigente?"#d1fae5":"#fee2e2")+";color:"+(ref.vigente?"#065f46":"#991b1b")+"\">"+( ref.vigente?"Vigente":"Vencido")+"</span></td><td style=\"padding:8px 10px;font-size:12px;color:#777\">"+escHtml(ref.obs||"")+"</td></tr>";
+    var precoInfo=[["RS",ref.precoRS],["BA",ref.precoBA],["CE",ref.precoCE],["MG",ref.precoMG]]
+      .filter(function(e){return e[1]>0;})
+      .map(function(e){return "<b>"+e[0]+":</b> "+Number(e[1]).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});})
+      .join("<br>")||"—";
+    return "<tr style=\"border-bottom:1px solid #e5e7eb\"><td style=\"padding:8px 10px;font-weight:600\">"+escHtml(ref.ref)+"</td><td style=\"padding:8px 10px;color:#555\">"+escHtml(ref.descricao||"–")+"</td><td style=\"padding:8px 10px;font-size:12px;color:#c07010\">"+precoInfo+"</td><td style=\"padding:8px 10px;text-align:center;font-size:12px\">"+escHtml(ref.dataInicio||"–")+"</td><td style=\"padding:8px 10px;text-align:center;font-size:12px\">"+escHtml(ref.dataFim)+"</td><td style=\"padding:8px 10px;text-align:center\"><span style=\"padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;background:"+(ref.vigente?"#d1fae5":"#fee2e2")+";color:"+(ref.vigente?"#065f46":"#991b1b")+"\">"+( ref.vigente?"Vigente":"Vencido")+"</span></td><td style=\"padding:8px 10px;font-size:12px;color:#777\">"+escHtml(ref.obs||"")+"</td></tr>";
   }).join("");
-  var html="<div style=\"font-family:Arial,sans-serif;padding:24px;color:#222;max-width:960px;margin:0 auto\"><div style=\"display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #c07010;padding-bottom:16px;margin-bottom:20px\"><img src=\"https://i.ibb.co/FGGjdsM/LOGO-MARFIM.jpg\" style=\"height:52px;width:auto\"><div style=\"text-align:right\"><div style=\"font-size:18px;font-weight:700;color:#c07010\">TABELA DE PRECOS</div><div style=\"font-size:13px;color:#555\">"+modoLabel+"</div><div style=\"font-size:12px;color:#888;margin-top:2px\">Cliente: <strong>"+nomeCliente+"</strong> &nbsp;|&nbsp; Emitido em: "+hoje+"</div><div style=\"font-size:12px;color:#888\">Vendedor: "+S.vendedor.nome+"</div></div></div>"+(lista.length===0?"<p style=\"text-align:center;color:#999;padding:40px\">Nenhuma referencia encontrada.</p>":"<table style=\"width:100%;border-collapse:collapse\"><thead><tr style=\"background:#f5f5f5\"><th style=\"padding:10px;text-align:left;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">REFERENCIA</th><th style=\"padding:10px;text-align:left;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">DESCRICAO</th><th style=\"padding:10px;text-align:right;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">PRECO BASE</th><th style=\"padding:10px;text-align:center;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">INICIO</th><th style=\"padding:10px;text-align:center;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">FIM</th><th style=\"padding:10px;text-align:center;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">STATUS</th><th style=\"padding:10px;text-align:left;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">OBSERVACOES</th></tr></thead><tbody>"+linhas+"</tbody></table><div style=\"margin-top:16px;font-size:11px;color:#aaa;text-align:right\">"+lista.length+" registro(s)</div>")+"<div style=\"margin-top:40px;border-top:1px solid #e5e7eb;padding-top:12px;font-size:11px;color:#bbb;text-align:center\">Marfim &mdash; Documento gerado automaticamente pelo sistema de tabela de precos</div></div>";
+  var html="<div style=\"font-family:Arial,sans-serif;padding:24px;color:#222;max-width:960px;margin:0 auto\"><div style=\"display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #c07010;padding-bottom:16px;margin-bottom:20px\"><img src=\"https://i.ibb.co/FGGjdsM/LOGO-MARFIM.jpg\" style=\"height:52px;width:auto\"><div style=\"text-align:right\"><div style=\"font-size:18px;font-weight:700;color:#c07010\">TABELA DE PRECOS</div><div style=\"font-size:13px;color:#555\">"+modoLabel+"</div><div style=\"font-size:12px;color:#888;margin-top:2px\">Cliente: <strong>"+nomeCliente+"</strong> &nbsp;|&nbsp; Emitido em: "+hoje+"</div><div style=\"font-size:12px;color:#888\">Vendedor: "+S.vendedor.nome+"</div></div></div>"+(lista.length===0?"<p style=\"text-align:center;color:#999;padding:40px\">Nenhuma referencia encontrada.</p>":"<table style=\"width:100%;border-collapse:collapse\"><thead><tr style=\"background:#f5f5f5\"><th style=\"padding:10px;text-align:left;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">REFERENCIA</th><th style=\"padding:10px;text-align:left;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">DESCRICAO</th><th style=\"padding:10px;text-align:left;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">PRECOS POR ESTADO</th><th style=\"padding:10px;text-align:center;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">INICIO</th><th style=\"padding:10px;text-align:center;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">FIM</th><th style=\"padding:10px;text-align:center;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">STATUS</th><th style=\"padding:10px;text-align:left;font-size:12px;color:#666;border-bottom:2px solid #e5e7eb\">OBSERVACOES</th></tr></thead><tbody>"+linhas+"</tbody></table><div style=\"margin-top:16px;font-size:11px;color:#aaa;text-align:right\">"+lista.length+" registro(s)</div>")+"<div style=\"margin-top:40px;border-top:1px solid #e5e7eb;padding-top:12px;font-size:11px;color:#bbb;text-align:center\">Marfim &mdash; Documento gerado automaticamente pelo sistema de tabela de precos</div></div>";
   var out=document.getElementById("print-output");
   out.innerHTML=html;
   out.style.display="block";
@@ -579,8 +573,8 @@ async function recarregarListaCad(aba){
 async function salvarRef(){
   var aba=document.getElementById("cad-cliente").value;
   if(!aba){toast("Selecione um cliente.","error");return;}
-  var dados={ref:document.getElementById("cad-ref").value.trim(),descricao:document.getElementById("cad-desc").value.trim(),preco:document.getElementById("cad-preco").value,dataInicio:document.getElementById("cad-inicio").value,dataFim:document.getElementById("cad-fim").value,obs:document.getElementById("cad-obs").value.trim(),unidade:document.getElementById("cad-unidade").value,medidaBase:document.getElementById("cad-medida-base").value,precoRS:document.getElementById("cad-preco-rs").value,precoBA:document.getElementById("cad-preco-ba").value,precoCE:document.getElementById("cad-preco-ce").value,precoMG:document.getElementById("cad-preco-mg").value,peso:document.getElementById("cad-peso").value};
-  if(!dados.ref||!dados.preco||!dados.dataInicio){toast("Preencha os campos obrigatorios (*).","error");return;}
+  var dados={ref:document.getElementById("cad-ref").value.trim(),descricao:document.getElementById("cad-desc").value.trim(),preco:0,dataInicio:document.getElementById("cad-inicio").value,dataFim:document.getElementById("cad-fim").value,obs:document.getElementById("cad-obs").value.trim(),unidade:document.getElementById("cad-unidade").value,medidaBase:document.getElementById("cad-medida-base").value,precoRS:document.getElementById("cad-preco-rs").value,precoBA:document.getElementById("cad-preco-ba").value,precoCE:document.getElementById("cad-preco-ce").value,precoMG:document.getElementById("cad-preco-mg").value,peso:document.getElementById("cad-peso").value};
+  if(!dados.ref||!dados.dataInicio){toast("Preencha os campos obrigatorios (*).","error");return;}
   if(!dados.medidaBase||parseFloat(dados.medidaBase)<=0){toast("Informe a medida base (largura ou tamanho).","error");return;}
   var linhaEdicao=document.getElementById("cad-linha-edicao").value;
   loading(true,"Salvando...");
@@ -595,7 +589,6 @@ function editarRef(ref){
   document.getElementById("cad-form-title").textContent="Editar Referencia";
   document.getElementById("cad-ref").value=ref.ref;
   document.getElementById("cad-desc").value=ref.descricao;
-  document.getElementById("cad-preco").value=ref.preco;
   document.getElementById("cad-obs").value=ref.obs;
   document.getElementById("cad-linha-edicao").value=ref.linha;
   document.getElementById("cad-unidade").value=ref.unidade||"metros";
@@ -612,7 +605,7 @@ function editarRef(ref){
   document.getElementById("cad-form-area").scrollIntoView({behavior:"smooth"});
 }
 function limparFormCad(){
-  ["cad-ref","cad-desc","cad-preco","cad-inicio","cad-fim","cad-obs","cad-medida-base","cad-preco-rs","cad-preco-ba","cad-preco-ce","cad-preco-mg","cad-peso"].forEach(function(id){document.getElementById(id).value="";});
+  ["cad-ref","cad-desc","cad-inicio","cad-fim","cad-obs","cad-medida-base","cad-preco-rs","cad-preco-ba","cad-preco-ce","cad-preco-mg","cad-peso"].forEach(function(id){document.getElementById(id).value="";});
   document.getElementById("cad-linha-edicao").value="";
   document.getElementById("cad-unidade").value="metros";
   document.getElementById("cad-form-title").textContent="Nova Referencia";
@@ -642,26 +635,19 @@ function verHistorico(refCode){
     return db.localeCompare(da);
   });
   document.getElementById("modal-historico-ref").textContent="Referencia: "+refCode;
-  var unidLabel=function(u){return u==="pares"?"par":u==="pecas"?"peca":"metro";};
   var html=entradas.map(function(r,i){
     var unidade=r.unidade||"metros";
     var medSufixo=unidade==="metros"?"mm":"cm";
     var medLabel=/[a-zA-Z]/.test(r.medidaBaseLabel||"")?r.medidaBaseLabel:(r.medidaBase>0?r.medidaBase+medSufixo:"");
     var vigClass=r.vigente?"color:var(--success)":"color:var(--text3)";
     var vigTxt=r.vigente?"&#x2713; Vigente":"Vencido";
-    var precoHtml;
-    if(r.preco>0){
-      precoHtml="<div style=\"font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--navy)\">"+fmt(r.preco)+"</div>"
-        +"<div style=\"font-size:10px;color:var(--text3)\">por "+unidLabel(unidade)+(medLabel?" ("+escHtml(medLabel)+")":"")+"</div>";
-    }else{
-      var estadoTags=[["RS",r.precoRS],["BA",r.precoBA],["CE",r.precoCE],["MG",r.precoMG]]
-        .filter(function(e){return e[1]>0;})
-        .map(function(e){return "<span style=\"font-size:11px\"><b>"+e[0]+":</b> "+fmt(e[1])+"</span>";})
-        .join("<br>");
-      precoHtml=estadoTags
-        ?"<div style=\"font-family:'IBM Plex Mono',monospace;color:var(--navy)\">"+estadoTags+"</div>"
-        :"<div style=\"font-size:12px;color:var(--text3)\">—</div>";
-    }
+    var estadoTags=[["RS",r.precoRS],["BA",r.precoBA],["CE",r.precoCE],["MG",r.precoMG]]
+      .filter(function(e){return e[1]>0;})
+      .map(function(e){return "<span style=\"font-size:11px\"><b>"+e[0]+":</b> "+fmt(e[1])+"</span>";})
+      .join("<br>");
+    var precoHtml=estadoTags
+      ?"<div style=\"font-family:'IBM Plex Mono',monospace;color:var(--navy)\">"+estadoTags+"</div>"
+      :"<div style=\"font-size:12px;color:var(--text3)\">—</div>";
     return "<div style=\"display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);gap:12px\">"
       +"<div style=\"flex:1\">"
       +"<div style=\"font-size:11px;color:var(--text3)\">"+(r.dataInicio||"–")+" → "+r.dataFim+"</div>"
@@ -680,7 +666,7 @@ function fecharModalHistorico(){document.getElementById("modal-historico").class
 function abrirModalAtualizar(ref){
   S.refParaAtualizar=ref;
   document.getElementById("modal-atualizar-ref").textContent=ref.ref+(ref.descricao?" — "+ref.descricao:"");
-  ["atu-preco","atu-inicio","atu-fim","atu-rs","atu-ba","atu-ce","atu-mg"].forEach(function(id){document.getElementById(id).value="";});
+  ["atu-inicio","atu-fim","atu-rs","atu-ba","atu-ce","atu-mg"].forEach(function(id){document.getElementById(id).value="";});
   document.getElementById("modal-atualizar").classList.add("active");
 }
 function fecharModalAtualizar(){
@@ -692,14 +678,13 @@ async function salvarAtualizarPreco(){
   var inicio=document.getElementById("atu-inicio").value;
   if(!inicio){toast("Informe a nova data de inicio.","error");return;}
   var pF=function(v){return parseFloat(String(v).trim().replace(",","."))||0;};
-  var preco=document.getElementById("atu-preco").value;
   var rs=document.getElementById("atu-rs").value;
   var ba=document.getElementById("atu-ba").value;
   var ce=document.getElementById("atu-ce").value;
   var mg=document.getElementById("atu-mg").value;
-  if(!pF(preco)&&!pF(rs)&&!pF(ba)&&!pF(ce)&&!pF(mg)){toast("Informe pelo menos um preco.","error");return;}
+  if(!pF(rs)&&!pF(ba)&&!pF(ce)&&!pF(mg)){toast("Informe pelo menos um preco por estado.","error");return;}
   var aba=document.getElementById("cad-cliente").value;
-  var dados={preco:preco,precoRS:rs,precoBA:ba,precoCE:ce,precoMG:mg,dataInicio:inicio,dataFim:document.getElementById("atu-fim").value};
+  var dados={preco:0,precoRS:rs,precoBA:ba,precoCE:ce,precoMG:mg,dataInicio:inicio,dataFim:document.getElementById("atu-fim").value};
   fecharModalAtualizar();
   loading(true,"Atualizando...");
   try{

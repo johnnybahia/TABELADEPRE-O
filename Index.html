@@ -66,6 +66,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
 .ref-price{text-align:right;flex-shrink:0;}
 .ref-price-val{font-family:"IBM Plex Mono",monospace;font-size:20px;font-weight:700;color:var(--navy);}
 .ref-price-label{font-size:11px;color:var(--text2);}
+.ref-medida{font-family:"IBM Plex Mono",monospace;font-size:14px;font-weight:700;color:var(--accent);margin-top:5px;letter-spacing:.03em;}
 .ref-meta{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;}
 .badge{display:inline-block;padding:2px 9px;border-radius:12px;font-size:11px;font-weight:600;background:var(--surface2);color:var(--text2);border:1px solid var(--border);}
 .badge.ok{background:rgba(64,192,128,.12);color:var(--success);border-color:rgba(64,192,128,.3);}
@@ -469,14 +470,14 @@ function renderRefs(r,containerId,modoEdicao){
         +"</div>":"";
     var vigBadge=ref.vigente?"<span class=\"badge ok\">&#x2713; Vigente</span>":"<span class=\"badge err\">&#x2717; Fora de vigencia</span>";
     var pesoBadge=ref.peso>0?"<span class=\"badge\">&#x2696;&#xFE0F; "+escHtml(String(ref.peso))+"g</span>":"";
-    var medidaBadge=medidaBase>0?"<span class=\"badge\">"+medidaBase+medSufixo+"</span>":"";
+    var medidaHtml=medidaBase>0?"<div class=\"ref-medida\">"+medidaBase+medSufixo+"</div>":"";
     var obsHtml=ref.obs?"<div class=\"ref-obs\">&#x1F4DD; "+escHtml(ref.obs)+"</div>":"";
     var refJson=escHtml(JSON.stringify(ref));
     var acoes=modoEdicao?"<div class=\"ref-actions\"><button class=\"btn btn-ghost btn-sm\" onclick=\"verHistorico('"+escHtml(ref.ref.replace(/'/g,"\\'"))+"')\">&#x1F4C8; Historico</button><button class=\"btn btn-ghost btn-sm\" onclick=\"editarRef("+refJson+")\">&#x270F;&#xFE0F; Editar</button>"+(ref.vigente?"<button class=\"btn btn-ghost btn-sm\" style=\"color:var(--accent);border-color:var(--accent)\" onclick=\"abrirModalAtualizar("+refJson+")\">&#x1F504; Atualizar Preco</button>":"")+"</div>":"";
     var calcArgs="'"+parseInt(ref.linha,10)+"',"+ref.preco+","+medidaBase+","+rs+","+ba+","+ce+","+mg;
     var calcHtml=(ref.vigente&&unidade!=="metros")?"<div class=\"calc-row\"><input type=\"text\" inputmode=\"decimal\" placeholder=\""+calcPlaceholder+"\" id=\"calc-"+ref.linha+"\" oninput=\"calcular("+calcArgs+")\" style=\"width:120px\"><button class=\"btn btn-ghost btn-sm\" onclick=\"calcular("+calcArgs+")\">Calcular</button><span class=\"calc-result\" id=\"result-"+ref.linha+"\"></span></div><div id=\"estados-"+ref.linha+"\" style=\"display:flex;flex-wrap:wrap;gap:6px;margin-top:6px\"></div>":"";
     var precoBaseHtml=ref.preco>0?"<div class=\"ref-price\"><div class=\"ref-price-val\">"+fmt(ref.preco)+"</div><div class=\"ref-price-label\">"+precoLabel+"</div></div>":"";
-    return "<div class=\"ref-card "+(ref.vigente?"":"vencida")+"\"><div class=\"ref-card-header\"><div><div class=\"ref-code\">"+escHtml(ref.ref)+"</div>"+(ref.descricao?"<div class=\"ref-desc\">"+escHtml(ref.descricao)+"</div>":"")+"</div>"+precoBaseHtml+"</div>"+estadosCard+"<div class=\"ref-meta\" style=\"margin-top:8px\">"+vigBadge+"<span class=\"badge\">&#x1F4C5; De: "+escHtml(ref.dataInicio||"–")+"</span><span class=\"badge\">&#x1F4C5; Ate: "+escHtml(ref.dataFim)+"</span>"+medidaBadge+pesoBadge+"</div>"+obsHtml+calcHtml+acoes+"</div>";
+    return "<div class=\"ref-card "+(ref.vigente?"":"vencida")+"\"><div class=\"ref-card-header\"><div><div class=\"ref-code\">"+escHtml(ref.ref)+"</div>"+(ref.descricao?"<div class=\"ref-desc\">"+escHtml(ref.descricao)+"</div>":"")+medidaHtml+"</div>"+precoBaseHtml+"</div>"+estadosCard+"<div class=\"ref-meta\" style=\"margin-top:8px\">"+vigBadge+"<span class=\"badge\">&#x1F4C5; De: "+escHtml(ref.dataInicio||"–")+"</span><span class=\"badge\">&#x1F4C5; Ate: "+escHtml(ref.dataFim)+"</span>"+pesoBadge+"</div>"+obsHtml+calcHtml+acoes+"</div>";
   }).join("");
 }
 

@@ -65,8 +65,13 @@ Ambas são **idempotentes** — podem ser executadas múltiplas vezes sem risco 
 | F      | Observacoes  | String  | Não         |
 | G      | Unidade      | String  | Sim (`metros` / `pares` / `pecas`) |
 | H      | MedidaBase   | Number  | Sim (mm para metros, cm para pares/peças) |
+| I      | PrecoRS      | Number  | Não (usa Preco base se vazio/zero) |
+| J      | PrecoBA      | Number  | Não (usa Preco base se vazio/zero) |
+| K      | PrecoCE      | Number  | Não (usa Preco base se vazio/zero) |
+| L      | PrecoMG      | Number  | Não (usa Preco base se vazio/zero) |
 
 Itens sem Unidade/MedidaBase (legados) são tratados como `metros` com cálculo direto `preco × entrada`.
+Preços por estado são opcionais; quando zero/ausentes, o frontend usa o Preco base.
 
 ---
 
@@ -105,3 +110,44 @@ gas("nomeDaFuncao", arg1, arg2).then(resultado => { ... });
 
 // todas as funções retornam { ok: true, ... } ou { ok: false, erro: "..." }
 ```
+
+---
+
+## Regra crítica: parsing de números
+
+**Toda vez que ler ou salvar um valor numérico — vindo de planilha, de input do usuário ou de qualquer fonte externa — use o helper `pN` para converter:**
+
+```javascript
+// No backend (Codigo.gs):
+const pN = v => Number(String(v || "0").replace(",", ".")) || 0;
+
+// No frontend (Index.html), para inputs do usuário:
+parseFloat(String(valor).trim().replace(",", ".")) || 0
+```
+
+**Por quê isso importa:**
+- Google Sheets pode armazenar a célula como **Texto** quando o usuário digita diretamente; nesse caso `getValues()` retorna a string `"10,50"` e `Number("10,50")` retorna `NaN`.
+- Usuários brasileiros digitam vírgula como separador decimal (`"10,50"`), que `parseFloat` nativo também não entende.
+- `Number(preco) || 0` sem o `.replace(",", ".")` **silenciosamente zera preços válidos**.
+
+**Regras práticas:**
+1. No backend, nunca use `Number(x)` diretamente sobre valores vindos de `getValues()` — sempre use `pN(x)`.
+2. No frontend, `calcular()` já faz `.replace(",", ".")` antes do `parseFloat` — mantenha esse padrão em qualquer nova função de cálculo.
+3. Inputs de preço no formulário devem ter `type="text" inputmode="decimal"` (não `type="number"`) para aceitar vírgula.
+4. Ao injetar valores numéricos em strings HTML (ex: atributos `onclick`), garanta que vieram de `pN()` no backend — isso assegura que são JS Numbers puros, sem vírgula ou símbolo de moeda.
+
+---
+
+## Regra crítica: segurança no frontend
+
+**Nunca injete dados da planilha diretamente em `innerHTML` sem escapar:**
+
+```javascript
+// ERRADO — XSS se o campo contiver HTML:
+el.innerHTML = "<div>" + ref.descricao + "</div>";
+
+// CORRETO — sempre use escHtml():
+el.innerHTML = "<div>" + escHtml(ref.descricao) + "</div>";
+```
+
+A função `escHtml` já existe no `Index.html` e escapa `&`, `<`, `>`, `"`. Use-a em **todos** os campos de texto de origem externa antes de inserir em HTML, inclusive em modais, tooltips e impressão.

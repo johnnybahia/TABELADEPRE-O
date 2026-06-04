@@ -121,7 +121,7 @@ gas("nomeDaFuncao", arg1, arg2).then(resultado => { ... });
 
 ```javascript
 // No backend (Codigo.gs):
-const pN = v => Number(String(v || "0").replace(",", ".")) || 0;
+const pN = v => parseFloat(String(v || "0").replace(",", ".")) || 0;
 
 // No frontend (Index.html), para inputs do usuário:
 parseFloat(String(valor).trim().replace(",", ".")) || 0

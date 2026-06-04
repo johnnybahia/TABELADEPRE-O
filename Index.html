@@ -66,6 +66,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
 .ref-price{text-align:right;flex-shrink:0;}
 .ref-price-val{font-family:"IBM Plex Mono",monospace;font-size:20px;font-weight:700;color:var(--navy);}
 .ref-price-label{font-size:11px;color:var(--text2);}
+.ref-medida{font-family:"IBM Plex Mono",monospace;font-size:14px;font-weight:700;color:var(--accent);margin-top:5px;letter-spacing:.03em;}
 .ref-meta{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;}
 .badge{display:inline-block;padding:2px 9px;border-radius:12px;font-size:11px;font-weight:600;background:var(--surface2);color:var(--text2);border:1px solid var(--border);}
 .badge.ok{background:rgba(64,192,128,.12);color:var(--success);border-color:rgba(64,192,128,.3);}
@@ -228,6 +229,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
             <div class="field"><label id="cad-preco-label">Preco base (R$) *</label><input type="number" id="cad-preco" placeholder="0,00" step="0.01" min="0"></div>
             <div class="field"><label>Data de Inicio *</label><input type="date" id="cad-inicio"></div>
             <div class="field"><label>Data de Fim (vazio = sem vencimento)</label><input type="date" id="cad-fim"></div>
+            <div class="field"><label>Peso (opcional)</label><input type="text" inputmode="decimal" id="cad-peso" placeholder="Ex: 25"></div>
             <div class="field full"><label>Observacoes</label><textarea id="cad-obs" rows="3" placeholder="Ex: Valido para pedidos acima de 500m"></textarea></div>
             <div class="field full">
               <label>Precos por Estado (opcional &mdash; deixe vazio para usar o preco base)</label>
@@ -303,6 +305,31 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
     <div id="modal-historico-lista" style="max-height:340px;overflow-y:auto"></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fecharModalHistorico()">Fechar</button>
+    </div>
+  </div>
+</div>
+<!-- MODAL ATUALIZAR PRECO -->
+<div class="modal-overlay" id="modal-atualizar">
+  <div class="modal" style="max-width:480px">
+    <h3>&#x1F504; Atualizar Preco</h3>
+    <p class="modal-sub" id="modal-atualizar-ref"></p>
+    <div class="form-grid" style="margin-bottom:16px">
+      <div class="field"><label>Novo Preco Base (R$)</label><input type="text" inputmode="decimal" id="atu-preco" placeholder="0,00"></div>
+      <div class="field"><label>Nova Data de Inicio *</label><input type="date" id="atu-inicio"></div>
+      <div class="field full"><label>Nova Data de Fim (vazio = sem vencimento)</label><input type="date" id="atu-fim"></div>
+      <div class="field full">
+        <label>Precos por Estado (opcional)</label>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:4px">
+          <div><label style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">RS&nbsp;(R$)</label><input type="text" inputmode="decimal" id="atu-rs" placeholder="0,00" style="margin-top:4px"></div>
+          <div><label style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">BA&nbsp;(R$)</label><input type="text" inputmode="decimal" id="atu-ba" placeholder="0,00" style="margin-top:4px"></div>
+          <div><label style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">CE&nbsp;(R$)</label><input type="text" inputmode="decimal" id="atu-ce" placeholder="0,00" style="margin-top:4px"></div>
+          <div><label style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">MG&nbsp;(R$)</label><input type="text" inputmode="decimal" id="atu-mg" placeholder="0,00" style="margin-top:4px"></div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModalAtualizar()">Cancelar</button>
+      <button class="btn btn-success" style="background:var(--navy)" onclick="salvarAtualizarPreco()">&#x1F4BE; Confirmar</button>
     </div>
   </div>
 </div>
@@ -442,12 +469,15 @@ function renderRefs(r,containerId,modoEdicao){
         +(mg?"<div class=\"estado-pill\"><div class=\"estado-uf\">MG</div><div class=\"estado-val\">"+fmt(mg)+"</div></div>":"")
         +"</div>":"";
     var vigBadge=ref.vigente?"<span class=\"badge ok\">&#x2713; Vigente</span>":"<span class=\"badge err\">&#x2717; Fora de vigencia</span>";
+    var pesoBadge=ref.peso>0?"<span class=\"badge\">&#x2696;&#xFE0F; "+escHtml(String(ref.peso))+"g</span>":"";
+    var medidaHtml=medidaBase>0?"<div class=\"ref-medida\">"+medidaBase+medSufixo+"</div>":"";
     var obsHtml=ref.obs?"<div class=\"ref-obs\">&#x1F4DD; "+escHtml(ref.obs)+"</div>":"";
-    var acoes=modoEdicao?"<div class=\"ref-actions\"><button class=\"btn btn-ghost btn-sm\" onclick=\"verHistorico('"+escHtml(ref.ref.replace(/'/g,"\\'"))+"')\">&#x1F4C8; Historico</button><button class=\"btn btn-ghost btn-sm\" onclick=\"editarRef("+escHtml(JSON.stringify(ref))+")\">&#x270F;&#xFE0F; Editar</button></div>":"";
+    var refJson=escHtml(JSON.stringify(ref));
+    var acoes=modoEdicao?"<div class=\"ref-actions\"><button class=\"btn btn-ghost btn-sm\" onclick=\"verHistorico('"+escHtml(ref.ref.replace(/'/g,"\\'"))+"')\">&#x1F4C8; Historico</button><button class=\"btn btn-ghost btn-sm\" onclick=\"editarRef("+refJson+")\">&#x270F;&#xFE0F; Editar</button>"+(ref.vigente?"<button class=\"btn btn-ghost btn-sm\" style=\"color:var(--accent);border-color:var(--accent)\" onclick=\"abrirModalAtualizar("+refJson+")\">&#x1F504; Atualizar Preco</button>":"")+"</div>":"";
     var calcArgs="'"+parseInt(ref.linha,10)+"',"+ref.preco+","+medidaBase+","+rs+","+ba+","+ce+","+mg;
-    var calcHtml=ref.vigente?"<div class=\"calc-row\"><input type=\"text\" inputmode=\"decimal\" placeholder=\""+calcPlaceholder+"\" id=\"calc-"+ref.linha+"\" oninput=\"calcular("+calcArgs+")\" style=\"width:120px\"><button class=\"btn btn-ghost btn-sm\" onclick=\"calcular("+calcArgs+")\">Calcular</button><span class=\"calc-result\" id=\"result-"+ref.linha+"\"></span></div><div id=\"estados-"+ref.linha+"\" style=\"display:flex;flex-wrap:wrap;gap:6px;margin-top:6px\"></div>":"";
+    var calcHtml=(ref.vigente&&unidade!=="metros")?"<div class=\"calc-row\"><input type=\"text\" inputmode=\"decimal\" placeholder=\""+calcPlaceholder+"\" id=\"calc-"+ref.linha+"\" oninput=\"calcular("+calcArgs+")\" style=\"width:120px\"><button class=\"btn btn-ghost btn-sm\" onclick=\"calcular("+calcArgs+")\">Calcular</button><span class=\"calc-result\" id=\"result-"+ref.linha+"\"></span></div><div id=\"estados-"+ref.linha+"\" style=\"display:flex;flex-wrap:wrap;gap:6px;margin-top:6px\"></div>":"";
     var precoBaseHtml=ref.preco>0?"<div class=\"ref-price\"><div class=\"ref-price-val\">"+fmt(ref.preco)+"</div><div class=\"ref-price-label\">"+precoLabel+"</div></div>":"";
-    return "<div class=\"ref-card "+(ref.vigente?"":"vencida")+"\"><div class=\"ref-card-header\"><div><div class=\"ref-code\">"+escHtml(ref.ref)+"</div>"+(ref.descricao?"<div class=\"ref-desc\">"+escHtml(ref.descricao)+"</div>":"")+"</div>"+precoBaseHtml+"</div>"+estadosCard+"<div class=\"ref-meta\" style=\"margin-top:8px\">"+vigBadge+"<span class=\"badge\">&#x1F4C5; De: "+escHtml(ref.dataInicio||"–")+"</span><span class=\"badge\">&#x1F4C5; Ate: "+escHtml(ref.dataFim)+"</span></div>"+obsHtml+calcHtml+acoes+"</div>";
+    return "<div class=\"ref-card "+(ref.vigente?"":"vencida")+"\"><div class=\"ref-card-header\"><div><div class=\"ref-code\">"+escHtml(ref.ref)+"</div>"+(ref.descricao?"<div class=\"ref-desc\">"+escHtml(ref.descricao)+"</div>":"")+medidaHtml+"</div>"+precoBaseHtml+"</div>"+estadosCard+"<div class=\"ref-meta\" style=\"margin-top:8px\">"+vigBadge+"<span class=\"badge\">&#x1F4C5; De: "+escHtml(ref.dataInicio||"–")+"</span><span class=\"badge\">&#x1F4C5; Ate: "+escHtml(ref.dataFim)+"</span>"+pesoBadge+"</div>"+obsHtml+calcHtml+acoes+"</div>";
   }).join("");
 }
 
@@ -547,7 +577,7 @@ async function recarregarListaCad(aba){
 async function salvarRef(){
   var aba=document.getElementById("cad-cliente").value;
   if(!aba){toast("Selecione um cliente.","error");return;}
-  var dados={ref:document.getElementById("cad-ref").value.trim(),descricao:document.getElementById("cad-desc").value.trim(),preco:document.getElementById("cad-preco").value,dataInicio:document.getElementById("cad-inicio").value,dataFim:document.getElementById("cad-fim").value,obs:document.getElementById("cad-obs").value.trim(),unidade:document.getElementById("cad-unidade").value,medidaBase:document.getElementById("cad-medida-base").value,precoRS:document.getElementById("cad-preco-rs").value,precoBA:document.getElementById("cad-preco-ba").value,precoCE:document.getElementById("cad-preco-ce").value,precoMG:document.getElementById("cad-preco-mg").value};
+  var dados={ref:document.getElementById("cad-ref").value.trim(),descricao:document.getElementById("cad-desc").value.trim(),preco:document.getElementById("cad-preco").value,dataInicio:document.getElementById("cad-inicio").value,dataFim:document.getElementById("cad-fim").value,obs:document.getElementById("cad-obs").value.trim(),unidade:document.getElementById("cad-unidade").value,medidaBase:document.getElementById("cad-medida-base").value,precoRS:document.getElementById("cad-preco-rs").value,precoBA:document.getElementById("cad-preco-ba").value,precoCE:document.getElementById("cad-preco-ce").value,precoMG:document.getElementById("cad-preco-mg").value,peso:document.getElementById("cad-peso").value};
   if(!dados.ref||!dados.preco||!dados.dataInicio){toast("Preencha os campos obrigatorios (*).","error");return;}
   if(!dados.medidaBase||parseFloat(dados.medidaBase)<=0){toast("Informe a medida base (largura ou tamanho).","error");return;}
   var linhaEdicao=document.getElementById("cad-linha-edicao").value;
@@ -572,6 +602,7 @@ function editarRef(ref){
   document.getElementById("cad-preco-ba").value=ref.precoBA||"";
   document.getElementById("cad-preco-ce").value=ref.precoCE||"";
   document.getElementById("cad-preco-mg").value=ref.precoMG||"";
+  document.getElementById("cad-peso").value=ref.peso||"";
   atualizarCamposMedida();
   var toISO=function(s){if(!s||s==="Sem vencimento")return "";var p=s.split("/");return p[2]&&p[1]&&p[0]?p[2]+"-"+p[1]+"-"+p[0]:"";};
   document.getElementById("cad-inicio").value=toISO(ref.dataInicio);
@@ -579,7 +610,7 @@ function editarRef(ref){
   document.getElementById("cad-form-area").scrollIntoView({behavior:"smooth"});
 }
 function limparFormCad(){
-  ["cad-ref","cad-desc","cad-preco","cad-inicio","cad-fim","cad-obs","cad-medida-base","cad-preco-rs","cad-preco-ba","cad-preco-ce","cad-preco-mg"].forEach(function(id){document.getElementById(id).value="";});
+  ["cad-ref","cad-desc","cad-preco","cad-inicio","cad-fim","cad-obs","cad-medida-base","cad-preco-rs","cad-preco-ba","cad-preco-ce","cad-preco-mg","cad-peso"].forEach(function(id){document.getElementById(id).value="";});
   document.getElementById("cad-linha-edicao").value="";
   document.getElementById("cad-unidade").value="metros";
   document.getElementById("cad-form-title").textContent="Nova Referencia";
@@ -631,6 +662,39 @@ function verHistorico(refCode){
   document.getElementById("modal-historico").classList.add("active");
 }
 function fecharModalHistorico(){document.getElementById("modal-historico").classList.remove("active");}
+function abrirModalAtualizar(ref){
+  S.refParaAtualizar=ref;
+  document.getElementById("modal-atualizar-ref").textContent=ref.ref+(ref.descricao?" — "+ref.descricao:"");
+  ["atu-preco","atu-inicio","atu-fim","atu-rs","atu-ba","atu-ce","atu-mg"].forEach(function(id){document.getElementById(id).value="";});
+  document.getElementById("modal-atualizar").classList.add("active");
+}
+function fecharModalAtualizar(){
+  document.getElementById("modal-atualizar").classList.remove("active");
+  S.refParaAtualizar=null;
+}
+async function salvarAtualizarPreco(){
+  if(!S.refParaAtualizar){return;}
+  var inicio=document.getElementById("atu-inicio").value;
+  if(!inicio){toast("Informe a nova data de inicio.","error");return;}
+  var pF=function(v){return parseFloat(String(v).trim().replace(",","."))||0;};
+  var preco=document.getElementById("atu-preco").value;
+  var rs=document.getElementById("atu-rs").value;
+  var ba=document.getElementById("atu-ba").value;
+  var ce=document.getElementById("atu-ce").value;
+  var mg=document.getElementById("atu-mg").value;
+  if(!pF(preco)&&!pF(rs)&&!pF(ba)&&!pF(ce)&&!pF(mg)){toast("Informe pelo menos um preco.","error");return;}
+  var aba=document.getElementById("cad-cliente").value;
+  var dados={preco:preco,precoRS:rs,precoBA:ba,precoCE:ce,precoMG:mg,dataInicio:inicio,dataFim:document.getElementById("atu-fim").value};
+  fecharModalAtualizar();
+  loading(true,"Atualizando...");
+  try{
+    var r=await gas("renovarReferencia",aba,S.refParaAtualizar.linha,dados,S.vendedor.id);
+    if(!r.ok){toast(r.erro,"error");loading(false);return;}
+    toast("Preco atualizado!","success");
+    await recarregarListaCad(aba);
+  }catch(e){toast("Erro ao atualizar.","error");}
+  loading(false);
+}
 
 // ADMIN
 function escHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}

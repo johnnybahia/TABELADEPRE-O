@@ -30,6 +30,7 @@ const SCHEMA_CLIENTE = [
   { nome: "PrecoBA",     largura: 100 },
   { nome: "PrecoCE",     largura: 100 },
   { nome: "PrecoMG",     largura: 100 },
+  { nome: "Peso",        largura: 100 },
   // → adicione novas colunas SEMPRE ao final
 ];
 ```
@@ -69,6 +70,7 @@ Ambas são **idempotentes** — podem ser executadas múltiplas vezes sem risco 
 | J      | PrecoBA      | Number  | Não (usa Preco base se vazio/zero) |
 | K      | PrecoCE      | Number  | Não (usa Preco base se vazio/zero) |
 | L      | PrecoMG      | Number  | Não (usa Preco base se vazio/zero) |
+| M      | Peso         | Number  | Não (peso do material, ex: g/m) |
 
 Itens sem Unidade/MedidaBase (legados) são tratados como `metros` com cálculo direto `preco × entrada`.
 Preços por estado são opcionais; quando zero/ausentes, o frontend usa o Preco base.

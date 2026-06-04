@@ -443,7 +443,7 @@ async function buscarRefs(){
     var busca=document.getElementById("busca-input").value.trim();
     loading(true,"Buscando...");
     try{var r=await gas("getReferencias",S.clienteSelecionado,busca,S.vendedor.id);if(r.ok)S.refsConsulta=r.refs;renderRefs(r,"ref-list",false);}
-    catch(e){toast("Erro ao buscar.","error");}
+    catch(e){S.refsConsulta=[];toast("Erro ao buscar.","error");}
     loading(false);
   },400);
 }
@@ -454,7 +454,7 @@ function renderRefs(r,containerId,modoEdicao){
   if(!r.refs.length){el.innerHTML="<div class=\"empty-state\"><div class=\"icon\">&#x1F4ED;</div><p>Nenhuma referencia encontrada</p></div>";return;}
   var groupedRefs={};var refOrder=[];
   r.refs.forEach(function(ref){var key=ref.ref.toUpperCase()+"|"+(ref.descricao||"").toUpperCase()+"|"+String(ref.medidaBase||0);if(!groupedRefs[key]){groupedRefs[key]=[];refOrder.push(key);}groupedRefs[key].push(ref);});
-  var refsToRender=refOrder.map(function(key){var g=groupedRefs[key];return g.sort(function(a,b){var da=a.dataInicio?a.dataInicio.split("/").reverse().join(""):"0";var db=b.dataInicio?b.dataInicio.split("/").reverse().join(""):"0";return db.localeCompare(da);})[0];});
+  var refsToRender=refOrder.map(function(key){var g=groupedRefs[key];return g.sort(function(a,b){var da=a.dataInicio?a.dataInicio.split("/").reverse().join(""):"0";var db=b.dataInicio?b.dataInicio.split("/").reverse().join(""):"0";return db>da?-1:db<da?1:0;})[0];});
   el.innerHTML=refsToRender.map(function(ref){
     var gKey=ref.ref.toUpperCase()+"|"+(ref.descricao||"").toUpperCase()+"|"+String(ref.medidaBase||0);var numHist=(groupedRefs[gKey]||[]).length-1;
     var unidade=ref.unidade||"metros";
@@ -480,7 +480,7 @@ function renderRefs(r,containerId,modoEdicao){
     var calcArgs="'"+parseInt(ref.linha,10)+"',"+medidaBase+","+rs+","+ba+","+ce+","+mg;
     var usaCalc=/mm/i.test(medidaLabel)?false:/cm/i.test(medidaLabel)?true:unidade!=="metros";
     var calcHtml=(ref.vigente&&usaCalc)?"<div class=\"calc-row\"><input type=\"text\" inputmode=\"decimal\" placeholder=\""+calcPlaceholder+"\" id=\"calc-"+ref.linha+"\" oninput=\"calcular("+calcArgs+")\" style=\"width:120px\"><button class=\"btn btn-ghost btn-sm\" onclick=\"calcular("+calcArgs+")\">Calcular</button></div><div id=\"estados-"+ref.linha+"\" style=\"display:flex;flex-wrap:wrap;gap:6px;margin-top:6px\"></div>":"";
-    var vencidaBanner=!ref.vigente?"<div class=\"preco-desatualizado-banner\"><span>&#x26A0;</span> Preco desatualizado"+(ref.dataFim&&ref.dataFim!=="Sem vencimento"?" &mdash; vencido em "+escHtml(ref.dataFim):"")+". Consulte nova tabela.</div>":"";
+    var vencidaBanner=(!ref.vigente&&ref.dataFim&&ref.dataFim!=="Sem vencimento")?"<div class=\"preco-desatualizado-banner\"><span>&#x26A0;</span> Preco desatualizado &mdash; vencido em "+escHtml(ref.dataFim)+". Consulte nova tabela.</div>":"";
     return "<div class=\"ref-card "+(ref.vigente?"":"vencida")+"\">"+vencidaBanner+"<div class=\"ref-card-header\"><div><div class=\"ref-code\">"+escHtml(ref.ref)+"</div>"+(ref.descricao?"<div class=\"ref-desc\">"+escHtml(ref.descricao)+"</div>":"")+medidaHtml+"</div></div>"+estadosCard+"<div class=\"ref-meta\" style=\"margin-top:8px\">"+vigBadge+"<span class=\"badge\">&#x1F4C5; De: "+escHtml(ref.dataInicio||"–")+"</span><span class=\"badge\">&#x1F4C5; Ate: "+escHtml(ref.dataFim)+"</span>"+pesoBadge+"</div>"+obsHtml+calcHtml+acoes+"</div>";
   }).join("");
 }
@@ -641,7 +641,7 @@ function verHistorico(refObj,fonte){
   entradas.sort(function(a,b){
     var da=a.dataInicio?a.dataInicio.split("/").reverse().join(""):"0";
     var db=b.dataInicio?b.dataInicio.split("/").reverse().join(""):"0";
-    return db.localeCompare(da);
+    return db>da?-1:db<da?1:0;
   });
   document.getElementById("modal-historico-ref").textContent="Referencia: "+refObj.ref+(refObj.descricao?" — "+refObj.descricao:"");
   var html=entradas.map(function(r,i){

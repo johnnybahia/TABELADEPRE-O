@@ -182,6 +182,7 @@ function salvarReferencia(nomeAba, dados, vendedorId, linhaEdicao) {
 
       const existInicio = rInicio ? new Date(rInicio) : null;
       const existFim = rFim ? new Date(rFim) : null;
+      if (!existFim) continue; // linha sem DataFim definido não bloqueia novos registros
 
       const sobreposicao = _datasSeOverlapam(dInicio, dFim, existInicio, existFim);
       if (sobreposicao) return { ok: false, erro: `Conflito de vigência com registro existente na linha ${i + 1}.` };
@@ -418,8 +419,14 @@ function enviarEmailAtualizacao(nomeAba, vendedorIdRemetente) {
     const nomeCliente = nomeAba.replace(/ CLIENTE$/i, "");
     const hoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
 
-    // Montar linhas da tabela — apenas vigentes no email
-    const vigentes = refs.filter(r => r.vigente);
+    // Montar linhas da tabela — apenas vigentes no email, dedupando por ref+descricao+medidaBase
+    const byKey = {};
+    refs.forEach(r => {
+      const k = `${String(r.ref||'').toUpperCase()}|${String(r.descricao||'').toUpperCase()}|${r.medidaBase||0}`;
+      const d = r.dataInicio ? r.dataInicio.split('/').reverse().join('') : '0';
+      if (!byKey[k] || d > byKey[k].d) byKey[k] = { r, d };
+    });
+    const vigentes = Object.values(byKey).map(v => v.r).filter(r => r.vigente);
     const fmtBRL = v => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
     const linhasTabela = vigentes.map(r => {
       const unidLabel = r.unidade === "pares" ? "par" : r.unidade === "pecas" ? "peça" : "metro";

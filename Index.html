@@ -607,6 +607,32 @@ function pBR(v){v=String(v==null?"":v).trim();if(!v)return 0;v=v.replace(/\./g,"
 function dataBR(s){var m=String(s||"").match(/(\d{2})\/(\d{2})\/(\d{4})/);return m?new Date(+m[3],+m[2]-1,+m[1]):null;}
 function normTxt(s){return String(s||"").toUpperCase().replace(/[^A-Z0-9]/g,"");}
 
+// Detecta o atributo "goma" em qualquer variacao: C/GOMA, com goma,
+// engomada/engomado, egomada, engo, gomada... Negacoes (S/GOMA, sem goma)
+// contam como SEM goma.
+function confTemGoma(txt){
+  var t=String(txt||"").toUpperCase();
+  if(/(?:\bSEM\s+|\bS\s*\/\s*)(?:GOMA|ENGOMAD|GOMAD)/.test(t))return false;
+  return /\b(?:GOMA|GOMAD[OA]|ENGOMAD[OA]?|EGOMAD[OA]?|ENGO)\b/.test(t);
+}
+// Remove o trecho de goma da referencia cadastrada para obter o codigo-base
+// (ex: "MFGP/T2 C/Goma" → "MFGP/T2").
+function confBaseRef(ref){
+  return String(ref||"")
+    .replace(/\b(?:C\s*\/\s*GOMA|COM\s+GOMA|SEM\s+GOMA|S\s*\/\s*GOMA|ENGOMAD[OA]?|EGOMAD[OA]?|GOMAD[OA]|GOMA|ENGO)\b/gi," ")
+    .replace(/\s+/g," ").trim();
+}
+// Regex de casamento da referencia: ancorada no INICIO do codigo
+// (nao pode haver letra/numero antes) e que rejeita digito logo apos
+// (assim M2173 casa com "M2173.114" / "M2173 BRANCO" mas nao com "M21730").
+// Separadores espaco/ponto/barra/hifen sao tolerados dentro do codigo
+// ("MR110022" casa com "MR 110022"; "MFGP/T2" casa com "MFGPT2").
+function confRefRegex(base){
+  var n=normTxt(base);
+  if(n.length<3)return null;
+  return new RegExp("(?:^|[^A-Z0-9])"+n.split("").join("[\\s./\\-]*")+"(?![0-9])","i");
+}
+
 async function confExtrairLinhas(buf){
   var pdf=await pdfjsLib.getDocument({data:new Uint8Array(buf)}).promise;
   var linhas=[];
@@ -693,21 +719,33 @@ function confEscolherVigencia(rows,emissao){
 }
 
 function confValidar(blocos,refs,uf,emissaoStr){
-  var grupos={};
+  // agrupa o cadastro por codigo-base + atributo goma (variantes com e sem
+  // goma do mesmo codigo sao candidatas distintas)
+  var mapa={};
   refs.forEach(function(r){
-    var n=normTxt(r.ref);
+    var base=confBaseRef(r.ref);
+    var n=normTxt(base);
     if(n.length<3)return;
-    if(!grupos[n])grupos[n]={nome:r.ref,rows:[]};
-    grupos[n].rows.push(r);
+    var goma=confTemGoma(String(r.ref)+" "+String(r.descricao||""));
+    var k=n+"|"+(goma?1:0);
+    if(!mapa[k])mapa[k]={nome:r.ref,norm:n,goma:goma,rx:confRefRegex(base),rows:[]};
+    mapa[k].rows.push(r);
   });
-  var chaves=Object.keys(grupos).sort(function(a,b){return b.length-a.length;});
+  var cands=Object.keys(mapa).map(function(k){return mapa[k];});
   var emissao=dataBR(emissaoStr);
   var out=[];
   blocos.forEach(function(bloco){
     var item=confParseItemBloco(bloco);
     if(!item)return;
-    var nb=normTxt(bloco),hit=null;
-    for(var i=0;i<chaves.length;i++){if(nb.indexOf(chaves[i])>=0){hit=grupos[chaves[i]];break;}}
+    var blocoGoma=confTemGoma(bloco);
+    // candidatas que casam no bloco; vence o codigo mais longo e,
+    // em empate, a variante cujo atributo goma coincide com o pedido
+    var hits=cands.filter(function(c){return c.rx&&c.rx.test(bloco);});
+    hits.sort(function(a,b){
+      if(b.norm.length!==a.norm.length)return b.norm.length-a.norm.length;
+      return ((b.goma===blocoGoma)?1:0)-((a.goma===blocoGoma)?1:0);
+    });
+    var hit=hits[0]||null;
     var res={seq:item.seq,bloco:bloco,precoPdf:item.preco,qtd:item.qtd,medida:0,medidaLabel:"",refNome:hit?hit.nome:"",descricao:"",unidade:"",vigencia:"",esperado:null,status:"",motivo:""};
     if(!hit){
       res.status="NAO_CADASTRADO";
@@ -745,6 +783,9 @@ function confValidar(blocos,refs,uf,emissaoStr){
     }else{
       res.status=difere?"DIVERGENTE":"OK";
       if(difere)res.motivo="Preco do pedido difere do esperado pela tabela vigente.";
+    }
+    if(hit.goma!==blocoGoma){
+      res.motivo=(res.motivo?res.motivo+" ":"")+"Atencao: o pedido indica item "+(blocoGoma?"COM":"SEM")+" goma, mas a referencia casada esta cadastrada como "+(hit.goma?"COM":"SEM")+" goma.";
     }
     out.push(res);
   });

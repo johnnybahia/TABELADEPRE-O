@@ -140,6 +140,23 @@ parseFloat(String(valor).trim().replace(",", ".")) || 0
 
 ---
 
+## Aba "Conferir" — conferência de pedidos em PDF
+
+A aba Conferir do `Index.html` lê uma ordem de compra em PDF inteiramente no navegador (pdf.js via CDN — nenhuma função nova de backend):
+
+1. `confExtrairLinhas` reconstrói as linhas visuais por coordenada — usa `pdfjsLib.Util.transform` com o viewport da página, obrigatório para PDFs em paisagem/rotacionados (caso das OCs da DASS).
+2. `confParseCampos` detecta nº da OC, marca, data de emissão e UF da tabela (`/CE`, `/BA` etc. próximo de "MARFIM" no bloco do fornecedor). O cliente é detectado comparando o texto com os nomes das abas de cliente.
+3. `confExtrairBlocos` divide o texto em blocos de item delimitados pela linha `Quantidade:`. `confParseItemBloco` extrai medida (`60CM/144` → pares/peças em cm; `12MM` na descrição → metros em mm), quantidade e preço unitário (preferência: `Vlr. total ÷ Qtde total`; fallback: valor logo após a data de Prev. Ent.).
+4. `confValidar` casa cada bloco com as referências do cliente e calcula `esperado = (medida ÷ MedidaBase) × preço da UF`, usando a linha da tabela cuja vigência cobre a data de emissão. Tolerância `CONF_TOLERANCIA` (±R$ 0,01) absorve o arredondamento de 2 casas do ERP do cliente. Regras de casamento (`confRefRegex`):
+   - A referência é identificada pelo **início do código**: `M2173` casa com `M2173.114` e `M2173 BRANCO`, mas **não** com `M21730` (dígito a mais = outro código).
+   - Separadores espaço/ponto/barra/hífen são tolerados dentro do código (`MR110022` ↔ `MR 110022`, `MFGP/T2` ↔ `MFGPT2`).
+   - **Atributo goma** (`confTemGoma`/`confBaseRef`): variantes com/sem goma do mesmo código são candidatas distintas. O PDF pode indicar goma como `C/GOMA`, `engomada`, `engomado`, `egomada`, `engo`, `gomada`; negações (`S/GOMA`, `sem goma`) contam como sem goma. O atributo pode estar na referência cadastrada (ex.: `MFGP/T2 C/Goma`) ou só na Descricao. Empate de código é decidido pela variante cujo atributo coincide com o pedido; se divergir, um aviso é exibido no resultado.
+5. Status possíveis: `OK`, `DIVERGENTE`, `VENCIDO`, `SEM_PRECO`, `SEM_MEDIDA`, `NAO_CADASTRADO`.
+
+O parsing foi calibrado com as OCs da DASS (PDFs de exemplo na raiz do repositório). Outros clientes com layout diferente podem exigir ajuste em `confExtrairBlocos`/`confParseItemBloco`.
+
+---
+
 ## Regra crítica: segurança no frontend
 
 **Nunca injete dados da planilha diretamente em `innerHTML` sem escapar:**

@@ -110,6 +110,14 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
 .toast.show{transform:translateX(-50%) translateY(0);}
 .toast.success{border-color:var(--success);color:var(--success);}
 .toast.error{border-color:var(--danger);color:var(--danger);}
+.conf-drop{border:2px dashed var(--border);border-radius:var(--radius);padding:26px 16px;text-align:center;cursor:pointer;color:var(--text2);background:var(--surface2);transition:all .2s;font-size:13px;}
+.conf-drop:hover,.conf-drop.drag{border-color:var(--accent);color:var(--accent);}
+.conf-drop .cd-icon{font-size:32px;margin-bottom:8px;}
+.conf-drop .cd-sub{font-size:11px;color:var(--text3);margin-top:6px;}
+.badge.warn{background:rgba(232,160,32,.14);color:#b97d12;border-color:rgba(232,160,32,.4);}
+.conf-summary{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;}
+.conf-line{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--text2);background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;margin-top:8px;white-space:pre-wrap;word-break:break-word;max-height:180px;overflow-y:auto;}
+.conf-bad{border-color:var(--danger) !important;background:rgba(214,48,49,.04);}
 @media print{
   body{background:#fff !important;color:#000 !important;}
   #app{display:none !important;}
@@ -178,6 +186,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
     <img src="https://i.ibb.co/FGGjdsM/LOGO-MARFIM.jpg" alt="Marfim" class="topbar-logo">
     <div class="topbar-tabs">
       <button class="tab-btn active" id="tab-consulta" onclick="trocarTab('consulta')">Consultar</button>
+      <button class="tab-btn" id="tab-conferir" onclick="trocarTab('conferir')">Conferir</button>
       <button class="tab-btn" id="tab-cadastro" onclick="trocarTab('cadastro')" style="display:none">Cadastrar</button>
       <button class="tab-btn" id="tab-admin" onclick="trocarTab('admin')" style="display:none">Admin</button>
     </div>
@@ -205,6 +214,31 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
           <div class="empty-state"><div class="icon">&#x1F50D;</div><p>Digite para buscar</p></div>
         </div>
       </div>
+    </div>
+
+    <!-- CONFERIR PEDIDO PDF -->
+    <div class="panel" id="panel-conferir">
+      <p class="section-title">Conferir Pedido (PDF)</p>
+      <div class="form-card">
+        <input type="file" id="conf-file" accept="application/pdf,.pdf" style="display:none">
+        <div class="conf-drop" id="conf-drop">
+          <div class="cd-icon">&#x1F4C4;</div>
+          <div><strong>Toque para escolher o PDF do pedido</strong></div>
+          <div class="cd-sub">O sistema identifica cliente, referencias, medidas, precos e data de emissao e confere com a tabela cadastrada</div>
+        </div>
+        <div id="conf-arquivo-nome" style="font-size:12px;color:var(--text2);margin-top:8px;min-height:16px"></div>
+      </div>
+      <div class="form-card" id="conf-config" style="display:none">
+        <div class="form-grid">
+          <div class="field" style="margin-bottom:0"><label>Cliente</label><select id="conf-cliente"></select></div>
+          <div class="field" style="margin-bottom:0"><label>Tabela de preco (UF)</label><select id="conf-uf"><option value="RS">RS</option><option value="BA">BA</option><option value="CE">CE</option><option value="MG">MG</option></select></div>
+        </div>
+        <div id="conf-pedido-info" style="font-size:13px;color:var(--text2);margin-top:12px;line-height:1.6"></div>
+        <div class="form-actions" style="margin-top:12px">
+          <button class="btn btn-success" style="background:var(--navy)" onclick="confAnalisar()">&#x1F50D; Conferir Precos</button>
+        </div>
+      </div>
+      <div id="conf-result"></div>
     </div>
 
     <!-- CADASTRAR -->
@@ -391,11 +425,14 @@ function fazerLogout(){
   document.getElementById("login-senha").value="";
   document.getElementById("tab-cadastro").style.display="none";
   document.getElementById("tab-admin").style.display="none";
+  document.getElementById("conf-result").innerHTML="";
+  document.getElementById("conf-config").style.display="none";
+  document.getElementById("conf-arquivo-nome").innerHTML="";
   trocarTab("consulta");
 }
 
 function trocarTab(tab){
-  ["consulta","cadastro","admin"].forEach(function(t){
+  ["consulta","conferir","cadastro","admin"].forEach(function(t){
     document.getElementById("panel-"+t).classList.toggle("active",t===tab);
     var btn=document.getElementById("tab-"+t);
     if(btn)btn.classList.toggle("active",t===tab);
@@ -545,6 +582,354 @@ function montarPrint(lista,cliente,modo,refFiltro){
   out.style.display="block";
   setTimeout(function(){window.print();out.style.display="none";},300);
 }
+
+// ============================================================
+// CONFERIR PEDIDO (PDF)
+// Le o PDF no navegador (pdf.js), reconstroi as linhas por
+// coordenada, identifica cliente/UF/data de emissao e confere
+// cada item do pedido contra a tabela de precos cadastrada.
+// Formula: esperado = (medida do pedido / MedidaBase) x preco UF.
+// ============================================================
+var PDFJS_BASE="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
+var CONF_TOLERANCIA=0.0101; // diferencas ate 1 centavo = arredondamento, nao erro
+
+function ensurePdfJs(){
+  if(window.pdfjsLib)return Promise.resolve();
+  return new Promise(function(res,rej){
+    var s=document.createElement("script");
+    s.src=PDFJS_BASE+"pdf.min.js";
+    s.onload=function(){window.pdfjsLib.GlobalWorkerOptions.workerSrc=PDFJS_BASE+"pdf.worker.min.js";res();};
+    s.onerror=function(){rej(new Error("Falha ao carregar o leitor de PDF. Verifique a conexao."));};
+    document.head.appendChild(s);
+  });
+}
+function pBR(v){v=String(v==null?"":v).trim();if(!v)return 0;v=v.replace(/\./g,"").replace(",",".");var n=parseFloat(v);return isNaN(n)?0:n;}
+function dataBR(s){var m=String(s||"").match(/(\d{2})\/(\d{2})\/(\d{4})/);return m?new Date(+m[3],+m[2]-1,+m[1]):null;}
+function normTxt(s){return String(s||"").toUpperCase().replace(/[^A-Z0-9]/g,"");}
+
+// Detecta o atributo "goma" em qualquer variacao: C/GOMA, com goma,
+// engomada/engomado, egomada, engo, gomada... Negacoes (S/GOMA, sem goma)
+// contam como SEM goma.
+function confTemGoma(txt){
+  var t=String(txt||"").toUpperCase();
+  if(/(?:\bSEM\s+|\bS\s*\/\s*)(?:GOMA|ENGOMAD|GOMAD)/.test(t))return false;
+  return /\b(?:GOMA|GOMAD[OA]|ENGOMAD[OA]?|EGOMAD[OA]?|ENGO)\b/.test(t);
+}
+// Remove o trecho de goma da referencia cadastrada para obter o codigo-base
+// (ex: "MFGP/T2 C/Goma" → "MFGP/T2").
+function confBaseRef(ref){
+  return String(ref||"")
+    .replace(/\b(?:C\s*\/\s*GOMA|COM\s+GOMA|SEM\s+GOMA|S\s*\/\s*GOMA|ENGOMAD[OA]?|EGOMAD[OA]?|GOMAD[OA]|GOMA|ENGO)\b/gi," ")
+    .replace(/\s+/g," ").trim();
+}
+// Regex de casamento da referencia: ancorada no INICIO do codigo
+// (nao pode haver letra/numero antes) e que rejeita digito logo apos
+// (assim M2173 casa com "M2173.114" / "M2173 BRANCO" mas nao com "M21730").
+// Separadores espaco/ponto/barra/hifen sao tolerados dentro do codigo
+// ("MR110022" casa com "MR 110022"; "MFGP/T2" casa com "MFGPT2").
+function confRefRegex(base){
+  var n=normTxt(base);
+  if(n.length<3)return null;
+  return new RegExp("(?:^|[^A-Z0-9])"+n.split("").join("[\\s./\\-]*")+"(?![0-9])","i");
+}
+
+async function confExtrairLinhas(buf){
+  var pdf=await pdfjsLib.getDocument({data:new Uint8Array(buf)}).promise;
+  var linhas=[];
+  for(var p=1;p<=pdf.numPages;p++){
+    var page=await pdf.getPage(p);
+    var vp=page.getViewport({scale:1});
+    var tc=await page.getTextContent();
+    var items=[];
+    tc.items.forEach(function(it){
+      if(!it.str||!it.str.trim())return;
+      // transforma para coordenadas visuais (corrige paginas em paisagem/rotacionadas)
+      var tr=pdfjsLib.Util.transform(vp.transform,it.transform);
+      items.push({x:tr[4],y:tr[5],s:it.str});
+    });
+    items.sort(function(a,b){return a.y-b.y||a.x-b.x;});
+    var atual=null,yRef=0;
+    var fechar=function(){if(atual){var t=atual.sort(function(a,b){return a.x-b.x;}).map(function(i){return i.s;}).join(" ").replace(/\s+/g," ").trim();if(t)linhas.push(t);}};
+    items.forEach(function(it){
+      if(atual===null||Math.abs(it.y-yRef)>2.5){fechar();atual=[it];yRef=it.y;}
+      else atual.push(it);
+    });
+    fechar();
+  }
+  return linhas;
+}
+
+function confParseCampos(linhas){
+  var all=linhas.join("\n");
+  var c={emissao:"",ordem:"",marca:"",uf:""};
+  var m=all.match(/Data da emiss\S{0,4}\s*:?\s*(\d{2}\/\d{2}\/\d{4})/i);if(m)c.emissao=m[1];
+  m=all.match(/Ordem de compra\s*:?\s*(\d{5,})/i);if(m)c.ordem=m[1];
+  var marcas=all.match(/Marca\s*:\s*([A-Z][A-Z ]{1,25})/g)||[];
+  marcas.forEach(function(s){var v=s.replace(/Marca\s*:\s*/i,"").trim();if(v.length>c.marca.length)c.marca=v;});
+  m=all.match(/MARFIM[\s\S]{0,200}?\/\s*(RS|BA|CE|MG)\b/i);
+  if(!m)m=all.match(/-\s*(RS|BA|CE|MG)\s*-\s*BRAZIL/i);
+  if(!m)m=all.match(/\/\s*(RS|BA|CE|MG)\b/);
+  if(m)c.uf=m[1].toUpperCase();
+  return c;
+}
+
+// Divide as linhas em blocos de item: cada bloco termina na linha "Quantidade:"
+function confExtrairBlocos(linhas){
+  var blocos=[],buf=[];
+  linhas.forEach(function(l){
+    buf.push(l);
+    if(/Quantidade\s*:/i.test(l)){blocos.push(buf.join("\n"));buf=[];}
+  });
+  return blocos;
+}
+
+// Extrai medida, quantidade e preco unitario de um bloco de item
+function confParseItemBloco(bloco){
+  var preco=null;
+  // 1) preferencia: Vlr. total / Qtde total (presentes na linha Quantidade)
+  var t=bloco.match(/Vlr\.?\s*total\s*:\s*([\d.,]+)/i),q=bloco.match(/Qtde\s*total\s*:\s*([\d.,]+)/i);
+  if(t&&q&&pBR(q[1])>0)preco=Math.round(pBR(t[1])/pBR(q[1])*10000)/10000;
+  // 2) fallback: valor unitario logo apos a data de Prev. Ent. na linha do item
+  if(preco===null||preco<=0){
+    var re=/(\d{2}\/\d{2}\/\d{4})\s+(\d{1,3}(?:\.\d{3})*,\d{2,4})\b/g,m,last=null;
+    while((m=re.exec(bloco)))last=m;
+    if(last)preco=pBR(last[2]);
+  }
+  if(preco===null||preco<=0)return null;
+  var cm=null,qtd=null,mm=null,m2;
+  m2=bloco.match(/(\d+(?:[.,]\d+)?)\s*CM\s*\/\s*([\d.,]+)/i);
+  if(m2){cm=pBR(m2[1]);qtd=pBR(m2[2]);}
+  else{m2=bloco.match(/Quantidade\s*:\s*\|?\s*([\d.,]+)\s*M\b/i);if(m2)qtd=pBR(m2[1]);}
+  m2=bloco.match(/(\d+(?:[.,]\d+)?)\s*MM\b/i);if(m2)mm=pBR(m2[1]);
+  var seq=null;m2=bloco.match(/(?:^|\n)\s*(\d{1,3})\s+\d{6,8}\s/);if(m2)seq=+m2[1];
+  return {seq:seq,preco:preco,cm:cm,mm:mm,qtd:qtd};
+}
+
+// Escolhe a linha da tabela cuja vigencia cobre a data de referencia;
+// se nenhuma cobre, retorna a mais atual e marca como vencida.
+function confEscolherVigencia(rows,emissao){
+  var ref=emissao||new Date();
+  var cobrem=rows.filter(function(r){
+    var ini=dataBR(r.dataInicio),fim=dataBR(r.dataFim);
+    return (!ini||ref>=ini)&&(!fim||ref<=fim);
+  });
+  var ord=function(a,b){return (dataBR(b.dataInicio)||0)-(dataBR(a.dataInicio)||0);};
+  if(cobrem.length)return {row:cobrem.sort(ord)[0],vencido:false};
+  return {row:rows.slice().sort(ord)[0],vencido:true};
+}
+
+function confValidar(blocos,refs,uf,emissaoStr){
+  // agrupa o cadastro por codigo-base + atributo goma (variantes com e sem
+  // goma do mesmo codigo sao candidatas distintas)
+  var mapa={};
+  refs.forEach(function(r){
+    var base=confBaseRef(r.ref);
+    var n=normTxt(base);
+    if(n.length<3)return;
+    var goma=confTemGoma(String(r.ref)+" "+String(r.descricao||""));
+    var k=n+"|"+(goma?1:0);
+    if(!mapa[k])mapa[k]={nome:r.ref,norm:n,goma:goma,rx:confRefRegex(base),rows:[]};
+    mapa[k].rows.push(r);
+  });
+  var cands=Object.keys(mapa).map(function(k){return mapa[k];});
+  var emissao=dataBR(emissaoStr);
+  var out=[];
+  blocos.forEach(function(bloco){
+    var item=confParseItemBloco(bloco);
+    if(!item)return;
+    var blocoGoma=confTemGoma(bloco);
+    // candidatas que casam no bloco; vence o codigo mais longo e,
+    // em empate, a variante cujo atributo goma coincide com o pedido
+    var hits=cands.filter(function(c){return c.rx&&c.rx.test(bloco);});
+    hits.sort(function(a,b){
+      if(b.norm.length!==a.norm.length)return b.norm.length-a.norm.length;
+      return ((b.goma===blocoGoma)?1:0)-((a.goma===blocoGoma)?1:0);
+    });
+    var hit=hits[0]||null;
+    var res={seq:item.seq,bloco:bloco,precoPdf:item.preco,qtd:item.qtd,medida:0,medidaLabel:"",refNome:hit?hit.nome:"",descricao:"",unidade:"",vigencia:"",esperado:null,status:"",motivo:""};
+    if(!hit){
+      res.status="NAO_CADASTRADO";
+      res.motivo="Nenhuma referencia cadastrada deste cliente foi localizada neste item.";
+      out.push(res);return;
+    }
+    var esc=confEscolherVigencia(hit.rows,emissao);
+    var row=esc.row;
+    res.descricao=row.descricao||"";
+    res.unidade=row.unidade||"metros";
+    res.vigencia=(row.dataInicio||"–")+" → "+(row.dataFim||"Sem vencimento");
+    if(res.unidade==="metros"){res.medida=item.mm||0;res.medidaLabel=item.mm?item.mm+"mm":"";}
+    else{res.medida=item.cm||0;res.medidaLabel=item.cm?item.cm+"cm":"";}
+    var precoTab=row["preco"+uf]>0?row["preco"+uf]:(row.preco>0?row.preco:0);
+    if(!precoTab){
+      res.status="SEM_PRECO";
+      res.motivo="Referencia sem preco "+uf+" cadastrado.";
+      out.push(res);return;
+    }
+    if(!res.medida){
+      res.status="SEM_MEDIDA";
+      res.motivo="Nao foi possivel identificar a "+(res.unidade==="metros"?"largura (mm)":"medida (cm)")+" deste item no PDF.";
+      out.push(res);return;
+    }
+    if(!(row.medidaBase>0)){
+      res.status="SEM_MEDIDA";
+      res.motivo="Referencia sem medida base cadastrada na tabela.";
+      out.push(res);return;
+    }
+    res.esperado=(res.medida/row.medidaBase)*precoTab;
+    var difere=Math.abs(item.preco-res.esperado)>CONF_TOLERANCIA;
+    if(esc.vencido){
+      res.status="VENCIDO";
+      res.motivo="Preco sem vigencia na data "+(emissaoStr||"de hoje")+". Ultima tabela: "+res.vigencia+".";
+    }else{
+      res.status=difere?"DIVERGENTE":"OK";
+      if(difere)res.motivo="Preco do pedido difere do esperado pela tabela vigente.";
+    }
+    if(hit.goma!==blocoGoma){
+      res.motivo=(res.motivo?res.motivo+" ":"")+"Atencao: o pedido indica item "+(blocoGoma?"COM":"SEM")+" goma, mas a referencia casada esta cadastrada como "+(hit.goma?"COM":"SEM")+" goma.";
+    }
+    out.push(res);
+  });
+  return out;
+}
+
+var CONF_STATUS={
+  DIVERGENTE:{label:"✗ Divergente",cls:"err",peso:0},
+  VENCIDO:{label:"⚠ Preco vencido",cls:"warn",peso:1},
+  SEM_PRECO:{label:"⚠ Sem preco UF",cls:"warn",peso:2},
+  SEM_MEDIDA:{label:"⚠ Medida nao identificada",cls:"warn",peso:3},
+  NAO_CADASTRADO:{label:"? Nao cadastrado",cls:"",peso:4},
+  OK:{label:"✓ OK",cls:"ok",peso:5}
+};
+
+async function confArquivoSelecionado(file){
+  if(!file)return;
+  if(!/\.pdf$/i.test(file.name)&&file.type!=="application/pdf"){toast("Selecione um arquivo PDF.","error");return;}
+  document.getElementById("conf-result").innerHTML="";
+  document.getElementById("conf-config").style.display="none";
+  loading(true,"Lendo PDF...");
+  try{
+    await ensurePdfJs();
+    var buf=await file.arrayBuffer();
+    var linhas=await confExtrairLinhas(buf);
+    var campos=confParseCampos(linhas);
+    S.conf={linhas:linhas,campos:campos,arquivo:file.name};
+    document.getElementById("conf-arquivo-nome").innerHTML="&#x1F4CE; "+escHtml(file.name)+" — "+linhas.length+" linhas extraidas";
+    if(!linhas.length){loading(false);toast("Nao foi possivel extrair texto deste PDF (pode ser digitalizado/imagem).","error");return;}
+    loading(true,"Identificando cliente...");
+    var rc=await gas("getClientes",S.vendedor.id,S.vendedor.clientes);
+    var clientes=(rc.ok&&rc.clientes)?rc.clientes:[];
+    var textoNorm=normTxt(linhas.join(" "));
+    var detectado="",melhor=0;
+    clientes.forEach(function(c){
+      var base=normTxt(c.replace(/ CLIENTE$/i,""));
+      if(base.length>=3&&textoNorm.indexOf(base)>=0&&base.length>melhor){melhor=base.length;detectado=c;}
+    });
+    var sel=document.getElementById("conf-cliente");
+    sel.innerHTML="<option value=\"\">Selecione o cliente...</option>";
+    clientes.forEach(function(c){var o=document.createElement("option");o.value=c;o.textContent=c.replace(/ CLIENTE$/i,"");if(c===detectado)o.selected=true;sel.appendChild(o);});
+    if(campos.uf)document.getElementById("conf-uf").value=campos.uf;
+    var info=[];
+    if(campos.ordem)info.push("<strong>OC:</strong> "+escHtml(campos.ordem));
+    if(campos.marca)info.push("<strong>Marca:</strong> "+escHtml(campos.marca));
+    if(campos.emissao)info.push("<strong>Emissao:</strong> "+escHtml(campos.emissao));
+    if(campos.uf)info.push("<strong>UF detectada:</strong> "+escHtml(campos.uf));
+    info.push(detectado
+      ?"<strong>Cliente:</strong> "+escHtml(detectado.replace(/ CLIENTE$/i,""))+" ✓"
+      :"<span style=\"color:var(--danger)\">Cliente nao identificado — selecione acima.</span>");
+    if(!campos.emissao)info.push("<span style=\"color:#b97d12\">Data de emissao nao localizada — vigencia sera checada pela data de hoje.</span>");
+    document.getElementById("conf-pedido-info").innerHTML=info.join(" &nbsp;&bull;&nbsp; ");
+    document.getElementById("conf-config").style.display="block";
+    loading(false);
+    if(detectado)await confAnalisar();
+  }catch(e){
+    loading(false);
+    toast("Erro ao ler o PDF: "+((e&&e.message)?e.message:e),"error");
+  }
+}
+
+async function confAnalisar(){
+  if(!S.conf||!S.conf.linhas||!S.conf.linhas.length){toast("Envie um PDF primeiro.","error");return;}
+  var aba=document.getElementById("conf-cliente").value;
+  if(!aba){toast("Selecione o cliente.","error");return;}
+  var uf=document.getElementById("conf-uf").value;
+  loading(true,"Carregando tabela do cliente...");
+  try{
+    var r=await gas("getReferencias",aba,"",S.vendedor.id);
+    if(!r.ok){toast(r.erro,"error");loading(false);return;}
+    var blocos=confExtrairBlocos(S.conf.linhas);
+    var resultados=confValidar(blocos,r.refs,uf,S.conf.campos.emissao);
+    confRender(resultados,aba,uf);
+  }catch(e){toast("Erro na analise do pedido.","error");}
+  loading(false);
+}
+
+function confRender(res,aba,uf){
+  var el=document.getElementById("conf-result");
+  if(!res.length){
+    el.innerHTML="<div class=\"empty-state\"><div class=\"icon\">&#x1F4ED;</div><p>Nenhum item de pedido reconhecido neste PDF.<br>Confira se e uma ordem de compra com itens e quantidades.</p></div>";
+    return;
+  }
+  // agrupa linhas identicas (mesma ref + medida + preco + status)
+  var grupos={};
+  res.forEach(function(r){
+    var k=(r.refNome||"?")+"|"+r.medidaLabel+"|"+(r.precoPdf!=null?r.precoPdf.toFixed(4):"")+"|"+r.status;
+    if(!grupos[k])grupos[k]={base:r,n:0,qtdTotal:0,seqs:[]};
+    grupos[k].n++;grupos[k].qtdTotal+=(r.qtd||0);if(r.seq)grupos[k].seqs.push(r.seq);
+  });
+  var lista=Object.keys(grupos).map(function(k){return grupos[k];});
+  lista.sort(function(a,b){return CONF_STATUS[a.base.status].peso-CONF_STATUS[b.base.status].peso||String(a.base.refNome).localeCompare(String(b.base.refNome));});
+  var cont={};
+  res.forEach(function(r){cont[r.status]=(cont[r.status]||0)+1;});
+  var campos=S.conf.campos;
+  var resumo=["DIVERGENTE","VENCIDO","SEM_PRECO","SEM_MEDIDA","NAO_CADASTRADO","OK"].filter(function(s){return cont[s];}).map(function(s){
+    return "<span class=\"badge "+CONF_STATUS[s].cls+"\" style=\"font-size:12px;padding:4px 12px\">"+CONF_STATUS[s].label+": "+cont[s]+"</span>";
+  }).join(" ");
+  var head="<div class=\"form-card\" style=\"margin-top:16px\">"
+    +"<p class=\"section-title\">Resultado da Conferencia</p>"
+    +"<div style=\"font-size:13px;color:var(--text2)\">Cliente: <strong>"+escHtml(aba.replace(/ CLIENTE$/i,""))+"</strong>"
+    +(campos.ordem?" &bull; OC: <strong>"+escHtml(campos.ordem)+"</strong>":"")
+    +(campos.marca?" &bull; Marca: <strong>"+escHtml(campos.marca)+"</strong>":"")
+    +(campos.emissao?" &bull; Emissao: <strong>"+escHtml(campos.emissao)+"</strong>":"")
+    +" &bull; Tabela: <strong>"+escHtml(uf)+"</strong>"
+    +" &bull; "+res.length+" linha(s) de item</div>"
+    +"<div class=\"conf-summary\">"+resumo+"</div></div>";
+  var cards=lista.map(function(g){
+    var r=g.base,st=CONF_STATUS[r.status];
+    var titulo=r.refNome?escHtml(r.refNome):"Item sem cadastro";
+    if(!r.refNome){
+      var linhaItem=r.bloco.split("\n").filter(function(l){return /\d{2}\/\d{2}\/\d{4}/.test(l);})[0]||r.bloco.split("\n")[0]||"";
+      r.descricao=linhaItem.length>90?linhaItem.slice(0,90)+"…":linhaItem;
+    }
+    var precoHtml="<div class=\"ref-price\"><div class=\"ref-price-val\">"+fmt(r.precoPdf)+"</div><div class=\"ref-price-label\">no pedido</div>"
+      +(r.esperado!=null?"<div class=\"ref-price-label\" style=\"margin-top:4px\">Esperado: <strong style=\"color:"+(r.status==="OK"?"var(--success)":"var(--danger)")+"\">"+fmt(r.esperado)+"</strong></div>":"")
+      +"</div>";
+    var badges="<span class=\"badge "+st.cls+"\">"+st.label+"</span>"
+      +(r.vigencia?"<span class=\"badge\">&#x1F4C5; "+escHtml(r.vigencia)+"</span>":"")
+      +(g.n>1?"<span class=\"badge\">"+g.n+" linha(s) no pedido</span>":"")
+      +(g.qtdTotal>0?"<span class=\"badge\">Qtde: "+Number(g.qtdTotal).toLocaleString("pt-BR")+"</span>":"");
+    var seqsTxt=g.seqs.length?("Seq "+g.seqs.slice(0,15).join(", ")+(g.seqs.length>15?"…":"")):"";
+    return "<div class=\"ref-card"+(r.status==="DIVERGENTE"?" conf-bad":"")+"\">"
+      +"<div class=\"ref-card-header\"><div><div class=\"ref-code\">"+titulo+"</div>"
+      +(r.descricao?"<div class=\"ref-desc\">"+escHtml(r.descricao)+"</div>":"")
+      +(r.medidaLabel?"<div class=\"ref-medida\">"+escHtml(r.medidaLabel)+"</div>":"")
+      +"</div>"+precoHtml+"</div>"
+      +"<div class=\"ref-meta\">"+badges+"</div>"
+      +(r.motivo?"<div class=\"ref-obs\">"+escHtml(r.motivo)+"</div>":"")
+      +"<details style=\"margin-top:8px\"><summary style=\"cursor:pointer;font-size:12px;color:var(--text2)\">Ver trecho do PDF"+(seqsTxt?" ("+escHtml(seqsTxt)+")":"")+"</summary><div class=\"conf-line\">"+escHtml(r.bloco)+"</div></details>"
+      +"</div>";
+  }).join("");
+  el.innerHTML=head+"<div class=\"ref-list\">"+cards+"</div>";
+  el.scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+
+(function(){
+  var drop=document.getElementById("conf-drop"),inp=document.getElementById("conf-file");
+  drop.onclick=function(){inp.click();};
+  drop.ondragover=function(e){e.preventDefault();drop.classList.add("drag");};
+  drop.ondragleave=function(){drop.classList.remove("drag");};
+  drop.ondrop=function(e){e.preventDefault();drop.classList.remove("drag");if(e.dataTransfer.files.length)confArquivoSelecionado(e.dataTransfer.files[0]);};
+  inp.onchange=function(){if(inp.files.length)confArquivoSelecionado(inp.files[0]);inp.value="";};
+})();
 
 // CADASTRAR
 async function carregarClientesCad(){

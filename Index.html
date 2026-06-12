@@ -657,10 +657,14 @@ function confTemGoma(txt){
   if(/(?:\bSEM\s+|\bS\s*\/\s*)(?:GOMA|ENGOMAD|GOMAD)/.test(t))return false;
   return /\b(?:GOMA|GOMAD[OA]|ENGOMAD[OA]?|EGOMAD[OA]?|ENGO)\b/.test(t);
 }
-// Remove o trecho de goma da referencia cadastrada para obter o codigo-base
-// (ex: "MFGP/T2 C/Goma" → "MFGP/T2").
+// Extrai o codigo-base da referencia cadastrada: corta a descricao embutida
+// entre parenteses (ex: "M21048(elást.red.2,5mm tranç.16f.)" → "M21048") e
+// remove o trecho de goma (ex: "MFGP/T2 C/Goma" → "MFGP/T2").
 function confBaseRef(ref){
-  return String(ref||"")
+  var s=String(ref||"");
+  var p=s.indexOf("(");
+  if(p>0)s=s.slice(0,p);
+  return s
     .replace(/\b(?:C\s*\/\s*GOMA|COM\s+GOMA|SEM\s+GOMA|S\s*\/\s*GOMA|ENGOMAD[OA]?|EGOMAD[OA]?|GOMAD[OA]|GOMA|ENGO)\b/gi," ")
     .replace(/\s+/g," ").trim();
 }
@@ -799,25 +803,36 @@ function confValidar(blocos,refs,uf,emissaoStr){
     res.descricao=row.descricao||"";
     res.unidade=row.unidade||"metros";
     res.vigencia=(row.dataInicio||"–")+" → "+(row.dataFim||"Sem vencimento");
-    if(res.unidade==="metros"){res.medida=item.mm||0;res.medidaLabel=item.mm?item.mm+"mm":"";}
-    else{res.medida=item.cm||0;res.medidaLabel=item.cm?item.cm+"cm":"";}
     var precoTab=row["preco"+uf]>0?row["preco"+uf]:(row.preco>0?row.preco:0);
     if(!precoTab){
       res.status="SEM_PRECO";
       res.motivo="Referencia sem preco "+uf+" cadastrado.";
       out.push(res);return;
     }
-    if(!res.medida){
-      res.status="SEM_MEDIDA";
-      res.motivo="Nao foi possivel identificar a "+(res.unidade==="metros"?"largura (mm)":"medida (cm)")+" deste item no PDF.";
-      out.push(res);return;
+    // Tipo do produto: pares/pecas sao vendidos por tamanho (cm) e precisam do
+    // calculo proporcional; metros tem preco direto por metro, sem calculo.
+    // O rotulo da MedidaBase ("100 CM", "10mm") tem prioridade sobre a Unidade
+    // cadastrada, para corrigir cadastros legados sem o campo Unidade.
+    var baseLabel=String(row.medidaBaseLabel||"");
+    var usaCm=/CM/i.test(baseLabel)?true:/MM/i.test(baseLabel)?false:(res.unidade!=="metros");
+    if(usaCm){
+      res.medida=item.cm||0;
+      res.medidaLabel=res.medida?res.medida+"cm":"";
+      if(!res.medida){
+        res.status="SEM_MEDIDA";
+        res.motivo="Nao foi possivel identificar o tamanho (cm) deste item no PDF.";
+        out.push(res);return;
+      }
+      if(!(row.medidaBase>0)){
+        res.status="SEM_MEDIDA";
+        res.motivo="Referencia sem medida base cadastrada na tabela.";
+        out.push(res);return;
+      }
+      res.esperado=(res.medida/row.medidaBase)*precoTab;
+    }else{
+      res.medidaLabel="por metro";
+      res.esperado=precoTab;
     }
-    if(!(row.medidaBase>0)){
-      res.status="SEM_MEDIDA";
-      res.motivo="Referencia sem medida base cadastrada na tabela.";
-      out.push(res);return;
-    }
-    res.esperado=(res.medida/row.medidaBase)*precoTab;
     var difere=Math.abs(item.preco-res.esperado)>CONF_TOLERANCIA;
     if(esc.vencido){
       res.status="VENCIDO";

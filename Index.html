@@ -253,7 +253,13 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
         </select>
       </div>
       <div id="cad-form-area" style="display:none">
-        <div style="display:flex;justify-content:flex-end;margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:10px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2)">
+            <span>Prazo de pagamento:</span>
+            <input type="text" inputmode="numeric" id="cad-prazo-pagamento" placeholder="Ex: 90" style="width:64px;text-align:center" autocomplete="off" onkeydown="if(event.key==='Enter')salvarPrazoPagamentoCad()">
+            <span>dias</span>
+            <button class="btn btn-ghost btn-sm" onclick="salvarPrazoPagamentoCad()">&#x1F4BE; Salvar</button>
+          </div>
           <button class="btn btn-ghost btn-sm" style="border-color:var(--navy);color:var(--navy)" onclick="abrirModalNotificar()">&#x1F4E7; Notificar Vendedores</button>
         </div>
         <div class="form-card">
@@ -302,6 +308,13 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
           <div class="field" style="flex:1;margin-bottom:0">
             <label>Nome do cliente *</label>
             <input type="text" id="adm-novo-cliente" placeholder="Ex: Bibi" autocomplete="off" onkeydown="if(event.key==='Enter')criarNovoCliente()">
+          </div>
+          <div class="field" style="flex-shrink:0;margin-bottom:0">
+            <label>Prazo de pagamento</label>
+            <div style="display:flex;align-items:center;gap:6px">
+              <input type="text" inputmode="numeric" id="adm-novo-cliente-prazo" placeholder="90" style="width:64px;text-align:center" autocomplete="off" onkeydown="if(event.key==='Enter')criarNovoCliente()">
+              <span style="font-size:13px;color:var(--text2);white-space:nowrap">dias</span>
+            </div>
           </div>
           <button class="btn btn-success" style="background:var(--navy);flex-shrink:0" onclick="criarNovoCliente()">&#x2795; Criar Cliente</button>
         </div>
@@ -707,7 +720,7 @@ async function confExtrairLinhas(buf){
 
 function confParseCampos(linhas){
   var all=linhas.join("\n");
-  var c={emissao:"",ordem:"",marca:"",uf:""};
+  var c={emissao:"",ordem:"",marca:"",uf:"",prazoPagamento:""};
   var m=all.match(/Data da emiss\S{0,4}\s*:?\s*(\d{2}\/\d{2}\/\d{4})/i);if(m)c.emissao=m[1];
   m=all.match(/Ordem de compra\s*:?\s*(\d{5,})/i);if(m)c.ordem=m[1];
   var marcas=all.match(/Marca\s*:\s*([A-Z][A-Z ]{1,25})/g)||[];
@@ -716,6 +729,7 @@ function confParseCampos(linhas){
   if(!m)m=all.match(/-\s*(RS|BA|CE|MG)\s*-\s*BRAZIL/i);
   if(!m)m=all.match(/\/\s*(RS|BA|CE|MG)\b/);
   if(m)c.uf=m[1].toUpperCase();
+  m=all.match(/Condi\S*\s+de\s+pag\S*\s*:?\s*(\d+)\s*dias/i);if(m)c.prazoPagamento=m[1];
   return c;
 }
 
@@ -933,12 +947,12 @@ async function confAnalisar(){
     if(!r.ok){toast(r.erro,"error");loading(false);return;}
     var blocos=confExtrairBlocos(S.conf.linhas);
     var resultados=confValidar(blocos,r.refs,uf,S.conf.campos.emissao);
-    confRender(resultados,aba,uf);
+    confRender(resultados,aba,uf,r.prazoPagamentoDias);
   }catch(e){toast("Erro na analise do pedido.","error");}
   loading(false);
 }
 
-function confRender(res,aba,uf){
+function confRender(res,aba,uf,prazoCadastrado){
   var el=document.getElementById("conf-result");
   if(!res.length){
     el.innerHTML="<div class=\"empty-state\"><div class=\"icon\">&#x1F4ED;</div><p>Nenhum item de pedido reconhecido neste PDF.<br>Confira se e uma ordem de compra com itens e quantidades.</p></div>";
@@ -961,6 +975,21 @@ function confRender(res,aba,uf){
   }).join(" ");
   var vigenciaAnteriorCount=res.filter(function(r){return r.vigenciaAnterior;}).length;
   if(vigenciaAnteriorCount)resumo+=" <span class=\"badge warn\" style=\"font-size:12px;padding:4px 12px\">&#x26A0; Preco de vigencia anterior: "+vigenciaAnteriorCount+"</span>";
+  var prazoPdf=campos.prazoPagamento?parseInt(campos.prazoPagamento,10):0;
+  var prazoHtml="";
+  if(prazoPdf||prazoCadastrado){
+    if(prazoPdf&&prazoCadastrado){
+      if(prazoPdf===prazoCadastrado){
+        prazoHtml="<div style=\"margin-top:8px\"><span class=\"badge ok\">&#x2713; Prazo de pagamento: "+prazoPdf+" dias (confere com o cadastro)</span></div>";
+      }else{
+        prazoHtml="<div style=\"margin-top:8px\"><span class=\"badge err\">&#x26A0; Prazo de pagamento divergente: pedido "+prazoPdf+" dias &times; cadastro "+prazoCadastrado+" dias</span></div>";
+      }
+    }else if(prazoPdf){
+      prazoHtml="<div style=\"margin-top:8px\"><span class=\"badge warn\">&#x26A0; Pedido indica prazo de "+prazoPdf+" dias, mas o cliente nao tem prazo de pagamento cadastrado</span></div>";
+    }else{
+      prazoHtml="<div style=\"margin-top:8px\"><span class=\"badge\">Prazo de pagamento cadastrado: "+prazoCadastrado+" dias (nao encontrado no pedido)</span></div>";
+    }
+  }
   var head="<div class=\"form-card\" style=\"margin-top:16px\">"
     +"<p class=\"section-title\">Resultado da Conferencia</p>"
     +"<div style=\"font-size:13px;color:var(--text2)\">Cliente: <strong>"+escHtml(aba.replace(/ CLIENTE$/i,""))+"</strong>"
@@ -969,6 +998,7 @@ function confRender(res,aba,uf){
     +(campos.emissao?" &bull; Emissao: <strong>"+escHtml(campos.emissao)+"</strong>":"")
     +" &bull; Tabela: <strong>"+escHtml(uf)+"</strong>"
     +" &bull; "+res.length+" linha(s) de item</div>"
+    +prazoHtml
     +"<div class=\"conf-summary\">"+resumo+"</div></div>";
   var cards=lista.map(function(g){
     var r=g.base,st=CONF_STATUS[r.status];
@@ -1030,7 +1060,21 @@ async function recarregarListaCad(aba){
   var r=await gas("getReferencias",aba,"",S.vendedor.id);
   S.refsCad=r.ok?r.refs:[];
   document.getElementById("cad-busca").value="";
+  document.getElementById("cad-prazo-pagamento").value=(r.ok&&r.prazoPagamentoDias)?r.prazoPagamentoDias:"";
   renderRefs(r,"ref-list-cad",true);
+  loading(false);
+}
+async function salvarPrazoPagamentoCad(){
+  var aba=document.getElementById("cad-cliente").value;
+  if(!aba){toast("Selecione um cliente.","error");return;}
+  var prazo=document.getElementById("cad-prazo-pagamento").value.trim();
+  loading(true,"Salvando...");
+  try{
+    var r=await gas("salvarPrazoPagamento",aba,prazo,S.vendedor.id);
+    if(!r.ok){toast(r.erro,"error");loading(false);return;}
+    document.getElementById("cad-prazo-pagamento").value=r.prazoPagamentoDias?r.prazoPagamentoDias:"";
+    toast("Prazo de pagamento salvo!","success");
+  }catch(e){toast("Erro ao salvar prazo.","error");}
   loading(false);
 }
 async function salvarRef(){
@@ -1179,13 +1223,15 @@ async function carregarAdminLista(){
 async function criarNovoCliente(){
   var nome=document.getElementById("adm-novo-cliente").value.trim();
   if(!nome){document.getElementById("adm-novo-cliente-msg").innerHTML="<span style=\"color:var(--danger)\">Informe o nome do cliente.</span>";return;}
+  var prazo=document.getElementById("adm-novo-cliente-prazo").value.trim();
   loading(true,"Criando cliente...");
   try{
-    var r=await gas("criarCliente",nome,S.vendedor.id);
+    var r=await gas("criarCliente",nome,S.vendedor.id,prazo);
     var msg=document.getElementById("adm-novo-cliente-msg");
     if(!r.ok){msg.innerHTML="<span style=\"color:var(--danger)\">"+escHtml(r.erro)+"</span>";loading(false);return;}
     msg.innerHTML="<span style=\"color:var(--success)\">&#x2713; Aba \""+escHtml(r.nomeAba)+"\" criada com sucesso.</span>";
     document.getElementById("adm-novo-cliente").value="";
+    document.getElementById("adm-novo-cliente-prazo").value="";
     await carregarAdminLista();
     // Atualiza também o select de cadastro se a aba estiver aberta
     if(document.getElementById("panel-cadastro").classList.contains("active"))carregarClientesCad();

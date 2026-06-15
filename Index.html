@@ -804,10 +804,25 @@ function confValidar(blocos,refs,uf,emissaoStr){
     res.unidade=row.unidade||"metros";
     res.vigencia=(row.dataInicio||"–")+" → "+(row.dataFim||"Sem vencimento");
     var precoTab=row["preco"+uf]>0?row["preco"+uf]:(row.preco>0?row.preco:0);
+    var avisoVigencia=null;
     if(!precoTab){
-      res.status="SEM_PRECO";
-      res.motivo="Referencia sem preco "+uf+" cadastrado.";
-      out.push(res);return;
+      // vigencia mais recente sem preco cadastrado: usa o preco da vigencia
+      // anterior mais proxima do mesmo codigo que tenha preco UF (ou base) —
+      // provavel atualizacao que nao preencheu a vigencia nova (preco ficou em
+      // branco ou foi digitado na coluna errada da planilha) — e avisa o
+      // usuario informando as duas vigencias envolvidas
+      var comPreco=hit.rows.filter(function(r){return r!==row&&((r["preco"+uf]>0)||(r.preco>0));});
+      if(comPreco.length){
+        comPreco.sort(function(a,b){return (dataBR(b.dataInicio)||0)-(dataBR(a.dataInicio)||0);});
+        var alt=comPreco[0];
+        precoTab=alt["preco"+uf]>0?alt["preco"+uf]:alt.preco;
+        res.vigenciaAnterior=(alt.dataInicio||"–")+" → "+(alt.dataFim||"Sem vencimento");
+        avisoVigencia="Atencao: a vigencia mais recente desta referencia ("+res.vigencia+") esta sem preco "+uf+" cadastrado — usado o preco "+uf+" de "+precoTab.toLocaleString("pt-BR",{style:"currency",currency:"BRL"})+" da vigencia anterior ("+res.vigenciaAnterior+"). Verifique se a vigencia mais recente deveria ter este preco preenchido.";
+      }else{
+        res.status="SEM_PRECO";
+        res.motivo="Referencia sem preco "+uf+" cadastrado na vigencia "+res.vigencia+".";
+        out.push(res);return;
+      }
     }
     // Tipo do produto: pares/pecas sao vendidos por tamanho (cm) e precisam do
     // calculo proporcional; metros tem preco direto por metro, sem calculo.
@@ -843,6 +858,9 @@ function confValidar(blocos,refs,uf,emissaoStr){
     }
     if(hit.goma!==blocoGoma){
       res.motivo=(res.motivo?res.motivo+" ":"")+"Atencao: o pedido indica item "+(blocoGoma?"COM":"SEM")+" goma, mas a referencia casada esta cadastrada como "+(hit.goma?"COM":"SEM")+" goma.";
+    }
+    if(avisoVigencia){
+      res.motivo=(res.motivo?res.motivo+" ":"")+avisoVigencia;
     }
     out.push(res);
   });
@@ -941,6 +959,8 @@ function confRender(res,aba,uf){
   var resumo=["DIVERGENTE","VENCIDO","SEM_PRECO","SEM_MEDIDA","NAO_CADASTRADO","OK"].filter(function(s){return cont[s];}).map(function(s){
     return "<span class=\"badge "+CONF_STATUS[s].cls+"\" style=\"font-size:12px;padding:4px 12px\">"+CONF_STATUS[s].label+": "+cont[s]+"</span>";
   }).join(" ");
+  var vigenciaAnteriorCount=res.filter(function(r){return r.vigenciaAnterior;}).length;
+  if(vigenciaAnteriorCount)resumo+=" <span class=\"badge warn\" style=\"font-size:12px;padding:4px 12px\">&#x26A0; Preco de vigencia anterior: "+vigenciaAnteriorCount+"</span>";
   var head="<div class=\"form-card\" style=\"margin-top:16px\">"
     +"<p class=\"section-title\">Resultado da Conferencia</p>"
     +"<div style=\"font-size:13px;color:var(--text2)\">Cliente: <strong>"+escHtml(aba.replace(/ CLIENTE$/i,""))+"</strong>"
@@ -962,6 +982,7 @@ function confRender(res,aba,uf){
       +"</div>";
     var badges="<span class=\"badge "+st.cls+"\">"+st.label+"</span>"
       +(r.vigencia?"<span class=\"badge\">&#x1F4C5; "+escHtml(r.vigencia)+"</span>":"")
+      +(r.vigenciaAnterior?"<span class=\"badge warn\">&#x26A0; Preco usado da vigencia "+escHtml(r.vigenciaAnterior)+"</span>":"")
       +(g.n>1?"<span class=\"badge\">"+g.n+" linha(s) no pedido</span>":"")
       +(g.qtdTotal>0?"<span class=\"badge\">Qtde: "+Number(g.qtdTotal).toLocaleString("pt-BR")+"</span>":"");
     var seqsTxt=g.seqs.length?("Seq "+g.seqs.slice(0,15).join(", ")+(g.seqs.length>15?"…":"")):"";

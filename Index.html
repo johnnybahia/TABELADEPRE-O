@@ -121,6 +121,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
 .conf-summary{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;}
 .conf-line{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--text2);background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;margin-top:8px;white-space:pre-wrap;word-break:break-word;max-height:180px;overflow-y:auto;}
 .conf-bad{border-color:var(--danger) !important;background:rgba(214,48,49,.04);}
+.conf-pdf-block{border:1px solid var(--border);border-radius:var(--radius);margin-bottom:20px;overflow:hidden;background:var(--surface);box-shadow:0 2px 8px rgba(0,0,0,.06);}
+.conf-pdf-head{background:var(--surface2);padding:12px 16px;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;border-bottom:1px solid var(--border);}
+.conf-pdf-name{font-weight:700;color:var(--navy);font-size:14px;}
+.conf-pdf-meta{font-size:12px;color:var(--text2);margin-top:4px;}
+.conf-pdf-body{padding:16px;}
+.conf-batch-bar{display:none;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;font-size:13px;color:var(--text2);flex-wrap:wrap;}
 @media print{
   body{background:#fff !important;color:#000 !important;}
   #app{display:none !important;}
@@ -223,23 +229,16 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
     <div class="panel" id="panel-conferir">
       <p class="section-title">Conferir Pedido (PDF)</p>
       <div class="form-card">
-        <input type="file" id="conf-file" accept="application/pdf,.pdf" style="display:none">
+        <input type="file" id="conf-file" accept="application/pdf,.pdf" multiple style="display:none">
         <div class="conf-drop" id="conf-drop">
           <div class="cd-icon">&#x1F4C4;</div>
-          <div><strong>Toque para escolher o PDF do pedido</strong></div>
-          <div class="cd-sub">O sistema identifica cliente, referencias, medidas, precos e data de emissao e confere com a tabela cadastrada</div>
+          <div><strong>Toque para escolher um ou mais PDFs de pedido</strong></div>
+          <div class="cd-sub">Pode selecionar varios arquivos de uma vez — cada PDF e identificado e conferido separadamente, em seu proprio bloco de resultado</div>
         </div>
-        <div id="conf-arquivo-nome" style="font-size:12px;color:var(--text2);margin-top:8px;min-height:16px"></div>
       </div>
-      <div class="form-card" id="conf-config" style="display:none">
-        <div class="form-grid">
-          <div class="field" style="margin-bottom:0"><label>Cliente</label><select id="conf-cliente"></select></div>
-          <div class="field" style="margin-bottom:0"><label>Tabela de preco (UF)</label><select id="conf-uf"><option value="RS">RS</option><option value="BA">BA</option><option value="CE">CE</option><option value="MG">MG</option></select></div>
-        </div>
-        <div id="conf-pedido-info" style="font-size:13px;color:var(--text2);margin-top:12px;line-height:1.6"></div>
-        <div class="form-actions" style="margin-top:12px">
-          <button class="btn btn-success" style="background:var(--navy)" onclick="confAnalisar()">&#x1F50D; Conferir Precos</button>
-        </div>
+      <div class="conf-batch-bar" id="conf-batch-bar">
+        <div id="conf-batch-info"></div>
+        <button class="btn btn-ghost btn-sm" onclick="confLimparTudo()">&#x1F5D1; Limpar tudo</button>
       </div>
       <div id="conf-result"></div>
     </div>
@@ -399,7 +398,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
 <div id="print-output"></div>
 
 <script>
-var S={vendedor:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[]};
+var S={vendedor:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],confItens:[]};
 
 function gas(fn){
   var args=Array.prototype.slice.call(arguments,1);
@@ -434,7 +433,7 @@ async function fazerLogin(){
 document.getElementById("login-senha").addEventListener("keydown",function(e){if(e.key==="Enter")fazerLogin();});
 
 function fazerLogout(){
-  S={vendedor:null,clienteSelecionado:null,buscarTimer:null,printMode:null};
+  S={vendedor:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],confItens:[]};
   document.getElementById("screen-main").classList.remove("active");
   document.getElementById("screen-login").classList.add("active");
   document.getElementById("login-id").value="";
@@ -442,8 +441,7 @@ function fazerLogout(){
   document.getElementById("tab-cadastro").style.display="none";
   document.getElementById("tab-admin").style.display="none";
   document.getElementById("conf-result").innerHTML="";
-  document.getElementById("conf-config").style.display="none";
-  document.getElementById("conf-arquivo-nome").innerHTML="";
+  document.getElementById("conf-batch-bar").style.display="none";
   trocarTab("consulta");
 }
 
@@ -903,73 +901,172 @@ var CONF_STATUS={
   OK:{label:"✓ OK",cls:"ok",peso:5}
 };
 
-async function confArquivoSelecionado(file){
-  if(!file)return;
-  if(!/\.pdf$/i.test(file.name)&&file.type!=="application/pdf"){toast("Selecione um arquivo PDF.","error");return;}
-  document.getElementById("conf-result").innerHTML="";
-  document.getElementById("conf-config").style.display="none";
+var confSeqId=0;
+
+// Le e identifica um ou mais PDFs de pedido; cada arquivo gera um item
+// independente em S.confItens, renderizado em seu proprio bloco — a analise
+// de cada PDF e totalmente separada das demais.
+async function confArquivosSelecionados(files){
+  var arquivos=Array.prototype.filter.call(files,function(f){
+    if(!/\.pdf$/i.test(f.name)&&f.type!=="application/pdf"){toast("Ignorado (nao e PDF): "+f.name,"error");return false;}
+    return true;
+  });
+  if(!arquivos.length)return;
   loading(true,"Lendo PDF...");
   try{
     await ensurePdfJs();
-    var buf=await file.arrayBuffer();
-    var linhas=await confExtrairLinhas(buf);
-    var campos=confParseCampos(linhas);
-    S.conf={linhas:linhas,campos:campos,arquivo:file.name};
-    document.getElementById("conf-arquivo-nome").innerHTML="&#x1F4CE; "+escHtml(file.name)+" — "+linhas.length+" linhas extraidas";
-    if(!linhas.length){loading(false);toast("Nao foi possivel extrair texto deste PDF (pode ser digitalizado/imagem).","error");return;}
-    loading(true,"Identificando cliente...");
     var rc=await gas("getClientes",S.vendedor.id,S.vendedor.clientes);
     var clientes=(rc.ok&&rc.clientes)?rc.clientes:[];
-    var textoNorm=normTxt(linhas.join(" "));
-    var detectado="",melhor=0;
-    clientes.forEach(function(c){
-      var base=normTxt(c.replace(/ CLIENTE$/i,""));
-      if(base.length>=3&&textoNorm.indexOf(base)>=0&&base.length>melhor){melhor=base.length;detectado=c;}
-    });
-    var sel=document.getElementById("conf-cliente");
-    sel.innerHTML="<option value=\"\">Selecione o cliente...</option>";
-    clientes.forEach(function(c){var o=document.createElement("option");o.value=c;o.textContent=c.replace(/ CLIENTE$/i,"");if(c===detectado)o.selected=true;sel.appendChild(o);});
-    if(campos.uf)document.getElementById("conf-uf").value=campos.uf;
-    var info=[];
-    if(campos.ordem)info.push("<strong>OC:</strong> "+escHtml(campos.ordem));
-    if(campos.marca)info.push("<strong>Marca:</strong> "+escHtml(campos.marca));
-    if(campos.emissao)info.push("<strong>Emissao:</strong> "+escHtml(campos.emissao));
-    if(campos.uf)info.push("<strong>UF detectada:</strong> "+escHtml(campos.uf));
-    info.push(detectado
-      ?"<strong>Cliente:</strong> "+escHtml(detectado.replace(/ CLIENTE$/i,""))+" ✓"
-      :"<span style=\"color:var(--danger)\">Cliente nao identificado — selecione acima.</span>");
-    if(!campos.emissao)info.push("<span style=\"color:#b97d12\">Data de emissao nao localizada — vigencia sera checada pela data de hoje.</span>");
-    document.getElementById("conf-pedido-info").innerHTML=info.join(" &nbsp;&bull;&nbsp; ");
-    document.getElementById("conf-config").style.display="block";
-    loading(false);
-    if(detectado)await confAnalisar();
+    var novos=[];
+    for(var i=0;i<arquivos.length;i++){
+      var file=arquivos[i];
+      loading(true,"Lendo PDF "+(i+1)+" de "+arquivos.length+": "+file.name);
+      var item={id:++confSeqId,arquivo:file.name,linhas:[],campos:null,clientesDisponiveis:clientes,cliente:"",uf:"RS",resultados:null,prazoCadastrado:0,erro:""};
+      try{
+        var buf=await file.arrayBuffer();
+        item.linhas=await confExtrairLinhas(buf);
+        if(!item.linhas.length){
+          item.erro="Nao foi possivel extrair texto deste PDF (pode ser digitalizado/imagem).";
+        }else{
+          item.campos=confParseCampos(item.linhas);
+          if(item.campos.uf)item.uf=item.campos.uf;
+          var textoNorm=normTxt(item.linhas.join(" "));
+          var detectado="",melhor=0;
+          clientes.forEach(function(c){
+            var base=normTxt(c.replace(/ CLIENTE$/i,""));
+            if(base.length>=3&&textoNorm.indexOf(base)>=0&&base.length>melhor){melhor=base.length;detectado=c;}
+          });
+          item.cliente=detectado;
+        }
+      }catch(e){
+        item.erro="Erro ao ler o PDF: "+((e&&e.message)?e.message:e);
+      }
+      S.confItens.push(item);
+      novos.push(item);
+    }
+    var refsCache={};
+    for(var j=0;j<novos.length;j++){
+      var it=novos[j];
+      if(it.cliente&&!it.erro){
+        loading(true,"Conferindo "+it.arquivo+"...");
+        try{await confExecutarAnalise(it,it.cliente,it.uf,refsCache);}catch(e){}
+      }
+    }
   }catch(e){
-    loading(false);
-    toast("Erro ao ler o PDF: "+((e&&e.message)?e.message:e),"error");
+    toast("Erro ao processar PDFs: "+((e&&e.message)?e.message:e),"error");
   }
-}
-
-async function confAnalisar(){
-  if(!S.conf||!S.conf.linhas||!S.conf.linhas.length){toast("Envie um PDF primeiro.","error");return;}
-  var aba=document.getElementById("conf-cliente").value;
-  if(!aba){toast("Selecione o cliente.","error");return;}
-  var uf=document.getElementById("conf-uf").value;
-  loading(true,"Carregando tabela do cliente...");
-  try{
-    var r=await gas("getReferencias",aba,"",S.vendedor.id);
-    if(!r.ok){toast(r.erro,"error");loading(false);return;}
-    var blocos=confExtrairBlocos(S.conf.linhas);
-    var resultados=confValidar(blocos,r.refs,uf,S.conf.campos.emissao);
-    confRender(resultados,aba,uf,r.prazoPagamentoDias);
-  }catch(e){toast("Erro na analise do pedido.","error");}
   loading(false);
+  confRenderTudo();
+  document.getElementById("conf-result").scrollIntoView({behavior:"smooth",block:"start"});
 }
 
-function confRender(res,aba,uf,prazoCadastrado){
-  var el=document.getElementById("conf-result");
+// Busca a tabela do cliente e valida o pedido para um item. Quando "cache" e
+// informado, reaproveita getReferencias entre PDFs do mesmo cliente dentro do
+// mesmo lote; a chamada avulsa (botao "Conferir Precos") nao usa cache, para
+// sempre refletir o cadastro atual.
+async function confExecutarAnalise(item,aba,uf,cache){
+  item.cliente=aba;item.uf=uf;
+  var r;
+  if(cache){
+    if(!cache[aba])cache[aba]=await gas("getReferencias",aba,"",S.vendedor.id);
+    r=cache[aba];
+  }else{
+    r=await gas("getReferencias",aba,"",S.vendedor.id);
+  }
+  if(!r.ok){item.erroAnalise=r.erro;return;}
+  var blocos=confExtrairBlocos(item.linhas);
+  item.resultados=confValidar(blocos,r.refs,uf,item.campos.emissao);
+  item.prazoCadastrado=r.prazoPagamentoDias;
+  item.erroAnalise="";
+}
+
+async function confAnalisarItem(id){
+  var item=S.confItens.filter(function(it){return it.id===id;})[0];
+  if(!item)return;
+  var aba=document.getElementById("conf-cliente-"+id).value;
+  if(!aba){toast("Selecione o cliente.","error");return;}
+  var uf=document.getElementById("conf-uf-"+id).value;
+  loading(true,"Conferindo "+item.arquivo+"...");
+  try{
+    await confExecutarAnalise(item,aba,uf);
+    if(item.erroAnalise)toast(item.erroAnalise,"error");
+  }catch(e){
+    toast("Erro na analise do pedido ("+item.arquivo+").","error");
+  }
+  loading(false);
+  confRenderTudo();
+  var bloco=document.getElementById("conf-pdf-"+id);
+  if(bloco)bloco.scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+
+function confRemoverItem(id){
+  S.confItens=S.confItens.filter(function(it){return it.id!==id;});
+  confRenderTudo();
+}
+
+function confLimparTudo(){
+  S.confItens=[];
+  confRenderTudo();
+}
+
+function confRenderTudo(){
+  var bar=document.getElementById("conf-batch-bar");
+  if(S.confItens.length){
+    bar.style.display="flex";
+    document.getElementById("conf-batch-info").textContent=S.confItens.length+" PDF(s) carregado(s) — cada um e conferido separadamente";
+  }else{
+    bar.style.display="none";
+  }
+  document.getElementById("conf-result").innerHTML=S.confItens.map(function(item,idx){return confRenderItem(item,idx);}).join("");
+}
+
+// Monta o bloco de um PDF: cabecalho com nome do arquivo e dados detectados,
+// seletor de cliente/UF proprio do item e, abaixo, o resultado da conferencia
+// (se ja analisado). Cada bloco e completamente independente dos demais.
+function confRenderItem(item,idx){
+  var campos=item.campos||{};
+  var metaParts=[];
+  if(campos.ordem)metaParts.push("OC: <strong>"+escHtml(campos.ordem)+"</strong>");
+  if(campos.marca)metaParts.push("Marca: <strong>"+escHtml(campos.marca)+"</strong>");
+  if(campos.emissao)metaParts.push("Emissao: <strong>"+escHtml(campos.emissao)+"</strong>");
+  var meta=metaParts.length?("<div class=\"conf-pdf-meta\">"+metaParts.join(" &nbsp;&bull;&nbsp; ")+"</div>"):"";
+  var corpo;
+  if(item.erro){
+    corpo="<div class=\"ref-obs\" style=\"border-left-color:var(--danger)\">"+escHtml(item.erro)+"</div>";
+  }else{
+    var ufs=["RS","BA","CE","MG"];
+    var selCli="<select id=\"conf-cliente-"+item.id+"\"><option value=\"\">Selecione o cliente...</option>"
+      +(item.clientesDisponiveis||[]).map(function(c){return "<option value=\""+escHtml(c)+"\""+(c===item.cliente?" selected":"")+">"+escHtml(c.replace(/ CLIENTE$/i,""))+"</option>";}).join("")
+      +"</select>";
+    var selUf="<select id=\"conf-uf-"+item.id+"\">"
+      +ufs.map(function(u){return "<option value=\""+u+"\""+(u===item.uf?" selected":"")+">"+u+"</option>";}).join("")
+      +"</select>";
+    var avisos="";
+    if(!item.cliente)avisos+="<div class=\"ref-obs\" style=\"border-left-color:var(--danger)\">Cliente nao identificado automaticamente — selecione acima e clique em Conferir Precos.</div>";
+    if(!campos.emissao)avisos+="<div class=\"ref-obs\">Data de emissao nao localizada — vigencia sera checada pela data de hoje.</div>";
+    corpo="<div class=\"form-grid\">"
+      +"<div class=\"field\" style=\"margin-bottom:0\"><label>Cliente</label>"+selCli+"</div>"
+      +"<div class=\"field\" style=\"margin-bottom:0\"><label>Tabela de preco (UF)</label>"+selUf+"</div>"
+      +"</div>"
+      +avisos
+      +"<div class=\"form-actions\" style=\"margin-top:12px\"><button class=\"btn btn-success btn-sm\" style=\"background:var(--navy)\" onclick=\"confAnalisarItem("+item.id+")\">&#x1F50D; Conferir Precos</button></div>"
+      +confRenderResultados(item);
+  }
+  return "<div class=\"conf-pdf-block\" id=\"conf-pdf-"+item.id+"\">"
+    +"<div class=\"conf-pdf-head\"><div><div class=\"conf-pdf-name\">&#x1F4C4; PDF "+(idx+1)+": "+escHtml(item.arquivo)+"</div>"+meta+"</div>"
+    +"<button class=\"btn btn-ghost btn-sm\" onclick=\"confRemoverItem("+item.id+")\" title=\"Remover este PDF da lista\">&#x2715; Remover</button>"
+    +"</div>"
+    +"<div class=\"conf-pdf-body\">"+corpo+"</div>"
+    +"</div>";
+}
+
+// Resumo + cards do resultado da conferencia de um item (mesma logica usada
+// antes para um unico PDF, agora isolada por item).
+function confRenderResultados(item){
+  var res=item.resultados;
+  if(!res)return "";
   if(!res.length){
-    el.innerHTML="<div class=\"empty-state\"><div class=\"icon\">&#x1F4ED;</div><p>Nenhum item de pedido reconhecido neste PDF.<br>Confira se e uma ordem de compra com itens e quantidades.</p></div>";
-    return;
+    return "<div class=\"empty-state\" style=\"margin-top:16px\"><div class=\"icon\">&#x1F4ED;</div><p>Nenhum item de pedido reconhecido neste PDF.<br>Confira se e uma ordem de compra com itens e quantidades.</p></div>";
   }
   // agrupa linhas identicas (mesma ref + medida + preco + status)
   var grupos={};
@@ -982,12 +1079,13 @@ function confRender(res,aba,uf,prazoCadastrado){
   lista.sort(function(a,b){return CONF_STATUS[a.base.status].peso-CONF_STATUS[b.base.status].peso||String(a.base.refNome).localeCompare(String(b.base.refNome));});
   var cont={};
   res.forEach(function(r){cont[r.status]=(cont[r.status]||0)+1;});
-  var campos=S.conf.campos;
+  var campos=item.campos||{};
   var resumo=["DIVERGENTE","VENCIDO","SEM_PRECO","SEM_MEDIDA","NAO_CADASTRADO","OK"].filter(function(s){return cont[s];}).map(function(s){
     return "<span class=\"badge "+CONF_STATUS[s].cls+"\" style=\"font-size:12px;padding:4px 12px\">"+CONF_STATUS[s].label+": "+cont[s]+"</span>";
   }).join(" ");
   var vigenciaAnteriorCount=res.filter(function(r){return r.vigenciaAnterior;}).length;
   if(vigenciaAnteriorCount)resumo+=" <span class=\"badge warn\" style=\"font-size:12px;padding:4px 12px\">&#x26A0; Preco de vigencia anterior: "+vigenciaAnteriorCount+"</span>";
+  var prazoCadastrado=item.prazoCadastrado;
   var prazoPdf=campos.prazoPagamento?parseInt(campos.prazoPagamento,10):0;
   var prazoHtml="";
   if(prazoPdf||prazoCadastrado){
@@ -1003,14 +1101,8 @@ function confRender(res,aba,uf,prazoCadastrado){
       prazoHtml="<div style=\"margin-top:8px\"><span class=\"badge\">Prazo de pagamento cadastrado: "+prazoCadastrado+" dias (nao encontrado no pedido)</span></div>";
     }
   }
-  var head="<div class=\"form-card\" style=\"margin-top:16px\">"
-    +"<p class=\"section-title\">Resultado da Conferencia</p>"
-    +"<div style=\"font-size:13px;color:var(--text2)\">Cliente: <strong>"+escHtml(aba.replace(/ CLIENTE$/i,""))+"</strong>"
-    +(campos.ordem?" &bull; OC: <strong>"+escHtml(campos.ordem)+"</strong>":"")
-    +(campos.marca?" &bull; Marca: <strong>"+escHtml(campos.marca)+"</strong>":"")
-    +(campos.emissao?" &bull; Emissao: <strong>"+escHtml(campos.emissao)+"</strong>":"")
-    +" &bull; Tabela: <strong>"+escHtml(uf)+"</strong>"
-    +" &bull; "+res.length+" linha(s) de item</div>"
+  var head="<div style=\"margin-top:16px;padding-top:16px;border-top:1px solid var(--border)\">"
+    +"<div style=\"font-size:13px;color:var(--text2)\">"+res.length+" linha(s) de item</div>"
     +prazoHtml
     +"<div class=\"conf-summary\">"+resumo+"</div></div>";
   var cards=lista.map(function(g){
@@ -1039,8 +1131,7 @@ function confRender(res,aba,uf,prazoCadastrado){
       +"<details style=\"margin-top:8px\"><summary style=\"cursor:pointer;font-size:12px;color:var(--text2)\">Ver trecho do PDF"+(seqsTxt?" ("+escHtml(seqsTxt)+")":"")+"</summary><div class=\"conf-line\">"+escHtml(r.bloco)+"</div></details>"
       +"</div>";
   }).join("");
-  el.innerHTML=head+"<div class=\"ref-list\">"+cards+"</div>";
-  el.scrollIntoView({behavior:"smooth",block:"nearest"});
+  return head+"<div class=\"ref-list\" style=\"margin-top:12px\">"+cards+"</div>";
 }
 
 (function(){
@@ -1048,8 +1139,8 @@ function confRender(res,aba,uf,prazoCadastrado){
   drop.onclick=function(){inp.click();};
   drop.ondragover=function(e){e.preventDefault();drop.classList.add("drag");};
   drop.ondragleave=function(){drop.classList.remove("drag");};
-  drop.ondrop=function(e){e.preventDefault();drop.classList.remove("drag");if(e.dataTransfer.files.length)confArquivoSelecionado(e.dataTransfer.files[0]);};
-  inp.onchange=function(){if(inp.files.length)confArquivoSelecionado(inp.files[0]);inp.value="";};
+  drop.ondrop=function(e){e.preventDefault();drop.classList.remove("drag");if(e.dataTransfer.files.length)confArquivosSelecionados(e.dataTransfer.files);};
+  inp.onchange=function(){if(inp.files.length)confArquivosSelecionados(inp.files);inp.value="";};
 })();
 
 // CADASTRAR

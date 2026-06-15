@@ -755,7 +755,10 @@ function confParseItemBloco(bloco){
   }
   if(preco===null||preco<=0)return null;
   var cm=null,qtd=null,mm=null,m2;
-  m2=bloco.match(/(\d+(?:[.,]\d+)?)\s*CM\s*\/\s*([\d.,]+)/i);
+  // "CM?" tolera o "M" sumir na extracao de alguns PDFs (ex.: "29,5C/36"
+  // em vez de "29,5CM/36") sem abrir mao do "C" que distingue do padrao
+  // de metros ("Quantidade: | 36M |") tratado no fallback abaixo.
+  m2=bloco.match(/(\d+(?:[.,]\d+)?)\s*CM?\s*\/\s*([\d.,]+)/i);
   if(m2){cm=pBR(m2[1]);qtd=pBR(m2[2]);}
   else{m2=bloco.match(/Quantidade\s*:\s*\|?\s*([\d.,]+)\s*M\b/i);if(m2)qtd=pBR(m2[1]);}
   m2=bloco.match(/(\d+(?:[.,]\d+)?)\s*MM\b/i);if(m2)mm=pBR(m2[1]);

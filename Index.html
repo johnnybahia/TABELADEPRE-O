@@ -768,6 +768,10 @@ function confParseItemBloco(bloco){
 // Quando ha mais de uma linha vigente para a mesma referencia/goma —
 // variantes de tamanho com precos proprios e nao proporcionais entre si —
 // prioriza a linha cuja MedidaBase (coluna H) casa com o tamanho do pedido.
+// Retorna tambem "pool": as linhas candidatas restantes (mais recente
+// primeiro) — usado por confValidar para oferecer ao usuario as "opcoes" de
+// preco quando mais de uma linha permanece (ex.: variantes de cor com a
+// mesma MedidaBase, indistinguiveis apenas pelo tamanho do pedido).
 function confEscolherVigencia(rows,emissao,medidaPdf){
   var ref=emissao||new Date();
   var cobrem=rows.filter(function(r){
@@ -781,7 +785,26 @@ function confEscolherVigencia(rows,emissao,medidaPdf){
     if(match.length)pool=match;
   }
   var ord=function(a,b){return (dataBR(b.dataInicio)||0)-(dataBR(a.dataInicio)||0);};
-  return {row:pool.slice().sort(ord)[0],vencido:vencido};
+  pool=pool.slice().sort(ord);
+  return {row:pool[0],vencido:vencido,pool:pool};
+}
+
+// Calcula o preco esperado de uma linha da tabela para a UF e o item do
+// pedido, com o mesmo criterio de confValidar (proporcional por medida para
+// pares/pecas; preco direto para metros). Retorna null se a linha nao tiver
+// preco para a UF/base ou faltar a medida necessaria. Usado para montar as
+// "opcoes" quando ha mais de uma linha vigente candidata (confEscolherVigencia.pool).
+function confPrecoEsperado(row,uf,item){
+  var precoTab=row["preco"+uf]>0?row["preco"+uf]:(row.preco>0?row.preco:0);
+  if(!precoTab)return null;
+  var baseLabel=String(row.medidaBaseLabel||"");
+  var usaCm=/CM/i.test(baseLabel)?true:/MM/i.test(baseLabel)?false:((row.unidade||"metros")!=="metros");
+  if(usaCm){
+    var medida=item.cm||0;
+    if(!medida||!(row.medidaBase>0))return null;
+    return {esperado:(medida/row.medidaBase)*precoTab,medidaLabel:medida+"cm"};
+  }
+  return {esperado:precoTab,medidaLabel:"por metro"};
 }
 
 function confValidar(blocos,refs,uf,emissaoStr){
@@ -873,13 +896,44 @@ function confValidar(blocos,refs,uf,emissaoStr){
       res.medidaLabel="por metro";
       res.esperado=precoTab;
     }
-    var difere=Math.abs(item.preco-res.esperado)>CONF_TOLERANCIA;
+    // Mais de uma linha vigente para esta referencia/goma com precos
+    // esperados diferentes (ex.: variantes de cor com precos proprios sob o
+    // mesmo codigo e a mesma MedidaBase, indistinguiveis pelo tamanho do
+    // pedido): em vez do sistema "adivinhar" uma so linha e marcar a outra
+    // variante como divergente, monta as "opcoes" para o usuario comparar o
+    // preco do pedido com cada uma. Generico — nao depende de ajuste por item.
+    var opcoes=[],melhor=null;
+    if(esc.pool.length>1){
+      esc.pool.forEach(function(r){
+        var calc=confPrecoEsperado(r,uf,item);
+        if(!calc)return;
+        if(opcoes.some(function(o){return Math.abs(o.esperado-calc.esperado)<=CONF_TOLERANCIA;}))return;
+        opcoes.push({descricao:r.descricao||"",esperado:calc.esperado,medidaLabel:calc.medidaLabel,vigencia:(r.dataInicio||"–")+" → "+(r.dataFim||"Sem vencimento"),match:Math.abs(item.preco-calc.esperado)<=CONF_TOLERANCIA});
+      });
+    }
+    var difere;
+    if(opcoes.length>1){
+      res.opcoes=opcoes;
+      melhor=opcoes.filter(function(o){return o.match;})[0]||null;
+      if(melhor){
+        res.esperado=melhor.esperado;
+        res.descricao=melhor.descricao||res.descricao;
+        res.medidaLabel=melhor.medidaLabel||res.medidaLabel;
+        res.vigencia=melhor.vigencia;
+      }
+      difere=!melhor;
+    }else{
+      difere=Math.abs(item.preco-res.esperado)>CONF_TOLERANCIA;
+    }
     if(esc.vencido){
       res.status="VENCIDO";
       res.motivo="Preco sem vigencia na data "+(emissaoStr||"de hoje")+". Ultima tabela: "+res.vigencia+".";
     }else{
       res.status=difere?"DIVERGENTE":"OK";
       if(difere)res.motivo="Preco do pedido difere do esperado pela tabela vigente.";
+    }
+    if(res.opcoes){
+      res.motivo=(res.motivo?res.motivo+" ":"")+"Esta referencia tem "+res.opcoes.length+" precos cadastrados (variantes) para esta UF/medida — confira as opcoes abaixo"+(melhor?", o pedido confere com uma delas.":" e nenhuma confere com o pedido.");
     }
     if(hit.goma!==blocoGoma){
       res.motivo=(res.motivo?res.motivo+" ":"")+"Atencao: o pedido indica item "+(blocoGoma?"COM":"SEM")+" goma, mas a referencia casada esta cadastrada como "+(hit.goma?"COM":"SEM")+" goma.";
@@ -1118,9 +1172,18 @@ function confRenderResultados(item){
     var badges="<span class=\"badge "+st.cls+"\">"+st.label+"</span>"
       +(r.vigencia?"<span class=\"badge\">&#x1F4C5; "+escHtml(r.vigencia)+"</span>":"")
       +(r.vigenciaAnterior?"<span class=\"badge warn\">&#x26A0; Preco usado da vigencia "+escHtml(r.vigenciaAnterior)+"</span>":"")
+      +(r.opcoes?"<span class=\"badge warn\">&#x2696; "+r.opcoes.length+" precos cadastrados</span>":"")
       +(g.n>1?"<span class=\"badge\">"+g.n+" linha(s) no pedido</span>":"")
       +(g.qtdTotal>0?"<span class=\"badge\">Qtde: "+Number(g.qtdTotal).toLocaleString("pt-BR")+"</span>":"");
     var seqsTxt=g.seqs.length?("Seq "+g.seqs.slice(0,15).join(", ")+(g.seqs.length>15?"…":"")):"";
+    var opcoesHtml=r.opcoes?("<div class=\"ref-obs\" style=\"border-left-color:var(--warn)\"><strong>Precos cadastrados para esta referencia (variantes) — confira qual confere com o pedido:</strong>"
+      +"<ul style=\"margin:6px 0 0 18px;padding:0\">"
+      +r.opcoes.map(function(o){
+        return "<li>"+fmt(o.esperado)+(o.medidaLabel?" ("+escHtml(o.medidaLabel)+")":"")+(o.descricao?" — "+escHtml(o.descricao):"")
+          +" <span style=\"color:var(--text2)\">["+escHtml(o.vigencia)+"]</span>"
+          +(o.match?" <strong style=\"color:var(--success)\">&#x2713; confere com o pedido ("+fmt(r.precoPdf)+")</strong>":"")
+          +"</li>";
+      }).join("")+"</ul></div>"):"";
     return "<div class=\"ref-card"+(r.status==="DIVERGENTE"?" conf-bad":"")+"\">"
       +"<div class=\"ref-card-header\"><div><div class=\"ref-code\">"+titulo+"</div>"
       +(r.descricao?"<div class=\"ref-desc\">"+escHtml(r.descricao)+"</div>":"")
@@ -1128,6 +1191,7 @@ function confRenderResultados(item){
       +"</div>"+precoHtml+"</div>"
       +"<div class=\"ref-meta\">"+badges+"</div>"
       +(r.motivo?"<div class=\"ref-obs\">"+escHtml(r.motivo)+"</div>":"")
+      +opcoesHtml
       +"<details style=\"margin-top:8px\"><summary style=\"cursor:pointer;font-size:12px;color:var(--text2)\">Ver trecho do PDF"+(seqsTxt?" ("+escHtml(seqsTxt)+")":"")+"</summary><div class=\"conf-line\">"+escHtml(r.bloco)+"</div></details>"
       +"</div>";
   }).join("");

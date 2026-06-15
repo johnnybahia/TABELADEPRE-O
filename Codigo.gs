@@ -145,7 +145,35 @@ function getReferencias(nomeAba, busca, vendedorId) {
       });
     }
 
-    return { ok: true, refs: resultado };
+    // Prazo de pagamento do cliente (célula S1, fora do SCHEMA_CLIENTE)
+    const prazoRaw = String(aba.getRange("S1").getValue() || "").trim();
+    const prazoMatch = prazoRaw.match(/(\d+)/);
+    const prazoPagamentoDias = prazoMatch ? parseInt(prazoMatch[1], 10) : 0;
+
+    return { ok: true, refs: resultado, prazoPagamento: prazoRaw, prazoPagamentoDias };
+  } catch (e) {
+    return { ok: false, erro: e.message };
+  }
+}
+
+// ============================================================
+// SALVAR PRAZO DE PAGAMENTO (célula S1 da aba do cliente)
+// ============================================================
+function salvarPrazoPagamento(nomeAba, prazo, vendedorId) {
+  try {
+    if (!_validarAcesso(vendedorId, nomeAba)) return { ok: false, erro: "Acesso não autorizado." };
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const aba = ss.getSheetByName(nomeAba);
+    if (!aba) return { ok: false, erro: "Cliente não encontrado." };
+
+    const pN = v => parseFloat(String(v || "0").replace(",", ".")) || 0;
+    const dias = Math.round(pN(prazo));
+    const valor = dias > 0 ? dias + " dias" : "";
+    aba.getRange("S1").setValue(valor);
+
+    _log(vendedorId, "SALVAR_PRAZO_PAGAMENTO", nomeAba + " -> " + (valor || "(vazio)"));
+    return { ok: true, prazoPagamento: valor, prazoPagamentoDias: dias > 0 ? dias : 0 };
   } catch (e) {
     return { ok: false, erro: e.message };
   }
@@ -278,7 +306,7 @@ function renovarReferencia(nomeAba, linhaOrigem, dados, vendedorId) {
 // ============================================================
 // ADMIN: CRIAR NOVO CLIENTE (nova aba na planilha)
 // ============================================================
-function criarCliente(nome, vendedorId) {
+function criarCliente(nome, vendedorId, prazoPagamento) {
   try {
     if (!_ehAdmin(vendedorId)) return { ok: false, erro: "Sem permissão." };
 
@@ -307,6 +335,11 @@ function criarCliente(nome, vendedorId) {
        .setFontColor("#e8a020");
     SCHEMA_CLIENTE.forEach((c, i) => aba.setColumnWidth(i + 1, c.largura));
     aba.getRange(2, 4, 500, 2).setNumberFormat("dd/MM/yyyy");
+
+    // Prazo de pagamento (dias) — salvo na célula S1, fora do SCHEMA_CLIENTE
+    const pN = v => parseFloat(String(v || "0").replace(",", ".")) || 0;
+    const diasPrazo = Math.round(pN(prazoPagamento));
+    if (diasPrazo > 0) aba.getRange("S1").setValue(diasPrazo + " dias");
 
     _log(vendedorId, "CRIAR_CLIENTE", nomeAba);
     return { ok: true, nomeAba };

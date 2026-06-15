@@ -75,6 +75,15 @@ Ambas são **idempotentes** — podem ser executadas múltiplas vezes sem risco 
 Itens sem Unidade/MedidaBase (legados) são tratados como `metros` com cálculo direto `preco × entrada`.
 Preços por estado são opcionais; quando zero/ausentes, o frontend usa o Preco base.
 
+### Célula S1 — Prazo de pagamento (metadado, fora do SCHEMA_CLIENTE)
+
+A célula **S1** de cada aba de cliente armazena o prazo de pagamento no formato `"<N> dias"` (ex: `"90 dias"`). Não faz parte do `SCHEMA_CLIENTE` (que cobre apenas A-M) e não é afetada por `migrarSchema()`.
+
+- Definida ao criar um cliente novo (`criarCliente`, campo "Prazo de pagamento" no formulário "Novo Cliente").
+- Editável para clientes existentes na aba "Cadastrar" (campo "Prazo de pagamento" acima do formulário de referência → `salvarPrazoPagamento`).
+- `getReferencias` retorna `prazoPagamento` (string bruta da célula) e `prazoPagamentoDias` (número extraído via regex `/(\d+)/`, robusto a variações como `"90"`, `"90 dias"`, `"90DIAS"`).
+- Na aba "Conferir", `confParseCampos` extrai o prazo do PDF (`Condições de pagto: 90DIAS` → regex `/Condi\S*\s+de\s+pag\S*\s*:?\s*(\d+)\s*dias/i`) e `confRender` compara com `prazoPagamentoDias` cadastrado, exibindo um badge de conferência (confere / divergente / não cadastrado).
+
 ---
 
 ## Lógica da calculadora

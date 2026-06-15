@@ -767,15 +767,23 @@ function confParseItemBloco(bloco){
 
 // Escolhe a linha da tabela cuja vigencia cobre a data de referencia;
 // se nenhuma cobre, retorna a mais atual e marca como vencida.
-function confEscolherVigencia(rows,emissao){
+// Quando ha mais de uma linha vigente para a mesma referencia/goma —
+// variantes de tamanho com precos proprios e nao proporcionais entre si —
+// prioriza a linha cuja MedidaBase (coluna H) casa com o tamanho do pedido.
+function confEscolherVigencia(rows,emissao,medidaPdf){
   var ref=emissao||new Date();
   var cobrem=rows.filter(function(r){
     var ini=dataBR(r.dataInicio),fim=dataBR(r.dataFim);
     return (!ini||ref>=ini)&&(!fim||ref<=fim);
   });
+  var pool=cobrem.length?cobrem:rows;
+  var vencido=!cobrem.length;
+  if(medidaPdf>0&&pool.length>1){
+    var match=pool.filter(function(r){return Math.abs((r.medidaBase||0)-medidaPdf)<0.01;});
+    if(match.length)pool=match;
+  }
   var ord=function(a,b){return (dataBR(b.dataInicio)||0)-(dataBR(a.dataInicio)||0);};
-  if(cobrem.length)return {row:cobrem.sort(ord)[0],vencido:false};
-  return {row:rows.slice().sort(ord)[0],vencido:true};
+  return {row:pool.slice().sort(ord)[0],vencido:vencido};
 }
 
 function confValidar(blocos,refs,uf,emissaoStr){
@@ -812,7 +820,8 @@ function confValidar(blocos,refs,uf,emissaoStr){
       res.motivo="Nenhuma referencia cadastrada deste cliente foi localizada neste item.";
       out.push(res);return;
     }
-    var esc=confEscolherVigencia(hit.rows,emissao);
+    var medidaPdf=item.cm||item.mm||0;
+    var esc=confEscolherVigencia(hit.rows,emissao,medidaPdf);
     var row=esc.row;
     res.descricao=row.descricao||"";
     res.unidade=row.unidade||"metros";
@@ -827,6 +836,10 @@ function confValidar(blocos,refs,uf,emissaoStr){
       // usuario informando as duas vigencias envolvidas
       var comPreco=hit.rows.filter(function(r){return r!==row&&((r["preco"+uf]>0)||(r.preco>0));});
       if(comPreco.length){
+        // prefere alternativas com a mesma MedidaBase da linha escolhida —
+        // evita misturar o preco de uma variante de tamanho diferente
+        var mesmaMedida=comPreco.filter(function(r){return Math.abs((r.medidaBase||0)-(row.medidaBase||0))<0.01;});
+        if(mesmaMedida.length)comPreco=mesmaMedida;
         comPreco.sort(function(a,b){return (dataBR(b.dataInicio)||0)-(dataBR(a.dataInicio)||0);});
         var alt=comPreco[0];
         precoTab=alt["preco"+uf]>0?alt["preco"+uf]:alt.preco;

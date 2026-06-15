@@ -806,7 +806,17 @@ function confValidar(blocos,refs,uf,emissaoStr){
     var precoTab=row["preco"+uf]>0?row["preco"+uf]:(row.preco>0?row.preco:0);
     if(!precoTab){
       res.status="SEM_PRECO";
-      res.motivo="Referencia sem preco "+uf+" cadastrado.";
+      res.motivo="Referencia sem preco "+uf+" cadastrado na vigencia "+res.vigencia+".";
+      // outra vigencia do mesmo codigo com preco UF (ou base) cadastrado: indica
+      // provavel atualizacao de preco que nao preencheu a vigencia mais recente
+      // (preco ficou em branco ou foi digitado na coluna errada da planilha)
+      var comPreco=hit.rows.filter(function(r){return r!==row&&((r["preco"+uf]>0)||(r.preco>0));});
+      if(comPreco.length){
+        comPreco.sort(function(a,b){return (dataBR(b.dataInicio)||0)-(dataBR(a.dataInicio)||0);});
+        var alt=comPreco[0],altPreco=alt["preco"+uf]>0?alt["preco"+uf]:alt.preco;
+        var altVig=(alt.dataInicio||"–")+" → "+(alt.dataFim||"Sem vencimento");
+        res.motivo+=" Encontrado preco "+uf+" de "+altPreco.toLocaleString("pt-BR",{style:"currency",currency:"BRL"})+" cadastrado em outra vigencia ("+altVig+") — verifique se a vigencia atual ficou sem o preco "+uf+"/base preenchido por engano na planilha.";
+      }
       out.push(res);return;
     }
     // Tipo do produto: pares/pecas sao vendidos por tamanho (cm) e precisam do

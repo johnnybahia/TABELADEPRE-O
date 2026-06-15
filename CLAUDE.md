@@ -151,7 +151,18 @@ parseFloat(String(valor).trim().replace(",", ".")) || 0
 
 ## Aba "Conferir" — conferência de pedidos em PDF
 
-A aba Conferir do `Index.html` lê uma ordem de compra em PDF inteiramente no navegador (pdf.js via CDN — nenhuma função nova de backend):
+A aba Conferir do `Index.html` lê uma ou mais ordens de compra em PDF inteiramente no navegador (pdf.js via CDN — nenhuma função nova de backend):
+
+### Suporte a múltiplos PDFs
+
+O input `#conf-file` tem `multiple` e o drop-zone aceita varios arquivos de uma vez. Cada PDF e processado **sequencialmente** (um por vez, sem paralelismo) e gera um item independente em `S.confItens` (`{id, arquivo, linhas, campos, cliente, uf, resultados, prazoCadastrado, erro, clientesDisponiveis}`):
+
+- `confArquivosSelecionados(files)` — ponto de entrada (chamado pelo `onchange`/`ondrop`). Para cada arquivo: extrai linhas (`confExtrairLinhas`), `confParseCampos`, detecta o cliente comparando com a lista de `getClientes` (chamada **uma única vez** para o lote inteiro) e empilha o item em `S.confItens`. Em seguida, para os itens com cliente detectado, roda a analise automaticamente via `confExecutarAnalise`, reaproveitando `getReferencias` entre PDFs do mesmo cliente atraves de um cache local ao lote (`refsCache`).
+- `confExecutarAnalise(item,aba,uf,cache)` — busca a tabela do cliente (`getReferencias`) e roda `confExtrairBlocos`/`confValidar` para aquele item, gravando `item.resultados`/`item.prazoCadastrado`. Sem `cache`, sempre busca a tabela atual (usado pelo botao manual).
+- `confAnalisarItem(id)` — chamado pelo botao "Conferir Precos" de um item especifico; le `#conf-cliente-<id>`/`#conf-uf-<id>`, chama `confExecutarAnalise` sem cache e re-renderiza.
+- `confRenderTudo()`/`confRenderItem(item,idx)`/`confRenderResultados(item)` — renderizam `#conf-result` como uma lista de blocos `.conf-pdf-block`, um por PDF, cada um com cabecalho (nome do arquivo, OC/marca/emissao), seletor de cliente/UF proprio e o resumo+cards daquele item. `confRemoverItem(id)`/`confLimparTudo()` removem um item ou todos.
+
+A logica de extracao/validacao por PDF abaixo (itens 1-5) e a mesma de antes, apenas executada uma vez por item da lista:
 
 1. `confExtrairLinhas` reconstrói as linhas visuais por coordenada — usa `pdfjsLib.Util.transform` com o viewport da página, obrigatório para PDFs em paisagem/rotacionados (caso das OCs da DASS).
 2. `confParseCampos` detecta nº da OC, marca, data de emissão e UF da tabela (`/CE`, `/BA` etc. próximo de "MARFIM" no bloco do fornecedor). O cliente é detectado comparando o texto com os nomes das abas de cliente.

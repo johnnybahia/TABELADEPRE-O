@@ -416,8 +416,10 @@ function getVendedores(vendedorId) {
       lista.push({
         id:       String(dados[i][0] || ""),
         nome:     String(dados[i][1] || ""),
+        senha:    String(dados[i][2] || ""),
         clientes: String(dados[i][3] || ""),
-        email:    String(dados[i][4] || "")   // coluna E
+        email:    String(dados[i][4] || ""),
+        linha:    i + 1
       });
     }
     return { ok: true, vendedores: lista };

@@ -346,7 +346,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
           <div class="field"><label>ID *</label><input type="text" id="adm-id" placeholder="V03"></div>
           <div class="field"><label>Nome *</label><input type="text" id="adm-nome" placeholder="Nome completo"></div>
           <div class="field"><label>Senha *</label><input type="text" id="adm-senha" placeholder="Senha de acesso"></div>
-          <div class="field full"><label>Clientes</label><div id="adm-clientes-wrap" style="border:1px solid var(--border);border-radius:var(--radius);padding:10px;max-height:170px;overflow-y:auto;background:var(--surface2)"><label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid var(--border);font-weight:600"><input type="checkbox" id="adm-todos-clientes" onchange="admToggleTodos(this.checked)"> Todos os clientes (*)</label><div id="adm-clientes-checkboxes" style="display:flex;flex-direction:column;gap:4px"><span style="font-size:12px;color:var(--text2)">Carregando...</span></div></div></div>
+          <div class="field full"><label>Clientes</label><div id="adm-clientes-wrap" style="border:1px solid var(--border);border-radius:var(--radius);padding:10px;max-height:170px;overflow-y:auto;background:var(--surface2)"><label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid var(--border);text-transform:none;letter-spacing:normal;color:var(--text)"><input type="checkbox" id="adm-todos-clientes" onchange="admToggleTodos(this.checked)"> Todos os clientes (*)</label><div id="adm-clientes-checkboxes" style="display:flex;flex-direction:column;gap:4px"><span style="font-size:12px;color:var(--text2)">Carregando...</span></div></div></div>
           <div class="field full"><label>Email</label><input type="email" id="adm-email" placeholder="vendedor@email.com"></div>
         </div>
         <input type="hidden" id="adm-linha" value="">
@@ -1589,7 +1589,7 @@ async function criarNovoCliente(){
 function admRenderCheckboxes(lista){
   var el=document.getElementById("adm-clientes-checkboxes");
   if(!lista.length){el.innerHTML="<span style=\"font-size:12px;color:var(--text2)\">Nenhum cliente cadastrado.</span>";return;}
-  el.innerHTML=lista.map(function(c){return "<label style=\"display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer\"><input type=\"checkbox\" class=\"adm-cli-chk\" value=\""+escHtml(c)+"\"> "+escHtml(c.replace(/ CLIENTE$/i,""))+"</label>";}).join("");
+  el.innerHTML=lista.map(function(c){return "<label style=\"display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;text-transform:none;letter-spacing:normal;color:var(--text);margin-bottom:0;font-weight:400\"><input type=\"checkbox\" class=\"adm-cli-chk\" value=\""+escHtml(c)+"\"> "+escHtml(c.replace(/ CLIENTE$/i,""))+"</label>";}).join("");
 }
 function admToggleTodos(checked){
   document.querySelectorAll(".adm-cli-chk").forEach(function(cb){cb.disabled=checked;cb.checked=false;});

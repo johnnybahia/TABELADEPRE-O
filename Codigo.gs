@@ -607,12 +607,13 @@ function enviarEmailReferencia(nomeAba, refDados, vendedorId) {
     }
 
     const pN = v => parseFloat(String(v || "0").replace(",", ".")) || 0;
+    const escH = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
     const nomeCliente = nomeAba.replace(/ CLIENTE$/i, "");
     const hoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
     const fmtBRL = v => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-    const ref        = String(refDados.ref || "");
-    const descricao  = String(refDados.descricao || "");
+    const ref        = escH(String(refDados.ref || ""));
+    const descricao  = escH(String(refDados.descricao || ""));
     const unidade    = String(refDados.unidade || "metros");
     const medidaBase = pN(refDados.medidaBase);
     const precoBase  = pN(refDados.preco);
@@ -620,9 +621,9 @@ function enviarEmailReferencia(nomeAba, refDados, vendedorId) {
     const precoBA    = pN(refDados.precoBA);
     const precoCE    = pN(refDados.precoCE);
     const precoMG    = pN(refDados.precoMG);
-    const dataInicio = String(refDados.dataInicio || "–");
-    const dataFim    = String(refDados.dataFim || "Sem vencimento");
-    const obs        = String(refDados.obs || "");
+    const dataInicio = escH(String(refDados.dataInicio || "–"));
+    const dataFim    = escH(String(refDados.dataFim || "Sem vencimento"));
+    const obs        = escH(String(refDados.obs || ""));
 
     const unidLabel  = unidade === "pares" ? "par" : unidade === "pecas" ? "peça" : "metro";
     const medSufixo  = unidade === "metros" ? "mm" : "cm";
@@ -651,9 +652,9 @@ function enviarEmailReferencia(nomeAba, refDados, vendedorId) {
           </tr></table>
         </div>
         <div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:24px 28px;border-radius:0 0 8px 8px">
-          <p style="margin:0 0 6px 0">Olá, <strong>${dest.nome}</strong>.</p>
+          <p style="margin:0 0 6px 0">Olá, <strong>${escH(dest.nome)}</strong>.</p>
           <p style="margin:0 0 20px 0;color:#555">
-            O preço da referência abaixo foi atualizado para o cliente <strong>${nomeCliente}</strong>:
+            O preço da referência abaixo foi atualizado para o cliente <strong>${escH(nomeCliente)}</strong>:
           </p>
           <div style="background:#f8f9fa;border:1px solid #e5e7eb;border-left:4px solid #e8a020;border-radius:6px;padding:18px 20px;margin-bottom:20px">
             <div style="font-size:20px;font-weight:700;color:#0d0f14;margin-bottom:${descricao ? "4px" : "12px"}">${ref}</div>

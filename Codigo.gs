@@ -150,7 +150,14 @@ function getReferencias(nomeAba, busca, vendedorId) {
     const prazoMatch = prazoRaw.match(/(\d+)/);
     const prazoPagamentoDias = prazoMatch ? parseInt(prazoMatch[1], 10) : 0;
 
-    return { ok: true, refs: resultado, prazoPagamento: prazoRaw, prazoPagamentoDias };
+    // Descontos/acréscimos por estado em % (células T1/U1/V1, fora do SCHEMA_CLIENTE)
+    // Positivo = acréscimo, negativo = desconto. Zero/vazio = sem auto-preenchimento.
+    const [dBA, dCE, dMG] = aba.getRange("T1:V1").getValues()[0];
+    const descontoBA = pN(dBA);
+    const descontoCE = pN(dCE);
+    const descontoMG = pN(dMG);
+
+    return { ok: true, refs: resultado, prazoPagamento: prazoRaw, prazoPagamentoDias, descontoBA, descontoCE, descontoMG };
   } catch (e) {
     return { ok: false, erro: e.message };
   }
@@ -174,6 +181,35 @@ function salvarPrazoPagamento(nomeAba, prazo, vendedorId) {
 
     _log(vendedorId, "SALVAR_PRAZO_PAGAMENTO", nomeAba + " -> " + (valor || "(vazio)"));
     return { ok: true, prazoPagamento: valor, prazoPagamentoDias: dias > 0 ? dias : 0 };
+  } catch (e) {
+    return { ok: false, erro: e.message };
+  }
+}
+
+// ============================================================
+// SALVAR DESCONTOS/ACRÉSCIMOS POR ESTADO (células T1/U1/V1 da aba do cliente)
+// Positivo = acréscimo %, negativo = desconto %. Zero/vazio = desabilita auto-fill.
+// ============================================================
+function salvarDescontosEstado(nomeAba, descontos, vendedorId) {
+  try {
+    if (!_validarAcesso(vendedorId, nomeAba)) return { ok: false, erro: "Acesso não autorizado." };
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const aba = ss.getSheetByName(nomeAba);
+    if (!aba) return { ok: false, erro: "Cliente não encontrado." };
+
+    const pct = v => {
+      const n = parseFloat(String(v || "").replace(",", "."));
+      return isNaN(n) ? 0 : n;
+    };
+    const ba = pct(descontos.ba);
+    const ce = pct(descontos.ce);
+    const mg = pct(descontos.mg);
+
+    aba.getRange("T1:V1").setValues([[ba !== 0 ? ba : "", ce !== 0 ? ce : "", mg !== 0 ? mg : ""]]);
+
+    _log(vendedorId, "SALVAR_DESCONTOS_ESTADO", nomeAba + " -> BA:" + ba + "% CE:" + ce + "% MG:" + mg + "%");
+    return { ok: true, descontoBA: ba, descontoCE: ce, descontoMG: mg };
   } catch (e) {
     return { ok: false, erro: e.message };
   }

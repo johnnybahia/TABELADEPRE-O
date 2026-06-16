@@ -252,14 +252,29 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
         </select>
       </div>
       <div id="cad-form-area" style="display:none">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:10px;flex-wrap:wrap">
-          <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2)">
-            <span>Prazo de pagamento:</span>
-            <input type="text" inputmode="numeric" id="cad-prazo-pagamento" placeholder="Ex: 90" style="width:64px;text-align:center" autocomplete="off" onkeydown="if(event.key==='Enter')salvarPrazoPagamentoCad()">
-            <span>dias</span>
-            <button class="btn btn-ghost btn-sm" onclick="salvarPrazoPagamentoCad()">&#x1F4BE; Salvar</button>
+        <div style="margin-bottom:16px;display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2)">
+              <span>Prazo de pagamento:</span>
+              <input type="text" inputmode="numeric" id="cad-prazo-pagamento" placeholder="Ex: 90" style="width:64px;text-align:center" autocomplete="off" onkeydown="if(event.key==='Enter')salvarPrazoPagamentoCad()">
+              <span>dias</span>
+              <button class="btn btn-ghost btn-sm" onclick="salvarPrazoPagamentoCad()">&#x1F4BE; Salvar</button>
+            </div>
+            <button class="btn btn-ghost btn-sm" style="border-color:var(--navy);color:var(--navy)" onclick="abrirModalNotificar()">&#x1F4E7; Notificar Vendedores</button>
           </div>
-          <button class="btn btn-ghost btn-sm" style="border-color:var(--navy);color:var(--navy)" onclick="abrirModalNotificar()">&#x1F4E7; Notificar Vendedores</button>
+          <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2);flex-wrap:wrap">
+            <span>Variação por estado&nbsp;(% sobre RS):</span>
+            <span style="font-size:11px;font-weight:600;color:var(--text1)">BA</span>
+            <input type="text" inputmode="decimal" id="cad-desconto-ba" placeholder="Ex: -3" style="width:56px;text-align:center" autocomplete="off">
+            <span>%</span>
+            <span style="font-size:11px;font-weight:600;color:var(--text1)">CE</span>
+            <input type="text" inputmode="decimal" id="cad-desconto-ce" placeholder="Ex: -3" style="width:56px;text-align:center" autocomplete="off">
+            <span>%</span>
+            <span style="font-size:11px;font-weight:600;color:var(--text1)">MG</span>
+            <input type="text" inputmode="decimal" id="cad-desconto-mg" placeholder="Ex: -3" style="width:56px;text-align:center" autocomplete="off">
+            <span>%</span>
+            <button class="btn btn-ghost btn-sm" onclick="salvarDescontosEstadoCad()">&#x1F4BE; Salvar variações</button>
+          </div>
         </div>
         <div class="form-card">
           <p class="section-title" id="cad-form-title">Nova Referencia</p>
@@ -275,7 +290,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
             <div class="field full">
               <label>Precos por Estado *</label>
               <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:4px">
-                <div><label style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">RS&nbsp;(R$)</label><input type="text" inputmode="decimal" id="cad-preco-rs" placeholder="0,00" style="margin-top:4px"></div>
+                <div><label style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">RS&nbsp;(R$)</label><input type="text" inputmode="decimal" id="cad-preco-rs" placeholder="0,00" style="margin-top:4px" oninput="autoFillEstados('cad-preco-rs','cad-preco-ba','cad-preco-ce','cad-preco-mg')"></div>
                 <div><label style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">BA&nbsp;(R$)</label><input type="text" inputmode="decimal" id="cad-preco-ba" placeholder="0,00" style="margin-top:4px"></div>
                 <div><label style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">CE&nbsp;(R$)</label><input type="text" inputmode="decimal" id="cad-preco-ce" placeholder="0,00" style="margin-top:4px"></div>
                 <div><label style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">MG&nbsp;(R$)</label><input type="text" inputmode="decimal" id="cad-preco-mg" placeholder="0,00" style="margin-top:4px"></div>
@@ -367,7 +382,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
       <div class="field full">
         <label>Precos por Estado (opcional)</label>
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:4px">
-          <div><label style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">RS&nbsp;(R$)</label><input type="text" inputmode="decimal" id="atu-rs" placeholder="0,00" style="margin-top:4px"></div>
+          <div><label style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">RS&nbsp;(R$)</label><input type="text" inputmode="decimal" id="atu-rs" placeholder="0,00" style="margin-top:4px" oninput="autoFillEstados('atu-rs','atu-ba','atu-ce','atu-mg')"></div>
           <div><label style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">BA&nbsp;(R$)</label><input type="text" inputmode="decimal" id="atu-ba" placeholder="0,00" style="margin-top:4px"></div>
           <div><label style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">CE&nbsp;(R$)</label><input type="text" inputmode="decimal" id="atu-ce" placeholder="0,00" style="margin-top:4px"></div>
           <div><label style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">MG&nbsp;(R$)</label><input type="text" inputmode="decimal" id="atu-mg" placeholder="0,00" style="margin-top:4px"></div>
@@ -398,7 +413,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
 <div id="print-output"></div>
 
 <script>
-var S={vendedor:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],confItens:[]};
+var S={vendedor:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],confItens:[],descontosEstado:{ba:0,ce:0,mg:0}};
 
 function gas(fn){
   var args=Array.prototype.slice.call(arguments,1);
@@ -433,7 +448,7 @@ async function fazerLogin(){
 document.getElementById("login-senha").addEventListener("keydown",function(e){if(e.key==="Enter")fazerLogin();});
 
 function fazerLogout(){
-  S={vendedor:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],confItens:[]};
+  S={vendedor:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],confItens:[],descontosEstado:{ba:0,ce:0,mg:0}};
   document.getElementById("screen-main").classList.remove("active");
   document.getElementById("screen-login").classList.add("active");
   document.getElementById("login-id").value="";
@@ -1232,6 +1247,10 @@ async function recarregarListaCad(aba){
   S.refsCad=r.ok?r.refs:[];
   document.getElementById("cad-busca").value="";
   document.getElementById("cad-prazo-pagamento").value=(r.ok&&r.prazoPagamentoDias)?r.prazoPagamentoDias:"";
+  S.descontosEstado={ba:r.ok?r.descontoBA||0:0,ce:r.ok?r.descontoCE||0:0,mg:r.ok?r.descontoMG||0:0};
+  document.getElementById("cad-desconto-ba").value=S.descontosEstado.ba!==0?S.descontosEstado.ba:"";
+  document.getElementById("cad-desconto-ce").value=S.descontosEstado.ce!==0?S.descontosEstado.ce:"";
+  document.getElementById("cad-desconto-mg").value=S.descontosEstado.mg!==0?S.descontosEstado.mg:"";
   renderRefs(r,"ref-list-cad",true);
   loading(false);
 }
@@ -1247,6 +1266,40 @@ async function salvarPrazoPagamentoCad(){
     toast("Prazo de pagamento salvo!","success");
   }catch(e){toast("Erro ao salvar prazo.","error");}
   loading(false);
+}
+async function salvarDescontosEstadoCad(){
+  var aba=document.getElementById("cad-cliente").value;
+  if(!aba){toast("Selecione um cliente.","error");return;}
+  var descontos={
+    ba:document.getElementById("cad-desconto-ba").value.trim(),
+    ce:document.getElementById("cad-desconto-ce").value.trim(),
+    mg:document.getElementById("cad-desconto-mg").value.trim()
+  };
+  loading(true,"Salvando...");
+  try{
+    var r=await gas("salvarDescontosEstado",aba,descontos,S.vendedor.id);
+    if(!r.ok){toast(r.erro,"error");loading(false);return;}
+    S.descontosEstado={ba:r.descontoBA||0,ce:r.descontoCE||0,mg:r.descontoMG||0};
+    document.getElementById("cad-desconto-ba").value=S.descontosEstado.ba!==0?S.descontosEstado.ba:"";
+    document.getElementById("cad-desconto-ce").value=S.descontosEstado.ce!==0?S.descontosEstado.ce:"";
+    document.getElementById("cad-desconto-mg").value=S.descontosEstado.mg!==0?S.descontosEstado.mg:"";
+    toast("Variações por estado salvas!","success");
+  }catch(e){toast("Erro ao salvar variações.","error");}
+  loading(false);
+}
+function autoFillEstados(rsId,baId,ceId,mgId){
+  var rs=parseFloat(String(document.getElementById(rsId).value||"").trim().replace(",","."))||0;
+  var d=S.descontosEstado;
+  var fmtDec=function(v){return v.toFixed(2).replace(".",",");};
+  if(!rs){
+    if(d.ba!==0)document.getElementById(baId).value="";
+    if(d.ce!==0)document.getElementById(ceId).value="";
+    if(d.mg!==0)document.getElementById(mgId).value="";
+    return;
+  }
+  if(d.ba!==0)document.getElementById(baId).value=fmtDec(rs*(1+d.ba/100));
+  if(d.ce!==0)document.getElementById(ceId).value=fmtDec(rs*(1+d.ce/100));
+  if(d.mg!==0)document.getElementById(mgId).value=fmtDec(rs*(1+d.mg/100));
 }
 async function salvarRef(){
   var aba=document.getElementById("cad-cliente").value;

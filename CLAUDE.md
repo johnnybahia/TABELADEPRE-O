@@ -75,6 +75,18 @@ Ambas são **idempotentes** — podem ser executadas múltiplas vezes sem risco 
 Itens sem Unidade/MedidaBase (legados) são tratados como `metros` com cálculo direto `preco × entrada`.
 Preços por estado são opcionais; quando zero/ausentes, o frontend usa o Preco base.
 
+### Células T1/U1/V1 — Variação de preço por estado (metadado, fora do SCHEMA_CLIENTE)
+
+As células **T1** (BA), **U1** (CE) e **V1** (MG) de cada aba de cliente armazenam a variação percentual de preço em relação ao RS. Não fazem parte do `SCHEMA_CLIENTE` e não são afetadas por `migrarSchema()`.
+
+- Armazenadas como número puro (ex: `-3` para −3%, `5` para +5%). Célula vazia = sem auto-preenchimento para aquele estado.
+- Zero e célula vazia são equivalentes (sentinel value).
+- Fórmula: `precoEstado = precoRS × (1 + variação/100)`. Negativo = desconto; positivo = acréscimo.
+- Lidas em batch por `getReferencias` via `getRange("T1:V1").getValues()` + `pN()`; retornadas como `descontoBA`, `descontoCE`, `descontoMG`.
+- Escritas em batch por `salvarDescontosEstado` via `getRange("T1:V1").setValues(...)`.
+- Visíveis na aba "Cadastrar" (admin), linha "Variação por estado (% sobre RS): BA/CE/MG [Salvar variações]".
+- `autoFillEstados(rsId, baId, ceId, mgId)` no frontend aplica os valores ao digitar no campo RS; limpa os campos dos estados quando RS é apagado.
+
 ### Célula S1 — Prazo de pagamento (metadado, fora do SCHEMA_CLIENTE)
 
 A célula **S1** de cada aba de cliente armazena o prazo de pagamento no formato `"<N> dias"` (ex: `"90 dias"`). Não faz parte do `SCHEMA_CLIENTE` (que cobre apenas A-M) e não é afetada por `migrarSchema()`.

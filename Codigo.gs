@@ -553,6 +553,7 @@ function enviarEmailAtualizacao(nomeAba, vendedorIdRemetente) {
       try {
         MailApp.sendEmail({
           to: dest.email,
+          replyTo: "marco@marfim.ind.br",
           subject: `[Marfim] Atualização de preços — ${nomeCliente}`,
           htmlBody: corpoHtml
         });
@@ -680,6 +681,7 @@ function enviarEmailReferencia(nomeAba, refDados, vendedorId) {
       try {
         MailApp.sendEmail({
           to: dest.email,
+          replyTo: "marco@marfim.ind.br",
           subject: `[Marfim] Novo preço — ${nomeCliente}: ${ref}`,
           htmlBody: corpoHtml
         });

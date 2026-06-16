@@ -185,7 +185,24 @@ A logica de extracao/validacao por PDF abaixo (itens 1-5) e a mesma de antes, ap
    - **Atributo goma** (`confTemGoma`/`confBaseRef`): variantes com/sem goma do mesmo código são candidatas distintas. O PDF pode indicar goma como `C/GOMA`, `engomada`, `engomado`, `egomada`, `engo`, `gomada`; negações (`S/GOMA`, `sem goma`) contam como sem goma. O atributo pode estar na referência cadastrada (ex.: `MFGP/T2 C/Goma`) ou só na Descricao. Empate de código é decidido pela variante cujo atributo coincide com o pedido; se divergir, um aviso é exibido no resultado.
 5. Status possíveis: `OK`, `DIVERGENTE`, `VENCIDO`, `SEM_PRECO`, `SEM_MEDIDA`, `NAO_CADASTRADO`.
 
-O parsing foi calibrado com as OCs da DASS (PDFs de exemplo na raiz do repositório). Outros clientes com layout diferente podem exigir ajuste em `confExtrairBlocos`/`confParseItemBloco`.
+O parsing foi calibrado com as OCs da DASS e da RAMARIM (PDFs de exemplo na raiz do repositório).
+
+### Suporte multi-formato: DASS vs RAMARIM
+
+`confIsRamarim(linhas)` detecta o formato pelo cabeçalho ("CALCADOS RAMARIM" / "RAMARIM - NOVA HARTZ"). `confExecutarAnalise` seleciona o extrator e o parser corretos para cada formato; `confValidar` aceita um `parseFn` opcional (5º argumento) para suportar ambos.
+
+**Formato RAMARIM** (tabela em paisagem, OCs série PED_XXXXXX):
+- Cabeçalho: `NÚMERO OC: XXXXXX` / `DATA EMISSÃO: DD/MM/YYYY` / `COND. PGTO: N dias`
+- UF: extraída do endereço do **cliente** (antes de "FORNECEDOR:"), ex: `JEQUIE/BA` → BA, `NOVA HARTZ/RS` → RS. **Não** busca perto do bloco MARFIM (que é sempre /RS).
+- Cada linha de item: `SEQ ATAxxxxxxx DESCRICAO... DD/MM/YYYY QTY PR PRECO TAM TOTAL`
+- Extrator: `confExtrairBlocosRamarim` — seleciona linhas que iniciam com `\d{1,3} ATA\d+`
+- Parser: `confParseItemBlocoRamarim` — extrai preco (`Vl. Unit.`), qty (`Quant.`) e tamanho cm do **final da descrição** (`50CM`, `120CM`, etc.)
+- Referências: o código Marfim fica embutido na descrição (ex: `LS 16410`, `M 1308`, `M 34003`); o `confRefRegex` casa normalmente contra a linha inteira do item.
+- Unidade: todos os itens são `PR` (pares); o cálculo proporcional usa `(tamanho_cm / MedidaBase) × preço`.
+
+**Formato DASS** (blocos de texto, OCs digitalizadas/geradas pelo ERP da DASS):
+- Delimitador de bloco: linha `Quantidade:`
+- Extrator: `confExtrairBlocos` / Parser: `confParseItemBloco` (comportamento original, sem alteração).
 
 ---
 

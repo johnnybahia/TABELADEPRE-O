@@ -891,7 +891,14 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn){
     if(n.length<3)return;
     var goma=confTemGoma(String(r.ref)+" "+String(r.descricao||""));
     var k=n+"|"+(goma?1:0);
-    if(!mapa[k])mapa[k]={nome:r.ref,norm:n,goma:goma,rx:confRefRegex(base),rows:[]};
+    // Se o codigo inclui especificacao de MM (ex: "LS16410 6MM", "M6087 8MM"),
+    // armazena sub-regex separados para o codigo-base e para o MM, permitindo
+    // que o MM seja localizado em qualquer posicao do bloco do PDF — e nao
+    // necessariamente logo apos o codigo principal.
+    var rxBase=null,rxMm=null;
+    var mMm=base.match(/^(.+?)\s+(\d+(?:[.,]\d+)?\s*MM)\s*$/i);
+    if(mMm&&normTxt(mMm[1]).length>=3){rxBase=confRefRegex(mMm[1]);rxMm=confRefRegex(mMm[2]);}
+    if(!mapa[k])mapa[k]={nome:r.ref,norm:n,goma:goma,rx:confRefRegex(base),rxBase:rxBase,rxMm:rxMm,rows:[]};
     mapa[k].rows.push(r);
   });
   // Aliases: codigos antigos mencionados como "ant.CODIGO" na descricao entre
@@ -918,8 +925,14 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn){
     if(!item)return;
     var blocoGoma=confTemGoma(bloco);
     // candidatas que casam no bloco; vence o codigo mais longo e,
-    // em empate, a variante cujo atributo goma coincide com o pedido
-    var hits=cands.filter(function(c){return c.rx&&c.rx.test(bloco);});
+    // em empate, a variante cujo atributo goma coincide com o pedido.
+    // Quando a referencia tem MM no codigo, testa codigo-base e MM
+    // de forma independente (cada um pode estar em qualquer posicao no bloco).
+    var hits=cands.filter(function(c){
+      if(!c.rx)return false;
+      if(c.rxMm)return !!(c.rxBase&&c.rxBase.test(bloco)&&c.rxMm.test(bloco));
+      return c.rx.test(bloco);
+    });
     hits.sort(function(a,b){
       if(b.norm.length!==a.norm.length)return b.norm.length-a.norm.length;
       return ((b.goma===blocoGoma)?1:0)-((a.goma===blocoGoma)?1:0);

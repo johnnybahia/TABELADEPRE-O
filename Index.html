@@ -346,7 +346,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
           <div class="field"><label>ID *</label><input type="text" id="adm-id" placeholder="V03"></div>
           <div class="field"><label>Nome *</label><input type="text" id="adm-nome" placeholder="Nome completo"></div>
           <div class="field"><label>Senha *</label><input type="text" id="adm-senha" placeholder="Senha de acesso"></div>
-          <div class="field"><label>Clientes (separar por | ou * para todos)</label><input type="text" id="adm-clientes" placeholder="DASS CLIENTE|DILLY CLIENTE"></div>
+          <div class="field full"><label>Clientes</label><div id="adm-clientes-wrap" style="border:1px solid var(--border);border-radius:var(--radius);padding:10px;max-height:170px;overflow-y:auto;background:var(--surface2)"><label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid var(--border);font-weight:600"><input type="checkbox" id="adm-todos-clientes" onchange="admToggleTodos(this.checked)"> Todos os clientes (*)</label><div id="adm-clientes-checkboxes" style="display:flex;flex-direction:column;gap:4px"><span style="font-size:12px;color:var(--text2)">Carregando...</span></div></div></div>
           <div class="field full"><label>Email</label><input type="email" id="adm-email" placeholder="vendedor@email.com"></div>
         </div>
         <input type="hidden" id="adm-linha" value="">
@@ -413,7 +413,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
 <div id="print-output"></div>
 
 <script>
-var S={vendedor:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],confItens:[],descontosEstado:{ba:0,ce:0,mg:0}};
+var S={vendedor:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],confItens:[],descontosEstado:{ba:0,ce:0,mg:0},admVendedores:[]};
 
 function gas(fn){
   var args=Array.prototype.slice.call(arguments,1);
@@ -1550,12 +1550,21 @@ async function carregarAdminLista(){
     var rV=await gas("getVendedores",S.vendedor.id);
     var elV=document.getElementById("adm-lista");
     if(!rV.ok){elV.innerHTML="<p style=\"color:var(--danger)\">"+escHtml(rV.erro)+"</p>";loading(false);return;}
-    else{elV.innerHTML=rV.vendedores.map(function(v){return "<div class=\"form-card\" style=\"margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px\"><div><div style=\"font-family:sans-serif,sans-serif;font-weight:700\">"+escHtml(v.nome)+" <span style=\"color:var(--text2);font-size:12px\">("+escHtml(v.id)+")</span></div><div style=\"font-size:12px;color:var(--text2);margin-top:4px\">"+escHtml(v.clientes||"Sem clientes")+"</div><div style=\"font-size:11px;color:var(--text2);margin-top:2px\">&#x1F4E7; "+escHtml(v.email||"Sem email")+"</div></div></div>";}).join("");}
+    S.admVendedores=rV.vendedores;
+    elV.innerHTML=rV.vendedores.map(function(v,i){
+      var nomeClientes=v.clientes==="*"?"Todos os clientes":escHtml(v.clientes||"Sem clientes");
+      return "<div class=\"form-card\" style=\"margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px\"><div style=\"flex:1;min-width:0\"><div style=\"font-weight:700\">"+escHtml(v.nome)+" <span style=\"color:var(--text2);font-size:12px\">("+escHtml(v.id)+")</span></div><div style=\"font-size:12px;color:var(--text2);margin-top:4px\">"+nomeClientes+"</div><div style=\"font-size:11px;color:var(--text2);margin-top:2px\">&#x1F4E7; "+escHtml(v.email||"Sem email")+"</div></div><button class=\"btn btn-ghost\" style=\"font-size:12px;padding:4px 12px;flex-shrink:0\" onclick=\"editarVendedor("+i+")\">&#x270F; Editar</button></div>";
+    }).join("");
 
     var rC=await gas("getClientes",S.vendedor.id,["*"]);
     var elC=document.getElementById("adm-clientes-lista");
-    if(!rC.ok||!rC.clientes.length){elC.innerHTML="<p style=\"color:var(--text2);font-size:13px\">Nenhum cliente cadastrado.</p>";}
-    else{elC.innerHTML="<div class=\"client-grid\">"+rC.clientes.map(function(c){return "<div class=\"client-chip\" style=\"cursor:default;text-align:left;font-size:12px\">&#x1F4C2; "+c.replace(/ CLIENTE$/i,"")+"</div>";}).join("")+"</div>";}
+    if(!rC.ok||!rC.clientes.length){
+      elC.innerHTML="<p style=\"color:var(--text2);font-size:13px\">Nenhum cliente cadastrado.</p>";
+      admRenderCheckboxes([]);
+    }else{
+      elC.innerHTML="<div class=\"client-grid\">"+rC.clientes.map(function(c){return "<div class=\"client-chip\" style=\"cursor:default;text-align:left;font-size:12px\">&#x1F4C2; "+c.replace(/ CLIENTE$/i,"")+"</div>";}).join("")+"</div>";
+      admRenderCheckboxes(rC.clientes);
+    }
   }catch(e){toast("Erro.","error");}
   loading(false);
 }
@@ -1577,18 +1586,56 @@ async function criarNovoCliente(){
   }catch(e){document.getElementById("adm-novo-cliente-msg").innerHTML="<span style=\"color:var(--danger)\">Erro ao criar cliente.</span>";}
   loading(false);
 }
+function admRenderCheckboxes(lista){
+  var el=document.getElementById("adm-clientes-checkboxes");
+  if(!lista.length){el.innerHTML="<span style=\"font-size:12px;color:var(--text2)\">Nenhum cliente cadastrado.</span>";return;}
+  el.innerHTML=lista.map(function(c){return "<label style=\"display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer\"><input type=\"checkbox\" class=\"adm-cli-chk\" value=\""+escHtml(c)+"\"> "+escHtml(c.replace(/ CLIENTE$/i,""))+"</label>";}).join("");
+}
+function admToggleTodos(checked){
+  document.querySelectorAll(".adm-cli-chk").forEach(function(cb){cb.disabled=checked;cb.checked=false;});
+}
+function admGetClientesSelecionados(){
+  if(document.getElementById("adm-todos-clientes").checked)return "*";
+  var sel=[];
+  document.querySelectorAll(".adm-cli-chk:checked").forEach(function(cb){sel.push(cb.value);});
+  return sel.join("|");
+}
+function admSetClientesSelecionados(str){
+  var todosChk=document.getElementById("adm-todos-clientes");
+  if(str==="*"){todosChk.checked=true;admToggleTodos(true);return;}
+  todosChk.checked=false;admToggleTodos(false);
+  var lista=str?str.split("|").map(function(s){return s.trim().toUpperCase();}):[];
+  document.querySelectorAll(".adm-cli-chk").forEach(function(cb){cb.checked=lista.includes(cb.value.trim().toUpperCase());});
+}
+function editarVendedor(i){
+  var v=S.admVendedores[i];
+  if(!v)return;
+  document.getElementById("adm-id").value=v.id;
+  document.getElementById("adm-nome").value=v.nome;
+  document.getElementById("adm-senha").value=v.senha;
+  document.getElementById("adm-email").value=v.email||"";
+  document.getElementById("adm-linha").value=v.linha||"";
+  admSetClientesSelecionados(v.clientes||"");
+  document.getElementById("adm-id").scrollIntoView({behavior:"smooth",block:"center"});
+}
 async function salvarVendedor(){
-  var dados={id:document.getElementById("adm-id").value.trim(),nome:document.getElementById("adm-nome").value.trim(),senha:document.getElementById("adm-senha").value.trim(),clientes:document.getElementById("adm-clientes").value.trim(),email:document.getElementById("adm-email").value.trim()};
+  var linha=document.getElementById("adm-linha").value.trim()||null;
+  var dados={id:document.getElementById("adm-id").value.trim(),nome:document.getElementById("adm-nome").value.trim(),senha:document.getElementById("adm-senha").value.trim(),clientes:admGetClientesSelecionados(),email:document.getElementById("adm-email").value.trim()};
   if(!dados.id||!dados.nome||!dados.senha){toast("ID, nome e senha sao obrigatorios.","error");return;}
   loading(true,"Salvando...");
   try{
-    var r=await gas("salvarVendedor",S.vendedor.id,dados,null);
+    var r=await gas("salvarVendedor",S.vendedor.id,dados,linha?Number(linha):null);
     if(!r.ok){toast(r.erro,"error");loading(false);return;}
     toast("Vendedor salvo!","success");limparAdm();await carregarAdminLista();
   }catch(e){toast("Erro.","error");}
   loading(false);
 }
-function limparAdm(){["adm-id","adm-nome","adm-senha","adm-clientes","adm-email","adm-linha"].forEach(function(id){document.getElementById(id).value="";});}
+function limparAdm(){
+  ["adm-id","adm-nome","adm-senha","adm-email","adm-linha"].forEach(function(id){document.getElementById(id).value="";});
+  document.getElementById("adm-todos-clientes").checked=false;
+  admToggleTodos(false);
+  document.querySelectorAll(".adm-cli-chk").forEach(function(cb){cb.checked=false;});
+}
 
 // NOTIFICAR VENDEDORES
 async function abrirModalNotificar(){

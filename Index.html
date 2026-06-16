@@ -778,12 +778,21 @@ function confExtrairBlocos(linhas){
 
 // Extrai linhas de item de um PDF RAMARIM (formato tabela paisagem).
 // Cada linha que inicia com numero de sequencia + codigo ATA e um item.
-// Ignora linhas de remessa, subtotais e totais da OC.
+// Quando o item fica logo apos uma linha "Remessa:", o pdf.js pode separar
+// a descricao (sem data) da linha de dados (data/qty/preco); nesse caso
+// a funcao junta as duas linhas antes de empilhar o bloco.
 function confExtrairBlocosRamarim(linhas){
   var blocos=[];
-  linhas.forEach(function(l){
-    if(/^\d{1,3}\s+ATA\d+\s+/i.test(l))blocos.push(l);
-  });
+  for(var i=0;i<linhas.length;i++){
+    var l=linhas[i];
+    if(!/^\d{1,3}\s+ATA\d+\s+/i.test(l))continue;
+    // Se a linha nao tem data, pode estar dividida — verifica a proxima
+    if(!/\d{2}\/\d{2}\/\d{4}/.test(l)&&i+1<linhas.length&&/\d{2}\/\d{2}\/\d{4}/.test(linhas[i+1])){
+      l=l+" "+linhas[i+1];
+      i++; // consome a proxima linha
+    }
+    blocos.push(l);
+  }
   return blocos;
 }
 
@@ -884,6 +893,22 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn){
     var k=n+"|"+(goma?1:0);
     if(!mapa[k])mapa[k]={nome:r.ref,norm:n,goma:goma,rx:confRefRegex(base),rows:[]};
     mapa[k].rows.push(r);
+  });
+  // Aliases: codigos antigos mencionados como "ant.CODIGO" na descricao entre
+  // parenteses — ex: "M12192(cad.tear... ant.M1308)" cria alias M1308 apontando
+  // para as mesmas rows, permitindo que PDFs com o codigo antigo sejam casados.
+  Object.keys(mapa).forEach(function(k){
+    var entry=mapa[k];
+    var mParen=entry.nome.match(/\(([^)]+)\)/);
+    if(!mParen)return;
+    var antigos=mParen[1].match(/\bant\.?\s*([A-Z][A-Z0-9]{1,}(?:[.\/_\-][A-Z0-9]+)*)/gi)||[];
+    antigos.forEach(function(a){
+      var aliasCode=a.replace(/^ant\.?\s*/i,"").trim();
+      var an=normTxt(aliasCode);
+      if(an.length<3)return;
+      var ak=an+"|"+(entry.goma?1:0);
+      if(!mapa[ak])mapa[ak]={nome:entry.nome,norm:an,goma:entry.goma,rx:confRefRegex(aliasCode),rows:entry.rows};
+    });
   });
   var cands=Object.keys(mapa).map(function(k){return mapa[k];});
   var emissao=dataBR(emissaoStr);

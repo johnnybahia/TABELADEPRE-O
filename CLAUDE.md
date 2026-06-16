@@ -195,9 +195,10 @@ O parsing foi calibrado com as OCs da DASS e da RAMARIM (PDFs de exemplo na raiz
 - Cabeçalho: `NÚMERO OC: XXXXXX` / `DATA EMISSÃO: DD/MM/YYYY` / `COND. PGTO: N dias`
 - UF: extraída do endereço do **cliente** (antes de "FORNECEDOR:"), ex: `JEQUIE/BA` → BA, `NOVA HARTZ/RS` → RS. **Não** busca perto do bloco MARFIM (que é sempre /RS).
 - Cada linha de item: `SEQ ATAxxxxxxx DESCRICAO... DD/MM/YYYY QTY PR PRECO TAM TOTAL`
-- Extrator: `confExtrairBlocosRamarim` — seleciona linhas que iniciam com `\d{1,3} ATA\d+`
+- Extrator: `confExtrairBlocosRamarim` — seleciona linhas que iniciam com `\d{1,3} ATA\d+`. **Linha dividida**: quando o item fica imediatamente após uma linha `Remessa:`, o pdf.js pode separar a descrição (sem data) da linha de dados (data/qty/preço) em duas linhas distintas; o extrator detecta esse caso (linha ATA sem data seguida de linha com data) e as une automaticamente.
 - Parser: `confParseItemBlocoRamarim` — extrai preco (`Vl. Unit.`), qty (`Quant.`) e tamanho cm do **final da descrição** (`50CM`, `120CM`, etc.)
-- Referências: o código Marfim fica embutido na descrição (ex: `LS 16410`, `M 1308`, `M 34003`); o `confRefRegex` casa normalmente contra a linha inteira do item.
+- Referências: o código Marfim fica embutido na descrição (ex: `LS 16410`, `M 1308`, `M 34003`); o `confRefRegex` casa normalmente contra a linha inteira do item. Código sem espaço na planilha (ex: `LS16410`) já casa com `LS 16410` no PDF via `[\s./\-]*` do regex — não é necessário cadastrar o espaço.
+- **Aliases via `ant.`**: `confValidar` extrai automaticamente códigos antigos mencionados como `ant.CODIGO` na parte entre parênteses da referência cadastrada. Ex: `M12192(cad.tear... ant.M1308)` → cria alias `M1308` apontando para as mesmas rows, permitindo que PDFs com o código antigo sejam conferidos sem alterar o cadastro.
 - Unidade: todos os itens são `PR` (pares); o cálculo proporcional usa `(tamanho_cm / MedidaBase) × preço`.
 
 **Formato DASS** (blocos de texto, OCs digitalizadas/geradas pelo ERP da DASS):

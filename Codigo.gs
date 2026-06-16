@@ -152,9 +152,10 @@ function getReferencias(nomeAba, busca, vendedorId) {
 
     // Descontos/acréscimos por estado em % (células T1/U1/V1, fora do SCHEMA_CLIENTE)
     // Positivo = acréscimo, negativo = desconto. Zero/vazio = sem auto-preenchimento.
-    const descontoBA = parseFloat(String(aba.getRange("T1").getValue() || "").replace(",", ".")) || 0;
-    const descontoCE = parseFloat(String(aba.getRange("U1").getValue() || "").replace(",", ".")) || 0;
-    const descontoMG = parseFloat(String(aba.getRange("V1").getValue() || "").replace(",", ".")) || 0;
+    const [dBA, dCE, dMG] = aba.getRange("T1:V1").getValues()[0];
+    const descontoBA = pN(dBA);
+    const descontoCE = pN(dCE);
+    const descontoMG = pN(dMG);
 
     return { ok: true, refs: resultado, prazoPagamento: prazoRaw, prazoPagamentoDias, descontoBA, descontoCE, descontoMG };
   } catch (e) {
@@ -205,9 +206,7 @@ function salvarDescontosEstado(nomeAba, descontos, vendedorId) {
     const ce = pct(descontos.ce);
     const mg = pct(descontos.mg);
 
-    aba.getRange("T1").setValue(ba !== 0 ? ba : "");
-    aba.getRange("U1").setValue(ce !== 0 ? ce : "");
-    aba.getRange("V1").setValue(mg !== 0 ? mg : "");
+    aba.getRange("T1:V1").setValues([[ba !== 0 ? ba : "", ce !== 0 ? ce : "", mg !== 0 ? mg : ""]]);
 
     _log(vendedorId, "SALVAR_DESCONTOS_ESTADO", nomeAba + " -> BA:" + ba + "% CE:" + ce + "% MG:" + mg + "%");
     return { ok: true, descontoBA: ba, descontoCE: ce, descontoMG: mg };

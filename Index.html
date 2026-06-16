@@ -448,7 +448,7 @@ async function fazerLogin(){
 document.getElementById("login-senha").addEventListener("keydown",function(e){if(e.key==="Enter")fazerLogin();});
 
 function fazerLogout(){
-  S={vendedor:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],confItens:[]};
+  S={vendedor:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],confItens:[],descontosEstado:{ba:0,ce:0,mg:0}};
   document.getElementById("screen-main").classList.remove("active");
   document.getElementById("screen-login").classList.add("active");
   document.getElementById("login-id").value="";
@@ -1289,12 +1289,17 @@ async function salvarDescontosEstadoCad(){
 }
 function autoFillEstados(rsId,baId,ceId,mgId){
   var rs=parseFloat(String(document.getElementById(rsId).value||"").trim().replace(",","."))||0;
-  if(!rs)return;
   var d=S.descontosEstado;
-  var fmt=function(v){return v.toFixed(2).replace(".",",");};
-  if(d.ba!==0)document.getElementById(baId).value=fmt(rs*(1+d.ba/100));
-  if(d.ce!==0)document.getElementById(ceId).value=fmt(rs*(1+d.ce/100));
-  if(d.mg!==0)document.getElementById(mgId).value=fmt(rs*(1+d.mg/100));
+  var fmtDec=function(v){return v.toFixed(2).replace(".",",");};
+  if(!rs){
+    if(d.ba!==0)document.getElementById(baId).value="";
+    if(d.ce!==0)document.getElementById(ceId).value="";
+    if(d.mg!==0)document.getElementById(mgId).value="";
+    return;
+  }
+  if(d.ba!==0)document.getElementById(baId).value=fmtDec(rs*(1+d.ba/100));
+  if(d.ce!==0)document.getElementById(ceId).value=fmtDec(rs*(1+d.ce/100));
+  if(d.mg!==0)document.getElementById(mgId).value=fmtDec(rs*(1+d.mg/100));
 }
 async function salvarRef(){
   var aba=document.getElementById("cad-cliente").value;

@@ -566,7 +566,7 @@ function renderRefs(r,containerId,modoEdicao){
     var medidaHtml=medidaLabel?"<div class=\"ref-medida\">"+escHtml(medidaLabel)+"</div>":"";
     var obsHtml=ref.obs?"<div class=\"ref-obs\">&#x1F4DD; "+escHtml(ref.obs)+"</div>":"";
     var refJson=escHtml(JSON.stringify(ref));
-    var acoes=modoEdicao?"<div class=\"ref-actions\"><button class=\"btn btn-ghost btn-sm\" onclick=\"verHistorico('"+escHtml(ref.ref.replace(/'/g,"\\'"))+"')\">&#x1F4C8; Historico</button><button class=\"btn btn-ghost btn-sm\" onclick=\"editarRef("+refJson+")\">&#x270F;&#xFE0F; Editar</button>"+(isAtual?"<button class=\"btn btn-ghost btn-sm\" style=\"color:var(--accent);border-color:var(--accent)\" onclick=\"abrirModalAtualizar("+refJson+")\">&#x1F504; Atualizar Preco</button>":"")+"</div>":"";
+    var acoes=modoEdicao?"<div class=\"ref-actions\"><button class=\"btn btn-ghost btn-sm\" onclick=\"verHistorico('"+escHtml(ref.ref.replace(/'/g,"\\'"))+"')\">&#x1F4C8; Historico</button><button class=\"btn btn-ghost btn-sm\" onclick=\"editarRef("+refJson+")\">&#x270F;&#xFE0F; Editar</button>"+(isAtual?"<button class=\"btn btn-ghost btn-sm\" style=\"color:var(--accent);border-color:var(--accent)\" onclick=\"abrirModalAtualizar("+refJson+")\">&#x1F504; Atualizar Preco</button><button class=\"btn btn-ghost btn-sm\" style=\"color:var(--navy);border-color:var(--navy)\" onclick=\"notificarRef("+refJson+")\">&#x1F4E7; Notificar</button>":"")+"</div>":"";
     var calcArgs="'"+parseInt(ref.linha,10)+"',"+medidaBase+","+rs+","+ba+","+ce+","+mg;
     var usaCalc=/mm/i.test(medidaLabel)?false:/cm/i.test(medidaLabel)?true:unidade!=="metros";
     var calcHtml=(isAtual&&usaCalc)?"<div class=\"calc-row\"><input type=\"text\" inputmode=\"decimal\" placeholder=\""+calcPlaceholder+"\" id=\"calc-"+ref.linha+"\" oninput=\"calcular("+calcArgs+")\" style=\"width:120px\"><button class=\"btn btn-ghost btn-sm\" onclick=\"calcular("+calcArgs+")\">Calcular</button></div><div id=\"estados-"+ref.linha+"\" style=\"display:flex;flex-wrap:wrap;gap:6px;margin-top:6px\"></div>":"";
@@ -1516,6 +1516,18 @@ async function confirmarNotificar(){
     if(!r.ok){toast(r.erro,"error");}
     else{toast(r.msg,"success");}
   }catch(e){toast("Erro ao enviar.","error");}
+  loading(false);
+}
+async function notificarRef(ref){
+  var aba=document.getElementById("cad-cliente").value;
+  if(!aba){toast("Selecione um cliente.","error");return;}
+  if(!confirm("Enviar email sobre "+ref.ref+" para os vendedores do cliente?"))return;
+  loading(true,"Enviando email...");
+  try{
+    var r=await gas("enviarEmailReferencia",aba,ref,S.vendedor.id);
+    if(!r.ok){toast(r.erro,"error");}
+    else{toast(r.msg,"success");}
+  }catch(e){toast("Erro ao enviar email.","error");}
   loading(false);
 }
 </script>

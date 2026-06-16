@@ -553,11 +553,141 @@ function enviarEmailAtualizacao(nomeAba, vendedorIdRemetente) {
       try {
         MailApp.sendEmail({
           to: dest.email,
+          replyTo: "marco@marfim.ind.br",
           subject: `[Marfim] Atualização de preços — ${nomeCliente}`,
           htmlBody: corpoHtml
         });
         enviados++;
         _log(vendedorIdRemetente, "EMAIL", `${nomeAba} → ${dest.email}`);
+      } catch (e) {
+        erros.push(`${dest.nome} (${dest.email}): ${e.message}`);
+      }
+    }
+
+    return {
+      ok: true,
+      enviados,
+      semEmail,
+      erros,
+      msg: `${enviados} email(s) enviado(s).${semEmail.length ? " Sem email: " + semEmail.join(", ") + "." : ""}${erros.length ? " Falhas: " + erros.join("; ") : ""}`
+    };
+  } catch (e) {
+    return { ok: false, erro: e.message };
+  }
+}
+
+// ============================================================
+// NOTIFICAR VENDEDORES — email sobre UMA referência específica
+// ============================================================
+function enviarEmailReferencia(nomeAba, refDados, vendedorId) {
+  try {
+    if (!_ehAdmin(vendedorId)) return { ok: false, erro: "Sem permissão." };
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const abaV = ss.getSheetByName(ABA_VENDEDORES);
+    if (!abaV) return { ok: false, erro: "Aba VENDEDORES não encontrada." };
+
+    const dadosV = abaV.getDataRange().getValues();
+    const destinatarios = [];
+    const semEmail = [];
+
+    for (let i = 1; i < dadosV.length; i++) {
+      if (!dadosV[i][0]) continue;
+      const clientes = String(dadosV[i][3] || "").split("|").map(c => c.trim().toUpperCase());
+      const temAcesso = clientes.includes("*") || clientes.includes(nomeAba.toUpperCase());
+      if (!temAcesso) continue;
+      const email = String(dadosV[i][4] || "").trim();
+      const nome  = String(dadosV[i][1] || "");
+      if (email && email.includes("@")) destinatarios.push({ nome, email });
+      else semEmail.push(nome);
+    }
+
+    if (destinatarios.length === 0) {
+      return { ok: false, erro: "Nenhum vendedor com email cadastrado para este cliente.", semEmail };
+    }
+
+    const pN = v => parseFloat(String(v || "0").replace(",", ".")) || 0;
+    const escH = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    const nomeCliente = nomeAba.replace(/ CLIENTE$/i, "");
+    const hoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
+    const fmtBRL = v => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+    const ref        = escH(String(refDados.ref || ""));
+    const descricao  = escH(String(refDados.descricao || ""));
+    const unidade    = String(refDados.unidade || "metros");
+    const medidaBase = pN(refDados.medidaBase);
+    const precoBase  = pN(refDados.preco);
+    const precoRS    = pN(refDados.precoRS);
+    const precoBA    = pN(refDados.precoBA);
+    const precoCE    = pN(refDados.precoCE);
+    const precoMG    = pN(refDados.precoMG);
+    const dataInicio = escH(String(refDados.dataInicio || "–"));
+    const dataFim    = escH(String(refDados.dataFim || "Sem vencimento"));
+    const obs        = escH(String(refDados.obs || ""));
+
+    const unidLabel  = unidade === "pares" ? "par" : unidade === "pecas" ? "peça" : "metro";
+    const medSufixo  = unidade === "metros" ? "mm" : "cm";
+    const medLabel   = medidaBase > 0 ? ` (base: ${medidaBase}${medSufixo})` : "";
+
+    const estadosCells = [["RS", precoRS], ["BA", precoBA], ["CE", precoCE], ["MG", precoMG]]
+      .filter(([, p]) => p > 0)
+      .map(([uf, p]) => `<td style="padding:10px 14px;text-align:center;border-right:1px solid #e5e7eb">
+          <div style="font-size:10px;font-weight:700;color:#888;letter-spacing:.08em;margin-bottom:4px">${uf}</div>
+          <div style="font-size:15px;font-weight:700;color:#0d0f14">${fmtBRL(p)}</div>
+        </td>`)
+      .join("");
+
+    const erros = [];
+    let enviados = 0;
+
+    for (const dest of destinatarios) {
+      const corpoHtml = `
+      <div style="font-family:Arial,sans-serif;max-width:620px;margin:0 auto;color:#222">
+        <div style="background:#0d0f14;padding:20px 24px;border-radius:8px 8px 0 0">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td><img src="https://i.ibb.co/FGGjdsM/LOGO-MARFIM.jpg" style="height:44px;width:auto"></td>
+            <td align="right" style="color:#e8a020;font-size:13px">
+              Atualização de Preço<br><span style="color:#8890a8;font-size:11px">${hoje}</span>
+            </td>
+          </tr></table>
+        </div>
+        <div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:24px 28px;border-radius:0 0 8px 8px">
+          <p style="margin:0 0 6px 0">Olá, <strong>${escH(dest.nome)}</strong>.</p>
+          <p style="margin:0 0 20px 0;color:#555">
+            O preço da referência abaixo foi atualizado para o cliente <strong>${escH(nomeCliente)}</strong>:
+          </p>
+          <div style="background:#f8f9fa;border:1px solid #e5e7eb;border-left:4px solid #e8a020;border-radius:6px;padding:18px 20px;margin-bottom:20px">
+            <div style="font-size:20px;font-weight:700;color:#0d0f14;margin-bottom:${descricao ? "4px" : "12px"}">${ref}</div>
+            ${descricao ? `<div style="font-size:13px;color:#666;margin-bottom:12px">${descricao}</div>` : ""}
+            <div style="margin-bottom:${estadosCells ? "14px" : "0"}">
+              <span style="font-size:22px;font-weight:700;color:#c07010">${fmtBRL(precoBase || precoRS)}</span>
+              <span style="font-size:12px;color:#888;margin-left:6px">por ${unidLabel}${medLabel}</span>
+            </div>
+            ${estadosCells ? `
+            <div style="background:#fff;border:1px solid #e5e7eb;border-radius:4px;overflow:hidden;margin-bottom:14px">
+              <div style="padding:6px 14px;background:#f0f0f0;font-size:10px;font-weight:700;color:#888;letter-spacing:.06em">PREÇOS POR ESTADO</div>
+              <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse"><tr>${estadosCells}</tr></table>
+            </div>` : ""}
+            <div style="font-size:12px;color:#666;border-top:1px solid #e5e7eb;padding-top:12px">
+              <strong>Vigência:</strong>&nbsp;${dataInicio} &rarr; ${dataFim}
+              ${obs ? `<br><strong>Obs:</strong>&nbsp;${obs}` : ""}
+            </div>
+          </div>
+          <p style="margin:0;font-size:11px;color:#aaa;text-align:center">
+            Email automático gerado pelo sistema de tabela de preços Marfim. Não responda.
+          </p>
+        </div>
+      </div>`;
+
+      try {
+        MailApp.sendEmail({
+          to: dest.email,
+          replyTo: "marco@marfim.ind.br",
+          subject: `[Marfim] Novo preço — ${nomeCliente}: ${ref}`,
+          htmlBody: corpoHtml
+        });
+        enviados++;
+        _log(vendedorId, "EMAIL_REF", `${nomeAba} | ${ref} → ${dest.email}`);
       } catch (e) {
         erros.push(`${dest.nome} (${dest.email}): ${e.message}`);
       }

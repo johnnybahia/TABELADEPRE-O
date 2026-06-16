@@ -1313,6 +1313,13 @@ async function salvarRef(){
     var r=await gas("salvarReferencia",aba,dados,S.vendedor.id,linhaEdicao?Number(linhaEdicao):null);
     if(!r.ok){toast(r.erro,"error");loading(false);return;}
     toast("Referencia salva!","success");limparFormCad();await recarregarListaCad(aba);
+    var atualMap=calcAtualPorRef(S.refsCad);
+    var refAtual=atualMap[String(dados.ref).toUpperCase().trim()];
+    if(refAtual&&confirm("Notificar vendedores sobre o novo preco de "+refAtual.ref+"?")){
+      loading(true,"Notificando...");
+      try{var re=await gas("enviarEmailReferencia",aba,refAtual,S.vendedor.id);toast(re.ok?re.msg:re.erro,re.ok?"success":"error");}catch(ex){toast("Erro ao notificar.","error");}
+      loading(false);
+    }
   }catch(e){toast("Erro ao salvar.","error");}
   loading(false);
 }
@@ -1406,6 +1413,7 @@ function fecharModalAtualizar(){
 }
 async function salvarAtualizarPreco(){
   if(!S.refParaAtualizar){return;}
+  var refOrig=S.refParaAtualizar;
   var inicio=document.getElementById("atu-inicio").value;
   if(!inicio){toast("Informe a nova data de inicio.","error");return;}
   var pF=function(v){return parseFloat(String(v).trim().replace(",","."))||0;};
@@ -1419,10 +1427,17 @@ async function salvarAtualizarPreco(){
   fecharModalAtualizar();
   loading(true,"Atualizando...");
   try{
-    var r=await gas("renovarReferencia",aba,S.refParaAtualizar.linha,dados,S.vendedor.id);
+    var r=await gas("renovarReferencia",aba,refOrig.linha,dados,S.vendedor.id);
     if(!r.ok){toast(r.erro,"error");loading(false);return;}
     toast("Preco atualizado!","success");
     await recarregarListaCad(aba);
+    var atualMap=calcAtualPorRef(S.refsCad);
+    var refAtual=atualMap[String(refOrig.ref).toUpperCase()];
+    if(refAtual&&confirm("Notificar vendedores sobre o novo preco de "+refAtual.ref+"?")){
+      loading(true,"Notificando...");
+      try{var re=await gas("enviarEmailReferencia",aba,refAtual,S.vendedor.id);toast(re.ok?re.msg:re.erro,re.ok?"success":"error");}catch(ex){toast("Erro ao notificar.","error");}
+      loading(false);
+    }
   }catch(e){toast("Erro ao atualizar.","error");}
   loading(false);
 }

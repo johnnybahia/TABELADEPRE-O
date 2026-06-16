@@ -747,9 +747,11 @@ function confParseCampos(linhas){
     m=all.match(/N\S*MERO\s+OC\s*:\s*(\d+)/i);if(m)c.ordem=m[1];
     m=all.match(/DATA\s+EMISS\S+\s*:\s*(\d{2}\/\d{2}\/\d{4})/i);if(m)c.emissao=m[1];
     m=all.match(/COND\.\s*PGTO\s*:\s*(\d+)\s*dias/i);if(m)c.prazoPagamento=m[1];
-    // UF do fornecedor (Marfim — sempre RS): mesmo padrao do formato DASS
+    // UF da filial Marfim fornecedora (RS / BA / CE): busca MARFIM...\/ESTADO
     m=all.match(/MARFIM[\s\S]{0,200}?\/\s*(RS|BA|CE|MG)\b/i);
     if(!m)m=all.match(/-\s*(RS|BA|CE|MG)\s*-\s*BRAZIL/i);
+    // Fallback: qualquer /ESTADO no bloco apos FORNECEDOR (evita capturar endereco do cliente)
+    if(!m){var forn=all.split(/FORNECEDOR\s*:?\s*/i);if(forn[1])m=forn[1].match(/\/\s*(RS|BA|CE|MG)\b/i);}
     if(m)c.uf=m[1].toUpperCase();
   }else{
     // Formato DASS (blocos de texto)

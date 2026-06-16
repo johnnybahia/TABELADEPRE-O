@@ -747,9 +747,9 @@ function confParseCampos(linhas){
     m=all.match(/N\S*MERO\s+OC\s*:\s*(\d+)/i);if(m)c.ordem=m[1];
     m=all.match(/DATA\s+EMISS\S+\s*:\s*(\d{2}\/\d{2}\/\d{4})/i);if(m)c.emissao=m[1];
     m=all.match(/COND\.\s*PGTO\s*:\s*(\d+)\s*dias/i);if(m)c.prazoPagamento=m[1];
-    // UF vem do endereco do CLIENTE (antes de FORNECEDOR), nao do MARFIM
-    var partes=all.split(/FORNECEDOR\s*:/i);
-    m=(partes[0]||all).match(/\/\s*(RS|BA|CE|MG)\b/i);
+    // UF do fornecedor (Marfim — sempre RS): mesmo padrao do formato DASS
+    m=all.match(/MARFIM[\s\S]{0,200}?\/\s*(RS|BA|CE|MG)\b/i);
+    if(!m)m=all.match(/-\s*(RS|BA|CE|MG)\s*-\s*BRAZIL/i);
     if(m)c.uf=m[1].toUpperCase();
   }else{
     // Formato DASS (blocos de texto)
@@ -778,20 +778,31 @@ function confExtrairBlocos(linhas){
 
 // Extrai linhas de item de um PDF RAMARIM (formato tabela paisagem).
 // Cada linha que inicia com numero de sequencia + codigo ATA e um item.
-// Quando o item fica logo apos uma linha "Remessa:", o pdf.js pode separar
-// a descricao (sem data) da linha de dados (data/qty/preco); nesse caso
-// a funcao junta as duas linhas antes de empilhar o bloco.
+// Linha partida caso A: dados (data/qty/PR/preco) estao na PROXIMA linha.
+// Linha partida caso B: dados estao na LINHA ANTERIOR (Remessa) — PED_443125.
+// Ambos os casos sao detectados e as linhas unidas antes de empilhar o bloco.
 function confExtrairBlocosRamarim(linhas){
   var blocos=[];
   for(var i=0;i<linhas.length;i++){
     var l=linhas[i];
     if(!/^\d{1,3}\s+ATA\d+\s+/i.test(l))continue;
-    // Se a linha nao tem data, pode estar dividida — verifica a proxima
-    if(!/\d{2}\/\d{2}\/\d{4}/.test(l)&&i+1<linhas.length&&/\d{2}\/\d{2}\/\d{4}/.test(linhas[i+1])){
-      l=l+" "+linhas[i+1];
-      i++; // consome a proxima linha
+    // Remove ruido "Quantidade Total por Remessa: N" embutido na linha ATA
+    l=l.replace(/\s*Quantidade\s+Total\s+por\s+Remessa\s*:\s*[\d.,]+/gi,"").trim();
+    if(!/\d{2}\/\d{2}\/\d{4}/.test(l)){
+      // Caso A: dados (data/qty/preco) estao na PROXIMA linha
+      if(i+1<linhas.length&&/\d{2}\/\d{2}\/\d{4}/.test(linhas[i+1])&&/\bPR\b/i.test(linhas[i+1])){
+        l=l+" "+linhas[i+1];
+        i++;
+      }
+      // Caso B: dados estao na linha ANTERIOR (Remessa) — PED_443125
+      else if(i>0&&!/^\d{1,3}\s+ATA\d+\s+/i.test(linhas[i-1])&&/\d{2}\/\d{2}\/\d{4}/.test(linhas[i-1])&&/\bPR\b/i.test(linhas[i-1])){
+        l=l+" "+linhas[i-1];
+      }
     }
-    blocos.push(l);
+    // Empilha apenas se o bloco resultante tiver data e indicador PR
+    if(/\d{2}\/\d{2}\/\d{4}/.test(l)&&/\bPR\b/i.test(l)){
+      blocos.push(l);
+    }
   }
   return blocos;
 }
@@ -806,8 +817,9 @@ function confParseItemBlocoRamarim(linha){
   var preco=pBR(m[5]);
   if(!preco||preco<=0)return null;
   var desc=m[2];
-  var cm=null,mCm=desc.match(/(\d+(?:[.,]\d+)?)\s*CM$/i);
-  if(mCm)cm=pBR(mCm[1]);
+  var cm=null,allCm=[],reCm=/(\d+(?:[.,]\d+)?)\s*CM\b/gi,mCmL;
+  while((mCmL=reCm.exec(desc)))allCm.push(mCmL[1]);
+  if(allCm.length)cm=pBR(allCm[allCm.length-1]);
   return {seq:+m[1],preco:preco,cm:cm,mm:null,qtd:pBR(m[4])};
 }
 

@@ -762,6 +762,20 @@ function notificarItemSemPreco(dados, vendedorId) {
     const trecho   = escH(String(dados.trecho || "")).replace(/\n/g, "<br>");
     const hoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
 
+    const attachments = [];
+    let notaAnexo = "";
+    if (dados.pdfBase64) {
+      try {
+        const blob = Utilities.newBlob(Utilities.base64Decode(dados.pdfBase64), "application/pdf", dados.arquivo || "pedido.pdf");
+        attachments.push(blob);
+        notaAnexo = `<div style="font-size:12px;color:#555;margin-top:14px">&#x1F4CE; Pedido em anexo (${arquivo}).</div>`;
+      } catch (e) {
+        notaAnexo = `<div style="font-size:12px;color:#a00;margin-top:14px">Não foi possível anexar o PDF do pedido — verifique o arquivo original (${arquivo}).</div>`;
+      }
+    } else if (dados.pdfOmitido === "tamanho") {
+      notaAnexo = `<div style="font-size:12px;color:#a00;margin-top:14px">Pedido não anexado (arquivo maior que 10MB) — verifique o arquivo original (${arquivo}).</div>`;
+    }
+
     const detalhes = [
       ordem ? `<strong>OC:</strong> ${ordem}` : "",
       marca ? `<strong>Marca:</strong> ${marca}` : "",
@@ -793,6 +807,7 @@ function notificarItemSemPreco(dados, vendedorId) {
           <div style="font-size:10px;font-weight:700;color:#888;letter-spacing:.06em;margin:14px 0 6px">TRECHO DO PEDIDO (PARA IDENTIFICAÇÃO)</div>
           <div style="background:#fff;border:1px solid #e5e7eb;border-radius:4px;padding:10px 12px;font-family:monospace;font-size:11px;color:#555;white-space:pre-wrap">${trecho}</div>
         </div>
+        ${notaAnexo}
         <p style="margin:0;font-size:11px;color:#aaa;text-align:center">
           Solicitado por ${escH(remetenteNome)}${remetenteEmail ? " (" + escH(remetenteEmail) + ")" : ""}. Responda este email para falar diretamente com quem solicitou.
         </p>
@@ -806,6 +821,7 @@ function notificarItemSemPreco(dados, vendedorId) {
       htmlBody: corpoHtml
     };
     if (remetenteEmail && remetenteEmail.includes("@")) opcoesEmail.replyTo = remetenteEmail;
+    if (attachments.length) opcoesEmail.attachments = attachments;
 
     MailApp.sendEmail(opcoesEmail);
     _log(vendedorId, "NOTIFICAR_SEM_PRECO", `${dados.cliente} | ${arquivo} -> ${destinatarios}`);

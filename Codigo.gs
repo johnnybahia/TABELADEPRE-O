@@ -708,6 +708,118 @@ function enviarEmailReferencia(nomeAba, refDados, vendedorId) {
 }
 
 // ============================================================
+// CONFERIR: NOTIFICAR DIREÇÃO SOBRE ITEM SEM PREÇO CADASTRADO
+// Disparado pelo botão "Comunicar à direção" quando a conferência de PDF
+// encontra um item cuja referência não está cadastrada na tabela do cliente.
+// Destinatários: vendedores admin (coluna D = "*") com email cadastrado.
+// replyTo: email cadastrado do vendedor que solicitou (não o remetente fixo
+// usado nos outros emails), para que a resposta vá direto para quem pediu.
+// ============================================================
+function notificarItemSemPreco(dados, vendedorId) {
+  try {
+    if (!_validarAcesso(vendedorId, dados.cliente)) return { ok: false, erro: "Acesso não autorizado." };
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const abaV = ss.getSheetByName(ABA_VENDEDORES);
+    if (!abaV) return { ok: false, erro: "Aba VENDEDORES não encontrada." };
+
+    const dadosV = abaV.getDataRange().getValues();
+    let remetenteNome = "Vendedor", remetenteEmail = "";
+    const admins = [];
+
+    for (let i = 1; i < dadosV.length; i++) {
+      if (!dadosV[i][0]) continue;
+      const id       = String(dadosV[i][0]).trim();
+      const nome     = String(dadosV[i][1] || "");
+      const email    = String(dadosV[i][4] || "").trim();
+      const clientes = String(dadosV[i][3] || "").split("|").map(c => c.trim());
+
+      if (id === String(vendedorId).trim()) {
+        remetenteNome = nome || remetenteNome;
+        remetenteEmail = email;
+      }
+      if (clientes.includes("*") && email && email.includes("@")) {
+        admins.push({ nome, email });
+      }
+    }
+
+    if (admins.length === 0) {
+      return { ok: false, erro: "Nenhum administrador com email cadastrado." };
+    }
+
+    const escH = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const pN = v => parseFloat(String(v || "0").replace(",", ".")) || 0;
+    const fmtBRL = v => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+    const nomeCliente = String(dados.cliente || "").replace(/ CLIENTE$/i, "");
+    const uf       = escH(String(dados.uf || ""));
+    const arquivo  = escH(String(dados.arquivo || ""));
+    const ordem    = escH(String(dados.ordem || ""));
+    const marca    = escH(String(dados.marca || ""));
+    const emissao  = escH(String(dados.emissao || ""));
+    const precoPdf = pN(dados.precoPdf);
+    const qtd      = pN(dados.qtd);
+    const trecho   = escH(String(dados.trecho || "")).replace(/\n/g, "<br>");
+    const hoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
+
+    const detalhes = [
+      ordem ? `<strong>OC:</strong> ${ordem}` : "",
+      marca ? `<strong>Marca:</strong> ${marca}` : "",
+      emissao ? `<strong>Emissão:</strong> ${emissao}` : ""
+    ].filter(Boolean).join(" &nbsp; ");
+
+    const corpoHtml = `
+    <div style="font-family:Arial,sans-serif;max-width:620px;margin:0 auto;color:#222">
+      <div style="background:#0d0f14;padding:20px 24px;border-radius:8px 8px 0 0">
+        <table width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td><img src="https://i.ibb.co/FGGjdsM/LOGO-MARFIM.jpg" style="height:44px;width:auto"></td>
+          <td align="right" style="color:#e8a020;font-size:13px">
+            Item sem preço cadastrado<br><span style="color:#8890a8;font-size:11px">${hoje}</span>
+          </td>
+        </tr></table>
+      </div>
+      <div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:24px 28px;border-radius:0 0 8px 8px">
+        <p style="margin:0 0 6px 0">Olá, Direção.</p>
+        <p style="margin:0 0 20px 0;color:#555">
+          <strong>${escH(remetenteNome)}</strong> está conferindo um pedido do cliente <strong>${escH(nomeCliente)}</strong> (tabela ${uf}) e encontrou um item que não está cadastrado na tabela de preços.
+        </p>
+        <div style="background:#f8f9fa;border:1px solid #e5e7eb;border-left:4px solid #e8a020;border-radius:6px;padding:18px 20px;margin-bottom:20px">
+          <div style="font-size:11px;font-weight:700;color:#888;letter-spacing:.06em;margin-bottom:10px">ITEM NÃO ENCONTRADO NA TABELA</div>
+          <div style="font-size:13px;color:#444;line-height:1.6">
+            <strong>Arquivo:</strong> ${arquivo}<br>
+            ${detalhes ? detalhes + "<br>" : ""}
+            <strong>Preço no pedido:</strong> ${fmtBRL(precoPdf)} &nbsp; <strong>Quantidade:</strong> ${qtd || "–"}
+          </div>
+          <div style="font-size:10px;font-weight:700;color:#888;letter-spacing:.06em;margin:14px 0 6px">TRECHO DO PEDIDO (PARA IDENTIFICAÇÃO)</div>
+          <div style="background:#fff;border:1px solid #e5e7eb;border-radius:4px;padding:10px 12px;font-family:monospace;font-size:11px;color:#555;white-space:pre-wrap">${trecho}</div>
+        </div>
+        <p style="margin:0;font-size:11px;color:#aaa;text-align:center">
+          Solicitado por ${escH(remetenteNome)}${remetenteEmail ? " (" + escH(remetenteEmail) + ")" : ""}. Responda este email para falar diretamente com quem solicitou.
+        </p>
+      </div>
+    </div>`;
+
+    const destinatarios = admins.map(a => a.email).join(",");
+    const opcoesEmail = {
+      to: destinatarios,
+      subject: `[Marfim] Item sem preço cadastrado — ${nomeCliente}: solicitação de ${remetenteNome}`,
+      htmlBody: corpoHtml
+    };
+    if (remetenteEmail && remetenteEmail.includes("@")) opcoesEmail.replyTo = remetenteEmail;
+
+    MailApp.sendEmail(opcoesEmail);
+    _log(vendedorId, "NOTIFICAR_SEM_PRECO", `${dados.cliente} | ${arquivo} -> ${destinatarios}`);
+
+    return {
+      ok: true,
+      msg: `Direção notificada (${admins.length} destinatário(s)).${remetenteEmail ? "" : " Atenção: seu cadastro não tem email — a resposta não poderá vir direto para você."}`
+    };
+  } catch (e) {
+    return { ok: false, erro: e.message };
+  }
+}
+
+// ============================================================
 // UTILITÁRIOS INTERNOS
 // ============================================================
 function _validarAcesso(vendedorId, nomeAba) {

@@ -955,7 +955,7 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn){
     var res={seq:item.seq,bloco:bloco,precoPdf:item.preco,qtd:item.qtd,medida:0,medidaLabel:"",refNome:hit?hit.nome:"",descricao:"",unidade:"",vigencia:"",esperado:null,status:"",motivo:""};
     if(!hit){
       res.status="NAO_CADASTRADO";
-      res.motivo="Nenhuma referencia cadastrada deste cliente foi localizada neste item.";
+      res.motivo="Verifique na tabela de preco se a analise esta correta. Nao existindo o item, comunique a direcao.";
       out.push(res);return;
     }
     var medidaPdf=item.cm||item.mm||0;
@@ -1302,6 +1302,9 @@ function confRenderResultados(item){
           +(o.match?" <strong style=\"color:var(--success)\">&#x2713; confere com o pedido ("+fmt(r.precoPdf)+")</strong>":"")
           +"</li>";
       }).join("")+"</ul></div>"):"";
+    var notificarHtml=(r.status==="NAO_CADASTRADO")?(r.notificado
+      ?"<div class=\"ref-obs\" style=\"border-left-color:var(--success)\">&#x2713; Direcao notificada sobre este item.</div>"
+      :"<div style=\"margin-top:8px\"><button class=\"btn btn-warn btn-sm\" onclick=\"confNotificarSemPreco("+item.id+","+item.resultados.indexOf(r)+")\">&#x1F4E7; Comunicar a direcao</button></div>"):"";
     return "<div class=\"ref-card"+(r.status==="DIVERGENTE"?" conf-bad":"")+"\">"
       +"<div class=\"ref-card-header\"><div><div class=\"ref-code\">"+titulo+"</div>"
       +(r.descricao?"<div class=\"ref-desc\">"+escHtml(r.descricao)+"</div>":"")
@@ -1310,10 +1313,44 @@ function confRenderResultados(item){
       +"<div class=\"ref-meta\">"+badges+"</div>"
       +(r.motivo?"<div class=\"ref-obs\">"+escHtml(r.motivo)+"</div>":"")
       +opcoesHtml
+      +notificarHtml
       +"<details style=\"margin-top:8px\"><summary style=\"cursor:pointer;font-size:12px;color:var(--text2)\">Ver trecho do PDF"+(seqsTxt?" ("+escHtml(seqsTxt)+")":"")+"</summary><div class=\"conf-line\">"+escHtml(r.bloco)+"</div></details>"
       +"</div>";
   }).join("");
   return head+"<div class=\"ref-list\" style=\"margin-top:12px\">"+cards+"</div>";
+}
+
+// Envia para a direcao (administradores cadastrados) os dados de um item do
+// pedido que nao foi encontrado na tabela de precos do cliente, solicitando
+// o cadastro. A resposta do email vai para o email cadastrado do vendedor
+// que clicou (replyTo definido no backend a partir do cadastro dele).
+async function confNotificarSemPreco(id,ridx){
+  var item=S.confItens.filter(function(it){return it.id===id;})[0];
+  if(!item||!item.resultados)return;
+  var r=item.resultados[ridx];
+  if(!r)return;
+  if(!confirm("Enviar email para a direcao informando que este item nao esta cadastrado na tabela de preco?"))return;
+  var key=function(x){return (x.refNome||"?")+"|"+x.medidaLabel+"|"+(x.precoPdf!=null?x.precoPdf.toFixed(4):"")+"|"+x.status;};
+  var grupo=item.resultados.filter(function(x){return key(x)===key(r);});
+  var campos=item.campos||{};
+  var payload={
+    cliente:item.cliente||"",
+    uf:item.uf||"",
+    arquivo:item.arquivo||"",
+    ordem:campos.ordem||"",
+    marca:campos.marca||"",
+    emissao:campos.emissao||"",
+    precoPdf:r.precoPdf||0,
+    qtd:grupo.reduce(function(s,x){return s+(x.qtd||0);},0),
+    trecho:r.bloco||""
+  };
+  loading(true,"Enviando email...");
+  try{
+    var re=await gas("notificarItemSemPreco",payload,S.vendedor.id);
+    toast(re.ok?re.msg:re.erro,re.ok?"success":"error");
+    if(re.ok){r.notificado=true;confRenderTudo();}
+  }catch(ex){toast("Erro ao notificar a direcao.","error");}
+  loading(false);
 }
 
 (function(){

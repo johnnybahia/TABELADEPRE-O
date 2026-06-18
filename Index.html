@@ -660,6 +660,7 @@ function montarPrint(lista,cliente,modo,refFiltro){
 // ============================================================
 var PDFJS_BASE="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
 var CONF_TOLERANCIA=0.0101; // diferencas ate 1 centavo = arredondamento, nao erro
+var CONF_LIMITE_PDF_ANEXO=10*1024*1024; // acima disso, o PDF nao e anexado no email (so o trecho de texto)
 
 function ensurePdfJs(){
   if(window.pdfjsLib)return Promise.resolve();
@@ -1092,7 +1093,7 @@ async function confArquivosSelecionados(files){
     for(var i=0;i<arquivos.length;i++){
       var file=arquivos[i];
       loading(true,"Lendo PDF "+(i+1)+" de "+arquivos.length+": "+file.name);
-      var item={id:++confSeqId,arquivo:file.name,linhas:[],campos:null,clientesDisponiveis:clientes,cliente:"",uf:"RS",resultados:null,prazoCadastrado:0,erro:""};
+      var item={id:++confSeqId,arquivo:file.name,file:file,linhas:[],campos:null,clientesDisponiveis:clientes,cliente:"",uf:"RS",resultados:null,prazoCadastrado:0,erro:""};
       try{
         var buf=await file.arrayBuffer();
         item.linhas=await confExtrairLinhas(buf);
@@ -1324,6 +1325,15 @@ function confRenderResultados(item){
 // pedido que nao foi encontrado na tabela de precos do cliente, solicitando
 // o cadastro. A resposta do email vai para o email cadastrado do vendedor
 // que clicou (replyTo definido no backend a partir do cadastro dele).
+function fileParaBase64(file){
+  return new Promise(function(res,rej){
+    var leitor=new FileReader();
+    leitor.onload=function(){res(leitor.result.split(",")[1]);};
+    leitor.onerror=rej;
+    leitor.readAsDataURL(file);
+  });
+}
+
 async function confNotificarSemPreco(id,ridx){
   var item=S.confItens.filter(function(it){return it.id===id;})[0];
   if(!item||!item.resultados)return;
@@ -1346,6 +1356,13 @@ async function confNotificarSemPreco(id,ridx){
   };
   loading(true,"Enviando email...");
   try{
+    if(item.file){
+      if(item.file.size<=CONF_LIMITE_PDF_ANEXO){
+        try{payload.pdfBase64=await fileParaBase64(item.file);}catch(e){}
+      }else{
+        payload.pdfOmitido="tamanho";
+      }
+    }
     var re=await gas("notificarItemSemPreco",payload,S.vendedor.id);
     toast(re.ok?re.msg:re.erro,re.ok?"success":"error");
     if(re.ok){r.notificado=true;confRenderTudo();}

@@ -184,6 +184,7 @@ A logica de extracao/validacao por PDF abaixo (itens 1-5) e a mesma de antes, ap
    - Separadores espaço/ponto/barra/hífen são tolerados dentro do código (`MR110022` ↔ `MR 110022`, `MFGP/T2` ↔ `MFGPT2`).
    - **Atributo goma** (`confTemGoma`/`confBaseRef`): variantes com/sem goma do mesmo código são candidatas distintas. O PDF pode indicar goma como `C/GOMA`, `engomada`, `engomado`, `egomada`, `engo`, `gomada`; negações (`S/GOMA`, `sem goma`) contam como sem goma. O atributo pode estar na referência cadastrada (ex.: `MFGP/T2 C/Goma`) ou só na Descricao. Empate de código é decidido pela variante cujo atributo coincide com o pedido; se divergir, um aviso é exibido no resultado.
 5. Status possíveis: `OK`, `DIVERGENTE`, `VENCIDO`, `SEM_PRECO`, `SEM_MEDIDA`, `NAO_CADASTRADO`.
+   - **`NAO_CADASTRADO` — motivo detalhado no card** (vale para todos os clientes, atuais e futuros): quando nenhum candidato casa por completo, `confValidar` distingue dois casos no `res.motivo`/`refNome`: (a) **código-base existe, variante de medida não** — algum candidato com `rxBase` casa o bloco mas o `rxMm` não (ex.: PDF `M12021 8MM`, tabela só tem `M12021 6MM`); o card mostra o código-base, as medidas cadastradas e a medida que o pedido pede (`confMedidaPdf` pega o token `<n>MM` mais próximo do código, preterindo ponteiras distantes como `20MM`); (b) **referência inexistente** — nenhum `rxBase` casa; mensagem deixa claro que nenhum código compatível foi encontrado.
 
 O parsing foi calibrado com as OCs da DASS, da RAMARIM e da DILLY (PDFs de exemplo na raiz do repositório).
 

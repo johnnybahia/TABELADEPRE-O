@@ -210,13 +210,17 @@ O parsing foi calibrado com as OCs da DASS, da RAMARIM e da DILLY (PDFs de exemp
 - **Cabeçalho** (implementado em `confParseCampos`, ramo DILLY):
   - Nº OC: `Ordem Compra <N>` → `/Ordem\s+Compra\s+(\d+)/i`
   - Data de emissão: `Data Emissão: DD/MM/YYYY` → `/Data\s+Emiss\S+\s*:?\s*(\d{2}\/\d{2}\/\d{4})/i`
-  - **Marca**: linha `OBS.: Marca: SKECHERS Ref.:... Mod.:...` → `/Marca\s*:\s*(.+?)\s+Ref\.?\s*:/i` (captura entre `Marca:` e `Ref`; suporta marca com mais de uma palavra). A marca será usada na conferência dos itens (fase seguinte).
+  - **Marca**: linha `OBS.: Marca: SKECHERS Ref.:... Mod.:...` → `/Marca\s*:\s*(.+?)\s+Ref\.?\s*:/i` (captura entre `Marca:` e `Ref`; suporta marca com mais de uma palavra). A marca varia por pedido (validado em `SKECHERS` e `MORMAII`) e será usada na conferência dos itens (fase seguinte).
   - **UF** = filial Marfim fornecedora (define a coluna de preço, **não** a UF da DILLY): sinal primário é o código de usuário do rodapé `Usuário: F628_MARFIMCE` → `/MARFIM\s*(RS|BA|CE|MG)\b/i`; fallback `Cidade: <cidade> - <UF>` do bloco do fornecedor. Observação: o padrão `MARFIM…/UF` (com barra) usado por DASS/RAMARIM **não** ocorre neste formato.
   - Cliente: detectado pelo mecanismo padrão (nome da aba casado contra o texto; "DILLY" aparece no comprador e no rodapé).
-- **Itens**: ainda **não** implementados — `confExecutarAnalise` sai cedo para PDFs DILLY (exibe `item.notaFormato` em vez de aplicar o parser do DASS). Dois sub-modelos a tratar na próxima fase:
-  - **Modelo A — tamanho na descrição** (`OC_435918`, `OC_454831`): largura na linha do item (`...M21020 PES 95CM ...`); campo *Tamanho* do bloco vale `1`.
-  - **Modelo B — tamanho na grade** (`OC_465813`, `OC_470796`): descrição diz `C/ GRADE` sem cm; o tamanho real está no campo **Tamanho** do bloco (105, 115, 100, 110...), cada tamanho com seu próprio preço.
-  - Outras variações: itens repetidos em blocos `Lote: <N>` em várias páginas; cor codificada (`BRANCO 102` / `PRETO 100` — 100/102 são cor, não tamanho); produto vendido por par (`PR`), base 100cm.
+- **Itens**: ainda **não** implementados — `confExecutarAnalise` sai cedo para PDFs DILLY (exibe `item.notaFormato` em vez de aplicar o parser do DASS). PDFs de exemplo: `OC_435918`, `OC_454831`, `OC_465813`, `OC_470796`, `OC_480965`. Pontos a tratar na próxima fase:
+  - **Dois eixos de layout independentes** (combinam livremente):
+    - *Onde está o tamanho*: **(A) na descrição** (`...M21020 PES 95CM ...`, campo *Tamanho* do bloco = `1`) — ex. `OC_435918`, `OC_454831`; ou **(B) na grade** (descrição diz `C/ GRADE` sem cm; o tamanho real está no campo **Tamanho**: 105/120/125..., cada um com seu próprio preço) — ex. `OC_465813`, `OC_470796`, `OC_480965`.
+    - *Lotes*: itens repetidos em blocos `Lote: <N>` em várias páginas (`OC_454831`, `OC_465813`, `OC_470796`) **ou** lista única sem lotes (`OC_435918`, `OC_480965`). O modelo B sem lotes (`OC_480965`) confirma que os dois eixos são independentes — tratar separadamente.
+  - **Espessura (MM) discrimina linhas da tabela**: a descrição traz `CHATO 6MM`/`7MM`/`8MM`; o código `M21020` tem variantes 6/7/8MM na planilha, cada uma com **preço próprio** (ex. CE: 8MM = 0,57 na linha 44; 6MM = 0,56 na linha 47). O parser de item **deve** casar a espessura do PDF com a linha correta **antes** de aplicar a vigência — senão usa o preço da espessura errada. (`OC_480965` é 8MM; os 4 primeiros são 6MM.)
+  - **Marca ajuda a desambiguar**: a marca do cabeçalho (`MORMAII`, `SKECHERS`...) também aparece na Descricao das linhas da tabela (`...preto/cores Mormaii`), servindo de critério extra quando código + espessura empatam entre variantes.
+  - **Cálculo**: par (`PR`), base 100cm → `esperado = (tamanho_cm / 100) × preço da UF`. Validado com `OC_480965` (M21020 8MM, CE 0,57): 120cm = 0,68 · 125cm = 0,71 · 130cm = 0,74.
+  - Outras observações: cor codificada (`BRANCO 102` / `PRETO 100` — 100/102 são cor, não tamanho); `Situação` pode ser `Aberta` ou `Recebida`; pagamento em parcelas (60/90 dias) — modelo diferente do "N dias" de DASS/RAMARIM, tratar prazo depois.
 
 ---
 

@@ -230,7 +230,7 @@ function salvarReferencia(nomeAba, dados, vendedorId, linhaEdicao) {
     const pN = v => parseFloat(String(v || "0").replace(",", ".")) || 0;
 
     if (!ref || !dataInicio) return { ok: false, erro: "Referência e data de início são obrigatórios." };
-    if (!medidaBase || pN(medidaBase) <= 0) return { ok: false, erro: "Informe a medida base (valor maior que zero)." };
+    if (unidade !== "kg" && (!medidaBase || pN(medidaBase) <= 0)) return { ok: false, erro: "Informe a medida base (valor maior que zero)." };
 
     const dInicio = new Date(dataInicio);
     const dFim = dataFim ? new Date(dataFim) : null;
@@ -500,7 +500,7 @@ function enviarEmailAtualizacao(nomeAba, vendedorIdRemetente) {
     const vigentes = refs.filter(r => r.vigente);
     const fmtBRL = v => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
     const linhasTabela = vigentes.map(r => {
-      const unidLabel = r.unidade === "pares" ? "par" : r.unidade === "pecas" ? "peça" : "metro";
+      const unidLabel = r.unidade === "pares" ? "par" : r.unidade === "pecas" ? "peça" : r.unidade === "kg" ? "kg" : "metro";
       const medLabel = r.medidaBase > 0 ? ` (${r.medidaBase}${r.unidade === "metros" ? "mm" : "cm"})` : "";
       const estados = [["RS", r.precoRS], ["BA", r.precoBA], ["CE", r.precoCE], ["MG", r.precoMG]]
         .filter(([, p]) => p > 0)
@@ -627,7 +627,7 @@ function enviarEmailReferencia(nomeAba, refDados, vendedorId) {
     const dataFim    = escH(String(refDados.dataFim || "Sem vencimento"));
     const obs        = escH(String(refDados.obs || ""));
 
-    const unidLabel  = unidade === "pares" ? "par" : unidade === "pecas" ? "peça" : "metro";
+    const unidLabel  = unidade === "pares" ? "par" : unidade === "pecas" ? "peça" : unidade === "kg" ? "kg" : "metro";
     const medSufixo  = unidade === "metros" ? "mm" : "cm";
     const medLabel   = medidaBase > 0 ? ` (base: ${medidaBase}${medSufixo})` : "";
 

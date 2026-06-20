@@ -659,7 +659,13 @@ function montarPrint(lista,cliente,modo,refFiltro){
 // Formula: esperado = (medida do pedido / MedidaBase) x preco UF.
 // ============================================================
 var PDFJS_BASE="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
-var CONF_TOLERANCIA=0.0101; // diferencas ate 1 centavo = arredondamento, nao erro
+// Precos em reais com 2 casas (centavos). A comparacao de conferencia arredonda
+// os dois lados para centavos — inclusive um eventual 3o decimal vindo do PDF
+// (0,015 -> 0,02) — e exige igualdade EXATA: fora esse arredondamento, o preco
+// do pedido deve bater 100% com o esperado, senao e DIVERGENTE. O +1e-9 corrige
+// o arredondamento "meio para cima" quando o float fica logo abaixo (ex.: 0,015).
+function confCentavos(v){return Math.round((parseFloat(v)||0)*100+1e-9);}
+function confPrecoConfere(a,b){return confCentavos(a)===confCentavos(b);}
 var CONF_LIMITE_PDF_ANEXO=10*1024*1024; // acima disso, o PDF nao e anexado no email (so o trecho de texto)
 
 function ensurePdfJs(){
@@ -1120,8 +1126,8 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn){
       esc.pool.forEach(function(r){
         var calc=confPrecoEsperado(r,uf,item);
         if(!calc)return;
-        if(opcoes.some(function(o){return Math.abs(o.esperado-calc.esperado)<=CONF_TOLERANCIA;}))return;
-        opcoes.push({ref:r.ref||"",descricao:r.descricao||"",esperado:calc.esperado,medidaLabel:calc.medidaLabel,vigencia:(r.dataInicio||"–")+" → "+(r.dataFim||"Sem vencimento"),match:Math.abs(item.preco-calc.esperado)<=CONF_TOLERANCIA});
+        if(opcoes.some(function(o){return confPrecoConfere(o.esperado,calc.esperado);}))return;
+        opcoes.push({ref:r.ref||"",descricao:r.descricao||"",esperado:calc.esperado,medidaLabel:calc.medidaLabel,vigencia:(r.dataInicio||"–")+" → "+(r.dataFim||"Sem vencimento"),match:confPrecoConfere(item.preco,calc.esperado)});
       });
     }
     var difere;
@@ -1137,7 +1143,7 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn){
       }
       difere=!melhor;
     }else{
-      difere=Math.abs(item.preco-res.esperado)>CONF_TOLERANCIA;
+      difere=!confPrecoConfere(item.preco,res.esperado);
     }
     if(esc.vencido){
       res.status="VENCIDO";

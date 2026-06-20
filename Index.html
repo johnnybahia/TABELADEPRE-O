@@ -962,6 +962,7 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn){
     var medidaPdf=item.cm||item.mm||0;
     var esc=confEscolherVigencia(hit.rows,emissao,medidaPdf);
     var row=esc.row;
+    res.refNome=row.ref||res.refNome;
     res.descricao=row.descricao||"";
     res.unidade=row.unidade||"metros";
     res.vigencia=(row.dataInicio||"–")+" → "+(row.dataFim||"Sem vencimento");
@@ -1026,7 +1027,7 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn){
         var calc=confPrecoEsperado(r,uf,item);
         if(!calc)return;
         if(opcoes.some(function(o){return Math.abs(o.esperado-calc.esperado)<=CONF_TOLERANCIA;}))return;
-        opcoes.push({descricao:r.descricao||"",esperado:calc.esperado,medidaLabel:calc.medidaLabel,vigencia:(r.dataInicio||"–")+" → "+(r.dataFim||"Sem vencimento"),match:Math.abs(item.preco-calc.esperado)<=CONF_TOLERANCIA});
+        opcoes.push({ref:r.ref||"",descricao:r.descricao||"",esperado:calc.esperado,medidaLabel:calc.medidaLabel,vigencia:(r.dataInicio||"–")+" → "+(r.dataFim||"Sem vencimento"),match:Math.abs(item.preco-calc.esperado)<=CONF_TOLERANCIA});
       });
     }
     var difere;
@@ -1035,6 +1036,7 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn){
       melhor=opcoes.filter(function(o){return o.match;})[0]||null;
       if(melhor){
         res.esperado=melhor.esperado;
+        res.refNome=melhor.ref||res.refNome;
         res.descricao=melhor.descricao||res.descricao;
         res.medidaLabel=melhor.medidaLabel||res.medidaLabel;
         res.vigencia=melhor.vigencia;

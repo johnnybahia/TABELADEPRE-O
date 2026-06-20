@@ -892,7 +892,7 @@ function confPrecoEsperado(row,uf,item){
     if(!medida||!(row.medidaBase>0))return null;
     return {esperado:(medida/row.medidaBase)*precoTab,medidaLabel:medida+"cm"};
   }
-  return {esperado:precoTab,medidaLabel:"por metro"};
+  return {esperado:precoTab,medidaLabel:row.medidaBase>0?(row.medidaBase+"mm · por metro"):"por metro"};
 }
 
 function confValidar(blocos,refs,uf,emissaoStr,parseFn){
@@ -1012,7 +1012,8 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn){
       }
       res.esperado=(res.medida/row.medidaBase)*precoTab;
     }else{
-      res.medidaLabel="por metro";
+      res.medida=medidaPdf||row.medidaBase||0;
+      res.medidaLabel=res.medida?(res.medida+"mm · por metro"):"por metro";
       res.esperado=precoTab;
     }
     // Mais de uma linha vigente para esta referencia/goma com precos

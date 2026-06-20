@@ -185,11 +185,11 @@ A logica de extracao/validacao por PDF abaixo (itens 1-5) e a mesma de antes, ap
    - **Atributo goma** (`confTemGoma`/`confBaseRef`): variantes com/sem goma do mesmo código são candidatas distintas. O PDF pode indicar goma como `C/GOMA`, `engomada`, `engomado`, `egomada`, `engo`, `gomada`; negações (`S/GOMA`, `sem goma`) contam como sem goma. O atributo pode estar na referência cadastrada (ex.: `MFGP/T2 C/Goma`) ou só na Descricao. Empate de código é decidido pela variante cujo atributo coincide com o pedido; se divergir, um aviso é exibido no resultado.
 5. Status possíveis: `OK`, `DIVERGENTE`, `VENCIDO`, `SEM_PRECO`, `SEM_MEDIDA`, `NAO_CADASTRADO`.
 
-O parsing foi calibrado com as OCs da DASS e da RAMARIM (PDFs de exemplo na raiz do repositório).
+O parsing foi calibrado com as OCs da DASS, da RAMARIM e da DILLY (PDFs de exemplo na raiz do repositório).
 
-### Suporte multi-formato: DASS vs RAMARIM
+### Suporte multi-formato: DASS vs RAMARIM vs DILLY
 
-`confIsRamarim(linhas)` detecta o formato pelo cabeçalho ("CALCADOS RAMARIM" / "RAMARIM - NOVA HARTZ"). `confExecutarAnalise` seleciona o extrator e o parser corretos para cada formato; `confValidar` aceita um `parseFn` opcional (5º argumento) para suportar ambos.
+`confIsRamarim(linhas)` detecta o formato pelo cabeçalho ("CALCADOS RAMARIM" / "RAMARIM - NOVA HARTZ") e `confIsDilly(linhas)` detecta o formato DILLY pelos marcadores do ERP Safetech ("Forma de Abertura" + "Emitido por Safetech"). `confExecutarAnalise` seleciona o extrator e o parser corretos para cada formato; `confValidar` aceita um `parseFn` opcional (5º argumento) para suportar ambos. A ordem de detecção em `confParseCampos` é RAMARIM → DILLY → DASS (default).
 
 **Formato RAMARIM** (tabela em paisagem, OCs série PED_XXXXXX):
 - Cabeçalho: `NÚMERO OC: XXXXXX` / `DATA EMISSÃO: DD/MM/YYYY` / `COND. PGTO: N dias`
@@ -204,6 +204,19 @@ O parsing foi calibrado com as OCs da DASS e da RAMARIM (PDFs de exemplo na raiz
 **Formato DASS** (blocos de texto, OCs digitalizadas/geradas pelo ERP da DASS):
 - Delimitador de bloco: linha `Quantidade:`
 - Extrator: `confExtrairBlocos` / Parser: `confParseItemBloco` (comportamento original, sem alteração).
+
+**Formato DILLY** (ERP Safetech, OCs série `OC_XXXXXX`, cliente DILLY):
+- Detecção: `confIsDilly` (marcadores do layout/ERP, **não** o nome do cliente — assim suporta outros clientes que usem o mesmo ERP no futuro).
+- **Cabeçalho** (implementado em `confParseCampos`, ramo DILLY):
+  - Nº OC: `Ordem Compra <N>` → `/Ordem\s+Compra\s+(\d+)/i`
+  - Data de emissão: `Data Emissão: DD/MM/YYYY` → `/Data\s+Emiss\S+\s*:?\s*(\d{2}\/\d{2}\/\d{4})/i`
+  - **Marca**: linha `OBS.: Marca: SKECHERS Ref.:... Mod.:...` → `/Marca\s*:\s*(.+?)\s+Ref\.?\s*:/i` (captura entre `Marca:` e `Ref`; suporta marca com mais de uma palavra). A marca será usada na conferência dos itens (fase seguinte).
+  - **UF** = filial Marfim fornecedora (define a coluna de preço, **não** a UF da DILLY): sinal primário é o código de usuário do rodapé `Usuário: F628_MARFIMCE` → `/MARFIM\s*(RS|BA|CE|MG)\b/i`; fallback `Cidade: <cidade> - <UF>` do bloco do fornecedor. Observação: o padrão `MARFIM…/UF` (com barra) usado por DASS/RAMARIM **não** ocorre neste formato.
+  - Cliente: detectado pelo mecanismo padrão (nome da aba casado contra o texto; "DILLY" aparece no comprador e no rodapé).
+- **Itens**: ainda **não** implementados — `confExecutarAnalise` sai cedo para PDFs DILLY (exibe `item.notaFormato` em vez de aplicar o parser do DASS). Dois sub-modelos a tratar na próxima fase:
+  - **Modelo A — tamanho na descrição** (`OC_435918`, `OC_454831`): largura na linha do item (`...M21020 PES 95CM ...`); campo *Tamanho* do bloco vale `1`.
+  - **Modelo B — tamanho na grade** (`OC_465813`, `OC_470796`): descrição diz `C/ GRADE` sem cm; o tamanho real está no campo **Tamanho** do bloco (105, 115, 100, 110...), cada tamanho com seu próprio preço.
+  - Outras variações: itens repetidos em blocos `Lote: <N>` em várias páginas; cor codificada (`BRANCO 102` / `PRETO 100` — 100/102 são cor, não tamanho); produto vendido por par (`PR`), base 100cm.
 
 ---
 

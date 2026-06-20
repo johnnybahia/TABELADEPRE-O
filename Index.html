@@ -713,6 +713,15 @@ function confIsRamarim(linhas){
   return /CALCADOS\s+RAMARIM|RAMARIM\s*[-–]\s*NOVA\s+HARTZ/i.test(all);
 }
 
+// Detecta se o PDF e uma OC no formato DILLY (gerada pelo ERP Safetech):
+// cabecalho "Forma de Abertura" + rodape "Emitido por Safetech". A deteccao usa
+// marcadores do layout/ERP, nao o nome do cliente, para suportar outros
+// clientes que venham a usar o mesmo ERP no futuro.
+function confIsDilly(linhas){
+  var all=linhas.join(" ");
+  return /Forma\s+de\s+Abertura/i.test(all)&&/Safetech/i.test(all);
+}
+
 async function confExtrairLinhas(buf){
   var pdf=await pdfjsLib.getDocument({data:new Uint8Array(buf)}).promise;
   var linhas=[];
@@ -753,6 +762,19 @@ function confParseCampos(linhas){
     if(!m)m=all.match(/-\s*(RS|BA|CE|MG)\s*-\s*BRAZIL/i);
     // Fallback: qualquer /ESTADO no bloco apos FORNECEDOR (evita capturar endereco do cliente)
     if(!m){var forn=all.split(/FORNECEDOR\s*:?\s*/i);if(forn[1])m=forn[1].match(/\/\s*(RS|BA|CE|MG)\b/i);}
+    if(m)c.uf=m[1].toUpperCase();
+  }else if(confIsDilly(linhas)){
+    // Formato DILLY (ERP Safetech): cabecalho com Nº OC, Data Emissao e Marca.
+    m=all.match(/Ordem\s+Compra\s+(\d+)/i);if(m)c.ordem=m[1];
+    m=all.match(/Data\s+Emiss\S+\s*:?\s*(\d{2}\/\d{2}\/\d{4})/i);if(m)c.emissao=m[1];
+    // Marca fica na linha "OBS.: Marca: SKECHERS Ref.:... Mod.:..."; captura tudo
+    // entre "Marca:" e "Ref" (suporta marcas com mais de uma palavra).
+    m=all.match(/Marca\s*:\s*(.+?)\s+Ref\.?\s*:/i);if(m)c.marca=m[1].trim();
+    // UF = filial Marfim fornecedora (define a coluna de preco). Sinal mais
+    // robusto: o codigo de usuario do rodape (F628_MARFIMCE / _MARFIMRS / ...);
+    // fallback: linha "Cidade: <cidade> - <UF>" do bloco do fornecedor.
+    m=all.match(/MARFIM\s*(RS|BA|CE|MG)\b/i);
+    if(!m)m=all.match(/Cidade\s*:[^\-\n]*-\s*(RS|BA|CE|MG)\b/i);
     if(m)c.uf=m[1].toUpperCase();
   }else{
     // Formato DASS (blocos de texto)
@@ -1096,7 +1118,7 @@ async function confArquivosSelecionados(files){
     for(var i=0;i<arquivos.length;i++){
       var file=arquivos[i];
       loading(true,"Lendo PDF "+(i+1)+" de "+arquivos.length+": "+file.name);
-      var item={id:++confSeqId,arquivo:file.name,file:file,linhas:[],campos:null,clientesDisponiveis:clientes,cliente:"",uf:"RS",resultados:null,prazoCadastrado:0,erro:""};
+      var item={id:++confSeqId,arquivo:file.name,file:file,linhas:[],campos:null,clientesDisponiveis:clientes,cliente:"",uf:"RS",resultados:null,prazoCadastrado:0,erro:"",notaFormato:""};
       try{
         var buf=await file.arrayBuffer();
         item.linhas=await confExtrairLinhas(buf);
@@ -1141,6 +1163,18 @@ async function confArquivosSelecionados(files){
 // sempre refletir o cadastro atual.
 async function confExecutarAnalise(item,aba,uf,cache){
   item.cliente=aba;item.uf=uf;
+  // Formato DILLY: nesta fase extraimos apenas o cabecalho (marca, data, cliente
+  // e UF). A conferencia de precos dos itens deste formato sera implementada na
+  // proxima etapa; sair aqui evita aplicar o parser do DASS e exibir resultado
+  // incorreto/"nenhum item reconhecido".
+  if(confIsDilly(item.linhas)){
+    item.resultados=null;
+    item.prazoCadastrado=0;
+    item.erroAnalise="";
+    item.notaFormato="Formato DILLY reconhecido — marca, data, cliente e UF identificados acima. A conferencia de precos dos itens deste formato esta em desenvolvimento.";
+    return;
+  }
+  item.notaFormato="";
   var r;
   if(cache){
     if(!cache[aba])cache[aba]=await gas("getReferencias",aba,"",S.vendedor.id);
@@ -1226,6 +1260,7 @@ function confRenderItem(item,idx){
       +"</div>"
       +avisos
       +"<div class=\"form-actions\" style=\"margin-top:12px\"><button class=\"btn btn-success btn-sm\" style=\"background:var(--navy)\" onclick=\"confAnalisarItem("+item.id+")\">&#x1F50D; Conferir Precos</button></div>"
+      +(item.notaFormato?"<div class=\"ref-obs\" style=\"margin-top:12px\">"+escHtml(item.notaFormato)+"</div>":"")
       +confRenderResultados(item);
   }
   return "<div class=\"conf-pdf-block\" id=\"conf-pdf-"+item.id+"\">"

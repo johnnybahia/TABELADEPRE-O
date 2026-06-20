@@ -184,12 +184,13 @@ A logica de extracao/validacao por PDF abaixo (itens 1-5) e a mesma de antes, ap
    - Separadores espaço/ponto/barra/hífen são tolerados dentro do código (`MR110022` ↔ `MR 110022`, `MFGP/T2` ↔ `MFGPT2`).
    - **Atributo goma** (`confTemGoma`/`confBaseRef`): variantes com/sem goma do mesmo código são candidatas distintas. O PDF pode indicar goma como `C/GOMA`, `engomada`, `engomado`, `egomada`, `engo`, `gomada`; negações (`S/GOMA`, `sem goma`) contam como sem goma. O atributo pode estar na referência cadastrada (ex.: `MFGP/T2 C/Goma`) ou só na Descricao. Empate de código é decidido pela variante cujo atributo coincide com o pedido; se divergir, um aviso é exibido no resultado.
 5. Status possíveis: `OK`, `DIVERGENTE`, `VENCIDO`, `SEM_PRECO`, `SEM_MEDIDA`, `NAO_CADASTRADO`.
+   - **`NAO_CADASTRADO` — motivo detalhado no card** (vale para todos os clientes, atuais e futuros): quando nenhum candidato casa por completo, `confValidar` distingue dois casos no `res.motivo`/`refNome`: (a) **código-base existe, variante de medida não** — algum candidato com `rxBase` casa o bloco mas o `rxMm` não (ex.: PDF `M12021 8MM`, tabela só tem `M12021 6MM`); o card mostra o código-base, as medidas cadastradas e a medida que o pedido pede (`confMedidaPdf` pega o token `<n>MM` mais próximo do código, preterindo ponteiras distantes como `20MM`); (b) **referência inexistente** — nenhum `rxBase` casa; mensagem deixa claro que nenhum código compatível foi encontrado.
 
-O parsing foi calibrado com as OCs da DASS e da RAMARIM (PDFs de exemplo na raiz do repositório).
+O parsing foi calibrado com as OCs da DASS, da RAMARIM e da DILLY (PDFs de exemplo na raiz do repositório).
 
-### Suporte multi-formato: DASS vs RAMARIM
+### Suporte multi-formato: DASS vs RAMARIM vs DILLY
 
-`confIsRamarim(linhas)` detecta o formato pelo cabeçalho ("CALCADOS RAMARIM" / "RAMARIM - NOVA HARTZ"). `confExecutarAnalise` seleciona o extrator e o parser corretos para cada formato; `confValidar` aceita um `parseFn` opcional (5º argumento) para suportar ambos.
+`confIsRamarim(linhas)` detecta o formato pelo cabeçalho ("CALCADOS RAMARIM" / "RAMARIM - NOVA HARTZ") e `confIsDilly(linhas)` detecta o formato DILLY pelos marcadores do ERP Safetech ("Forma de Abertura" + "Emitido por Safetech"). `confExecutarAnalise` seleciona o extrator e o parser corretos para cada formato; `confValidar` aceita um `parseFn` opcional (5º argumento) para suportar ambos. A ordem de detecção em `confParseCampos` é RAMARIM → DILLY → DASS (default).
 
 **Formato RAMARIM** (tabela em paisagem, OCs série PED_XXXXXX):
 - Cabeçalho: `NÚMERO OC: XXXXXX` / `DATA EMISSÃO: DD/MM/YYYY` / `COND. PGTO: N dias`
@@ -204,6 +205,26 @@ O parsing foi calibrado com as OCs da DASS e da RAMARIM (PDFs de exemplo na raiz
 **Formato DASS** (blocos de texto, OCs digitalizadas/geradas pelo ERP da DASS):
 - Delimitador de bloco: linha `Quantidade:`
 - Extrator: `confExtrairBlocos` / Parser: `confParseItemBloco` (comportamento original, sem alteração).
+
+**Formato DILLY** (ERP Safetech, OCs série `OC_XXXXXX`, cliente DILLY):
+- Detecção: `confIsDilly` (marcadores do layout/ERP, **não** o nome do cliente — assim suporta outros clientes que usem o mesmo ERP no futuro).
+- **Cabeçalho** (implementado em `confParseCampos`, ramo DILLY):
+  - Nº OC: `Ordem Compra <N>` → `/Ordem\s+Compra\s+(\d+)/i`
+  - Data de emissão: `Data Emissão: DD/MM/YYYY` → `/Data\s+Emiss\S+\s*:?\s*(\d{2}\/\d{2}\/\d{4})/i`
+  - **Marca**: linha `OBS.: Marca: SKECHERS Ref.:... Mod.:...` → `/Marca\s*:\s*(.+?)\s+Ref\.?\s*:/i` (captura entre `Marca:` e `Ref`; suporta marca com mais de uma palavra). A marca varia por pedido (validado em `SKECHERS` e `MORMAII`) e fica disponível para a conferência dos itens (ver desambiguação por marca abaixo).
+  - **UF** = filial Marfim fornecedora (define a coluna de preço, **não** a UF da DILLY): sinal primário é o código de usuário do rodapé `Usuário: F628_MARFIMCE` → `/MARFIM\s*(RS|BA|CE|MG)\b/i`; fallback `Cidade: <cidade> - <UF>` do bloco do fornecedor. Observação: o padrão `MARFIM…/UF` (com barra) usado por DASS/RAMARIM **não** ocorre neste formato.
+  - Cliente: detectado pelo mecanismo padrão (nome da aba casado contra o texto; "DILLY" aparece no comprador e no rodapé).
+- **Itens** (implementado): Extrator `confExtrairBlocosDilly` / Parser `confParseItemBlocoDilly`; `confExecutarAnalise` roteia DILLY para esse par e reusa `confValidar`. PDFs de exemplo: `OC_435918`, `OC_454831`, `OC_465813`, `OC_470796`, `OC_480965`.
+  - **Estrutura de um item após `confExtrairLinhas`**: cada item ocupa várias linhas. A **linha-âncora** traz `<qtd>,XX <preco>,XX <ipi> <DD/MM/YYYY>` + a descrição; as linhas seguintes trazem `<codigo> <seq> PR`, a cor, e o campo `Tamanho <N>`. `confExtrairBlocosDilly` delimita um bloco de uma âncora até a próxima (regex âncora: `/\d{1,3}(?:\.\d{3})*,\d{2}\s+\d+,\d{2}\s+[\d.,]+\s+\d{2}\/\d{2}\/\d{4}/`). Linhas `Lote:`/`Item` intermediárias caem como ruído inofensivo.
+  - **Dois eixos de layout independentes** (ambos cobertos pelo mesmo par extrator/parser):
+    - *Onde está o tamanho*: **(A) na descrição** (`...M21020 PES 95CM ...`, campo *Tamanho* = `1`) — ex. `OC_435918`, `OC_454831`; ou **(B) na grade** (descrição diz `C/ GRADE` sem cm; tamanho real no campo **Tamanho**: 105/120/125...) — ex. `OC_465813`, `OC_470796`, `OC_480965`. `confParseItemBlocoDilly` prioriza `NNcm` na descrição e cai para `Tamanho <N>` quando não há cm.
+    - *Lotes*: itens repetidos em blocos `Lote: <N>` em várias páginas (`OC_454831`, `OC_465813`, `OC_470796`) **ou** lista única sem lotes (`OC_435918`, `OC_480965`).
+  - **Espessura (MM) discrimina linhas da tabela** — resolvido pelo mecanismo existente `rxBase`+`rxMm` do `confValidar`: o código `M21020` tem variantes 6/7/8MM (preço próprio; ex. CE: 8MM = 0,57; 6MM = 0,56). Como a referência cadastrada é `M21020 8MM (...)`, o `confValidar` exige que o bloco contenha **tanto** `M21020` quanto `8MM` (presente em `CHATO 8MM`); um pedido 6MM não casa com a linha 8MM e vice-versa. A ponteira `20MM` não colide (regex exige o dígito exato antes de `MM`).
+  - **Cálculo**: par (`PR`), base 100cm → `esperado = (tamanho_cm / 100) × preço da UF`; tolerância `CONF_TOLERANCIA` absorve o arredondamento de 2 casas do ERP.
+  - **Validação nos exemplos** (UF=CE): `OC_480965` (8MM, base CE 0,57) → 6/6 **OK** (120cm 0,68 · 125cm 0,71 · 130cm 0,74). Os 4 PDFs **6MM** dão **OK + DIVERGENTE** misturados: os pedidos embutem base ≈ 0,57, mas o CE 6MM cadastrado é 0,56 — diferença de ~1 centavo que estoura a tolerância nos tamanhos maiores. É **achado de dado real** (rever o preço CE da `M21020 6MM`), não bug do parser; o 95cm de `OC_435918` (0,60, esperado ~0,53) é um outlier do próprio pedido.
+  - **Marca** (`MORMAII`/`SKECHERS`, do cabeçalho) também aparece na Descricao das linhas da tabela (`...preto/cores Mormaii`) — disponível para desambiguar quando código + espessura empatarem (uso futuro).
+  - **Prazo**: o pagamento DILLY é em parcelas (`60`/`90 dias`, tabela "Dias Parcela"), modelo diferente do "N dias" de DASS/RAMARIM — `prazoPagamento` ainda não é extraído deste formato (badge mostra só o cadastrado). `Situação` pode ser `Aberta` ou `Recebida` (não afeta o parser).
+  - Outras observações: cor codificada (`BRANCO 102` / `PRETO 100` — 100/102 são cor, não tamanho); `Situação` pode ser `Aberta` ou `Recebida`; pagamento em parcelas (60/90 dias) — modelo diferente do "N dias" de DASS/RAMARIM, tratar prazo depois.
 
 ---
 

@@ -713,6 +713,15 @@ function confIsRamarim(linhas){
   return /CALCADOS\s+RAMARIM|RAMARIM\s*[-–]\s*NOVA\s+HARTZ/i.test(all);
 }
 
+// Detecta se o PDF e uma OC no formato DILLY (gerada pelo ERP Safetech):
+// cabecalho "Forma de Abertura" + rodape "Emitido por Safetech". A deteccao usa
+// marcadores do layout/ERP, nao o nome do cliente, para suportar outros
+// clientes que venham a usar o mesmo ERP no futuro.
+function confIsDilly(linhas){
+  var all=linhas.join(" ");
+  return /Forma\s+de\s+Abertura/i.test(all)&&/Safetech/i.test(all);
+}
+
 async function confExtrairLinhas(buf){
   var pdf=await pdfjsLib.getDocument({data:new Uint8Array(buf)}).promise;
   var linhas=[];
@@ -753,6 +762,19 @@ function confParseCampos(linhas){
     if(!m)m=all.match(/-\s*(RS|BA|CE|MG)\s*-\s*BRAZIL/i);
     // Fallback: qualquer /ESTADO no bloco apos FORNECEDOR (evita capturar endereco do cliente)
     if(!m){var forn=all.split(/FORNECEDOR\s*:?\s*/i);if(forn[1])m=forn[1].match(/\/\s*(RS|BA|CE|MG)\b/i);}
+    if(m)c.uf=m[1].toUpperCase();
+  }else if(confIsDilly(linhas)){
+    // Formato DILLY (ERP Safetech): cabecalho com Nº OC, Data Emissao e Marca.
+    m=all.match(/Ordem\s+Compra\s+(\d+)/i);if(m)c.ordem=m[1];
+    m=all.match(/Data\s+Emiss\S+\s*:?\s*(\d{2}\/\d{2}\/\d{4})/i);if(m)c.emissao=m[1];
+    // Marca fica na linha "OBS.: Marca: SKECHERS Ref.:... Mod.:..."; captura tudo
+    // entre "Marca:" e "Ref" (suporta marcas com mais de uma palavra).
+    m=all.match(/Marca\s*:\s*(.+?)\s+Ref\.?\s*:/i);if(m)c.marca=m[1].trim();
+    // UF = filial Marfim fornecedora (define a coluna de preco). Sinal mais
+    // robusto: o codigo de usuario do rodape (F628_MARFIMCE / _MARFIMRS / ...);
+    // fallback: linha "Cidade: <cidade> - <UF>" do bloco do fornecedor.
+    m=all.match(/MARFIM\s*(RS|BA|CE|MG)\b/i);
+    if(!m)m=all.match(/Cidade\s*:[^\-\n]*-\s*(RS|BA|CE|MG)\b/i);
     if(m)c.uf=m[1].toUpperCase();
   }else{
     // Formato DASS (blocos de texto)
@@ -826,6 +848,44 @@ function confParseItemBlocoRamarim(linha){
   return {seq:+m[1],preco:preco,cm:cm,mm:null,qtd:pBR(m[4])};
 }
 
+// Extrai blocos de item de uma OC DILLY (ERP Safetech). Apos confExtrairLinhas,
+// cada item ocupa varias linhas: a descricao+preco numa linha-ancora
+// ("<qtd>,XX <preco>,XX <ipi> <DD/MM/YYYY>") e codigo/cor/Tamanho em linhas
+// seguintes. O bloco de um item vai de uma ancora ate a proxima (exclusive),
+// reunindo descricao, espessura (ex.: "CHATO 8MM"), cor e o campo "Tamanho".
+// Funciona com ou sem blocos "Lote:" e nos dois sub-modelos (tamanho na
+// descricao ou na grade) — linhas "Lote:"/"Item" intermediarias viram ruido
+// inofensivo (o parser le sempre a partir da linha-ancora do proprio item).
+function confExtrairBlocosDilly(linhas){
+  var ANC=/\d{1,3}(?:\.\d{3})*,\d{2}\s+\d+,\d{2}\s+[\d.,]+\s+\d{2}\/\d{2}\/\d{4}/;
+  var idx=[];
+  for(var i=0;i<linhas.length;i++){if(ANC.test(linhas[i]))idx.push(i);}
+  var blocos=[];
+  for(var j=0;j<idx.length;j++){
+    var ini=idx[j],fim=(j+1<idx.length)?idx[j+1]:linhas.length;
+    blocos.push(linhas.slice(ini,fim).join("\n"));
+  }
+  return blocos;
+}
+
+// Extrai preco unitario, tamanho (cm), quantidade e sequencia de um bloco DILLY.
+// Tamanho: o modelo "descricao" traz "PES 95CM" na linha (prioridade); o modelo
+// "grade" (C/ GRADE) traz o tamanho no campo "Tamanho <N>" em linha separada — o
+// "Tamanho 1" do modelo descricao e ignorado porque o "NNcm" ja foi capturado.
+// A espessura (ex.: "CHATO 8MM") nao precisa ser extraida aqui: confValidar a
+// casa pelo texto do bloco (rxMm) ao escolher a variante M21020 6/7/8MM correta.
+function confParseItemBlocoDilly(bloco){
+  var m=bloco.match(/(\d{1,3}(?:\.\d{3})*,\d{2})\s+(\d+,\d{2})\s+[\d.,]+\s+\d{2}\/\d{2}\/\d{4}/);
+  if(!m)return null;
+  var qtd=pBR(m[1]),preco=pBR(m[2]);
+  if(!preco||preco<=0)return null;
+  var cm=null,mCm=bloco.match(/(\d+(?:[.,]\d+)?)\s*CM\b/i);
+  if(mCm)cm=pBR(mCm[1]);
+  else{var mT=bloco.match(/Tamanho\s+(\d+(?:[.,]\d+)?)/i);if(mT)cm=pBR(mT[1]);}
+  var seq=null,mS=bloco.match(/\b\d{5,6}\s+(\d{1,3})\s+PR\b/i);if(mS)seq=+mS[1];
+  return {seq:seq,preco:preco,cm:cm,mm:null,qtd:qtd};
+}
+
 // Extrai medida, quantidade e preco unitario de um bloco de item
 function confParseItemBloco(bloco){
   var preco=null;
@@ -895,6 +955,20 @@ function confPrecoEsperado(row,uf,item){
   return {esperado:precoTab,medidaLabel:row.medidaBase>0?(row.medidaBase+"mm · por metro"):"por metro"};
 }
 
+// Tenta identificar a medida (mm) que o item do PDF pede: pega o token "<n>MM"
+// mais proximo da posicao do codigo-base no bloco (a espessura costuma ficar
+// colada ao codigo; ponteiras distantes como "20MM" ficam preteridas). Usado
+// para deixar claro no card a medida do pedido quando ela nao foi cadastrada.
+// Retorna "" se nao houver token MM no bloco.
+function confMedidaPdf(bloco,rxBase){
+  var m=rxBase?rxBase.exec(bloco):null,pos=m?m.index:0;
+  var toks=[],re=/(\d+(?:[.,]\d+)?)\s*MM\b/gi,t;
+  while((t=re.exec(bloco)))toks.push({mm:t[0].replace(/\s+/g,"").toUpperCase(),idx:t.index});
+  if(!toks.length)return "";
+  toks.sort(function(a,b){return Math.abs(a.idx-pos)-Math.abs(b.idx-pos);});
+  return toks[0].mm;
+}
+
 function confValidar(blocos,refs,uf,emissaoStr,parseFn){
   parseFn=parseFn||confParseItemBloco;
   // agrupa o cadastro por codigo-base + atributo goma (variantes com e sem
@@ -910,10 +984,10 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn){
     // armazena sub-regex separados para o codigo-base e para o MM, permitindo
     // que o MM seja localizado em qualquer posicao do bloco do PDF — e nao
     // necessariamente logo apos o codigo principal.
-    var rxBase=null,rxMm=null;
+    var rxBase=null,rxMm=null,codigoBase=null,medidaMm=null;
     var mMm=base.match(/^(.+?)\s+(\d+(?:[.,]\d+)?\s*MM)\s*$/i);
-    if(mMm&&normTxt(mMm[1]).length>=3){rxBase=confRefRegex(mMm[1]);rxMm=confRefRegex(mMm[2]);}
-    if(!mapa[k])mapa[k]={nome:r.ref,norm:n,goma:goma,rx:confRefRegex(base),rxBase:rxBase,rxMm:rxMm,rows:[]};
+    if(mMm&&normTxt(mMm[1]).length>=3){rxBase=confRefRegex(mMm[1]);rxMm=confRefRegex(mMm[2]);codigoBase=mMm[1].trim();medidaMm=mMm[2].replace(/\s+/g,"").toUpperCase();}
+    if(!mapa[k])mapa[k]={nome:r.ref,norm:n,goma:goma,rx:confRefRegex(base),rxBase:rxBase,rxMm:rxMm,codigoBase:codigoBase,medidaMm:medidaMm,rows:[]};
     mapa[k].rows.push(r);
   });
   // Aliases: codigos antigos mencionados como "ant.CODIGO" na descricao entre
@@ -956,7 +1030,26 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn){
     var res={seq:item.seq,bloco:bloco,precoPdf:item.preco,qtd:item.qtd,medida:0,medidaLabel:"",refNome:hit?hit.nome:"",descricao:"",unidade:"",vigencia:"",esperado:null,status:"",motivo:""};
     if(!hit){
       res.status="NAO_CADASTRADO";
-      res.motivo="Verifique na tabela de preco se a analise esta correta. Nao existindo o item, comunique a direcao.";
+      // Distingue dois casos para deixar claro no card POR QUE nao casou:
+      // (1) a referencia-BASE existe na tabela, mas a variante de medida (mm) do
+      //     pedido nao esta cadastrada (ex.: PDF "M12021 8MM" e a tabela so tem
+      //     "M12021 6MM") — o codigo casa, a medida nao;
+      // (2) nenhum codigo compativel existe na tabela (referencia inexistente).
+      var quase=cands.filter(function(c){return c.rxBase&&c.codigoBase&&c.rxBase.test(bloco);});
+      if(quase.length){
+        var cods={},meds={};
+        quase.forEach(function(c){cods[c.codigoBase.toUpperCase()]=c.codigoBase;if(c.medidaMm)meds[c.medidaMm]=1;});
+        var listaCod=Object.keys(cods).map(function(kk){return cods[kk];});
+        var listaMed=Object.keys(meds);
+        var mmPedido=confMedidaPdf(bloco,quase[0].rxBase);
+        res.refNome=listaCod.join(" / ");
+        res.motivo="A referencia base "+listaCod.join(" / ")+" existe na tabela"
+          +(listaMed.length?", mas cadastrada apenas na(s) medida(s) "+listaMed.join(", "):"")
+          +". "+(mmPedido?("O pedido pede "+mmPedido+", que nao esta cadastrada para esta referencia."):"A medida do pedido nao casou com nenhuma variante cadastrada (confira o trecho do PDF abaixo).")
+          +" Verifique se falta cadastrar essa variante; se realmente nao existir, comunique a direcao.";
+      }else{
+        res.motivo="Referencia nao localizada na tabela de preco deste cliente — nenhum codigo compativel foi encontrado. Verifique o cadastro; nao existindo o item, comunique a direcao.";
+      }
       out.push(res);return;
     }
     var medidaPdf=item.cm||item.mm||0;
@@ -1149,9 +1242,18 @@ async function confExecutarAnalise(item,aba,uf,cache){
     r=await gas("getReferencias",aba,"",S.vendedor.id);
   }
   if(!r.ok){item.erroAnalise=r.erro;return;}
-  var isRam=confIsRamarim(item.linhas);
-  var blocos=isRam?confExtrairBlocosRamarim(item.linhas):confExtrairBlocos(item.linhas);
-  item.resultados=confValidar(blocos,r.refs,uf,item.campos.emissao,isRam?confParseItemBlocoRamarim:null);
+  // Seleciona extrator + parser conforme o formato detectado (DILLY, RAMARIM ou
+  // DASS). Cada formato tem seu proprio par extrator/parseFn; confValidar e
+  // comum aos tres.
+  var blocos,parseFn;
+  if(confIsDilly(item.linhas)){
+    blocos=confExtrairBlocosDilly(item.linhas);parseFn=confParseItemBlocoDilly;
+  }else if(confIsRamarim(item.linhas)){
+    blocos=confExtrairBlocosRamarim(item.linhas);parseFn=confParseItemBlocoRamarim;
+  }else{
+    blocos=confExtrairBlocos(item.linhas);parseFn=null;
+  }
+  item.resultados=confValidar(blocos,r.refs,uf,item.campos.emissao,parseFn);
   item.prazoCadastrado=r.prazoPagamentoDias;
   item.erroAnalise="";
 }

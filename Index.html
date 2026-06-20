@@ -848,6 +848,44 @@ function confParseItemBlocoRamarim(linha){
   return {seq:+m[1],preco:preco,cm:cm,mm:null,qtd:pBR(m[4])};
 }
 
+// Extrai blocos de item de uma OC DILLY (ERP Safetech). Apos confExtrairLinhas,
+// cada item ocupa varias linhas: a descricao+preco numa linha-ancora
+// ("<qtd>,XX <preco>,XX <ipi> <DD/MM/YYYY>") e codigo/cor/Tamanho em linhas
+// seguintes. O bloco de um item vai de uma ancora ate a proxima (exclusive),
+// reunindo descricao, espessura (ex.: "CHATO 8MM"), cor e o campo "Tamanho".
+// Funciona com ou sem blocos "Lote:" e nos dois sub-modelos (tamanho na
+// descricao ou na grade) — linhas "Lote:"/"Item" intermediarias viram ruido
+// inofensivo (o parser le sempre a partir da linha-ancora do proprio item).
+function confExtrairBlocosDilly(linhas){
+  var ANC=/\d{1,3}(?:\.\d{3})*,\d{2}\s+\d+,\d{2}\s+[\d.,]+\s+\d{2}\/\d{2}\/\d{4}/;
+  var idx=[];
+  for(var i=0;i<linhas.length;i++){if(ANC.test(linhas[i]))idx.push(i);}
+  var blocos=[];
+  for(var j=0;j<idx.length;j++){
+    var ini=idx[j],fim=(j+1<idx.length)?idx[j+1]:linhas.length;
+    blocos.push(linhas.slice(ini,fim).join("\n"));
+  }
+  return blocos;
+}
+
+// Extrai preco unitario, tamanho (cm), quantidade e sequencia de um bloco DILLY.
+// Tamanho: o modelo "descricao" traz "PES 95CM" na linha (prioridade); o modelo
+// "grade" (C/ GRADE) traz o tamanho no campo "Tamanho <N>" em linha separada — o
+// "Tamanho 1" do modelo descricao e ignorado porque o "NNcm" ja foi capturado.
+// A espessura (ex.: "CHATO 8MM") nao precisa ser extraida aqui: confValidar a
+// casa pelo texto do bloco (rxMm) ao escolher a variante M21020 6/7/8MM correta.
+function confParseItemBlocoDilly(bloco){
+  var m=bloco.match(/(\d{1,3}(?:\.\d{3})*,\d{2})\s+(\d+,\d{2})\s+[\d.,]+\s+\d{2}\/\d{2}\/\d{4}/);
+  if(!m)return null;
+  var qtd=pBR(m[1]),preco=pBR(m[2]);
+  if(!preco||preco<=0)return null;
+  var cm=null,mCm=bloco.match(/(\d+(?:[.,]\d+)?)\s*CM\b/i);
+  if(mCm)cm=pBR(mCm[1]);
+  else{var mT=bloco.match(/Tamanho\s+(\d+(?:[.,]\d+)?)/i);if(mT)cm=pBR(mT[1]);}
+  var seq=null,mS=bloco.match(/\b\d{5,6}\s+(\d{1,3})\s+PR\b/i);if(mS)seq=+mS[1];
+  return {seq:seq,preco:preco,cm:cm,mm:null,qtd:qtd};
+}
+
 // Extrai medida, quantidade e preco unitario de um bloco de item
 function confParseItemBloco(bloco){
   var preco=null;
@@ -1118,7 +1156,7 @@ async function confArquivosSelecionados(files){
     for(var i=0;i<arquivos.length;i++){
       var file=arquivos[i];
       loading(true,"Lendo PDF "+(i+1)+" de "+arquivos.length+": "+file.name);
-      var item={id:++confSeqId,arquivo:file.name,file:file,linhas:[],campos:null,clientesDisponiveis:clientes,cliente:"",uf:"RS",resultados:null,prazoCadastrado:0,erro:"",notaFormato:""};
+      var item={id:++confSeqId,arquivo:file.name,file:file,linhas:[],campos:null,clientesDisponiveis:clientes,cliente:"",uf:"RS",resultados:null,prazoCadastrado:0,erro:""};
       try{
         var buf=await file.arrayBuffer();
         item.linhas=await confExtrairLinhas(buf);
@@ -1163,18 +1201,6 @@ async function confArquivosSelecionados(files){
 // sempre refletir o cadastro atual.
 async function confExecutarAnalise(item,aba,uf,cache){
   item.cliente=aba;item.uf=uf;
-  // Formato DILLY: nesta fase extraimos apenas o cabecalho (marca, data, cliente
-  // e UF). A conferencia de precos dos itens deste formato sera implementada na
-  // proxima etapa; sair aqui evita aplicar o parser do DASS e exibir resultado
-  // incorreto/"nenhum item reconhecido".
-  if(confIsDilly(item.linhas)){
-    item.resultados=null;
-    item.prazoCadastrado=0;
-    item.erroAnalise="";
-    item.notaFormato="Formato DILLY reconhecido — marca, data, cliente e UF identificados acima. A conferencia de precos dos itens deste formato esta em desenvolvimento.";
-    return;
-  }
-  item.notaFormato="";
   var r;
   if(cache){
     if(!cache[aba])cache[aba]=await gas("getReferencias",aba,"",S.vendedor.id);
@@ -1183,9 +1209,18 @@ async function confExecutarAnalise(item,aba,uf,cache){
     r=await gas("getReferencias",aba,"",S.vendedor.id);
   }
   if(!r.ok){item.erroAnalise=r.erro;return;}
-  var isRam=confIsRamarim(item.linhas);
-  var blocos=isRam?confExtrairBlocosRamarim(item.linhas):confExtrairBlocos(item.linhas);
-  item.resultados=confValidar(blocos,r.refs,uf,item.campos.emissao,isRam?confParseItemBlocoRamarim:null);
+  // Seleciona extrator + parser conforme o formato detectado (DILLY, RAMARIM ou
+  // DASS). Cada formato tem seu proprio par extrator/parseFn; confValidar e
+  // comum aos tres.
+  var blocos,parseFn;
+  if(confIsDilly(item.linhas)){
+    blocos=confExtrairBlocosDilly(item.linhas);parseFn=confParseItemBlocoDilly;
+  }else if(confIsRamarim(item.linhas)){
+    blocos=confExtrairBlocosRamarim(item.linhas);parseFn=confParseItemBlocoRamarim;
+  }else{
+    blocos=confExtrairBlocos(item.linhas);parseFn=null;
+  }
+  item.resultados=confValidar(blocos,r.refs,uf,item.campos.emissao,parseFn);
   item.prazoCadastrado=r.prazoPagamentoDias;
   item.erroAnalise="";
 }
@@ -1260,7 +1295,6 @@ function confRenderItem(item,idx){
       +"</div>"
       +avisos
       +"<div class=\"form-actions\" style=\"margin-top:12px\"><button class=\"btn btn-success btn-sm\" style=\"background:var(--navy)\" onclick=\"confAnalisarItem("+item.id+")\">&#x1F50D; Conferir Precos</button></div>"
-      +(item.notaFormato?"<div class=\"ref-obs\" style=\"margin-top:12px\">"+escHtml(item.notaFormato)+"</div>":"")
       +confRenderResultados(item);
   }
   return "<div class=\"conf-pdf-block\" id=\"conf-pdf-"+item.id+"\">"

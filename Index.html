@@ -724,12 +724,18 @@ function confIsRamarim(linhas){
 }
 
 // Detecta se o PDF e uma OC no formato DILLY (gerada pelo ERP Safetech):
-// cabecalho "Forma de Abertura" + rodape "Emitido por Safetech". A deteccao usa
-// marcadores do layout/ERP, nao o nome do cliente, para suportar outros
-// clientes que venham a usar o mesmo ERP no futuro.
+// cabecalho "Forma de Abertura" + rodape "Emitido por Safetech" OU a tabela
+// "Previsao" (Dias Parcela / Valor Parcela) -- alguns modelos de impressao do
+// mesmo ERP (ex.: OC_392730) omitem o rodape "Emitido por Safetech" (rodape
+// traz so "Usuario: <comprador>" em vez de "Usuario: F4515_MARFIMRS ...
+// Emitido por Safetech"), mas sempre trazem essa tabela de parcelas, que e
+// exclusiva do formato DILLY (DASS/RAMARIM usam "N dias" unico, sem tabela).
+// A deteccao usa marcadores do layout/ERP, nao o nome do cliente, para
+// suportar outros clientes que venham a usar o mesmo ERP no futuro.
 function confIsDilly(linhas){
   var all=linhas.join(" ");
-  return /Forma\s+de\s+Abertura/i.test(all)&&/Safetech/i.test(all);
+  if(!/Forma\s+de\s+Abertura/i.test(all))return false;
+  return /Safetech/i.test(all)||(/Dias\s+Parcela/i.test(all)&&/Valor\s+Parcela/i.test(all));
 }
 
 async function confExtrairLinhas(buf){

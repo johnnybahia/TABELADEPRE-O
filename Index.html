@@ -706,14 +706,17 @@ function confBaseRef(ref){
     .replace(/\s+/g," ").trim();
 }
 // Regex de casamento da referencia: ancorada no INICIO do codigo
-// (nao pode haver letra/numero antes) e que rejeita digito logo apos
-// (assim M2173 casa com "M2173.114" / "M2173 BRANCO" mas nao com "M21730").
-// Separadores espaco/ponto/barra/hifen sao tolerados dentro do codigo
-// ("MR110022" casa com "MR 110022"; "MFGP/T2" casa com "MFGPT2").
+// (nao pode haver letra/numero antes -- ou o rotulo "REF" colado sem
+// separador, ex.: "REF15051/P" no pedido vs "15051/P" no cadastro; o \b
+// antes de REF evita falso positivo em palavras que so terminam em "ref",
+// ex.: "PREF1234" nao deve casar codigo "1234") e que rejeita digito logo
+// apos (assim M2173 casa com "M2173.114" / "M2173 BRANCO" mas nao com
+// "M21730"). Separadores espaco/ponto/barra/hifen sao tolerados dentro do
+// codigo ("MR110022" casa com "MR 110022"; "MFGP/T2" casa com "MFGPT2").
 function confRefRegex(base){
   var n=normTxt(base);
   if(n.length<3)return null;
-  return new RegExp("(?:^|[^A-Z0-9])"+n.split("").join("[\\s./\\-]*")+"(?![0-9])","i");
+  return new RegExp("(?:^|[^A-Z0-9]|\\bREF)"+n.split("").join("[\\s./\\-]*")+"(?![0-9])","i");
 }
 
 // Detecta se o conjunto de linhas extraidas pertence a uma OC da RAMARIM

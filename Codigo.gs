@@ -145,10 +145,12 @@ function getReferencias(nomeAba, busca, vendedorId) {
       });
     }
 
-    // Prazo de pagamento do cliente (célula S1, fora do SCHEMA_CLIENTE)
+    // Prazo de pagamento do cliente (célula S1, fora do SCHEMA_CLIENTE).
+    // Formato simples "90 dias" (DASS/RAMARIM) ou parcelado "60/90 dias"
+    // (DILLY, pagamento em parcelas) — extrai todos os números da célula.
     const prazoRaw = String(aba.getRange("S1").getValue() || "").trim();
-    const prazoMatch = prazoRaw.match(/(\d+)/);
-    const prazoPagamentoDias = prazoMatch ? parseInt(prazoMatch[1], 10) : 0;
+    const prazoPagamentoDiasTodos = (prazoRaw.match(/\d+/g) || []).map(Number);
+    const prazoPagamentoDias = prazoPagamentoDiasTodos.length ? prazoPagamentoDiasTodos[0] : 0;
 
     // Descontos/acréscimos por estado em % (células T1/U1/V1, fora do SCHEMA_CLIENTE)
     // Positivo = acréscimo, negativo = desconto. Zero/vazio = sem auto-preenchimento.
@@ -157,7 +159,7 @@ function getReferencias(nomeAba, busca, vendedorId) {
     const descontoCE = pN(dCE);
     const descontoMG = pN(dMG);
 
-    return { ok: true, refs: resultado, prazoPagamento: prazoRaw, prazoPagamentoDias, descontoBA, descontoCE, descontoMG };
+    return { ok: true, refs: resultado, prazoPagamento: prazoRaw, prazoPagamentoDias, prazoPagamentoDiasTodos, descontoBA, descontoCE, descontoMG };
   } catch (e) {
     return { ok: false, erro: e.message };
   }
@@ -174,13 +176,14 @@ function salvarPrazoPagamento(nomeAba, prazo, vendedorId) {
     const aba = ss.getSheetByName(nomeAba);
     if (!aba) return { ok: false, erro: "Cliente não encontrado." };
 
-    const pN = v => parseFloat(String(v || "0").replace(",", ".")) || 0;
-    const dias = Math.round(pN(prazo));
-    const valor = dias > 0 ? dias + " dias" : "";
+    // Aceita um número único ("90") ou parcelado ("60/90", pagamento DILLY em
+    // parcelas) — extrai todos os números informados, na ordem digitada.
+    const diasTodos = String(prazo || "").match(/\d+/g) || [];
+    const valor = diasTodos.length ? diasTodos.join("/") + " dias" : "";
     aba.getRange("S1").setValue(valor);
 
     _log(vendedorId, "SALVAR_PRAZO_PAGAMENTO", nomeAba + " -> " + (valor || "(vazio)"));
-    return { ok: true, prazoPagamento: valor, prazoPagamentoDias: dias > 0 ? dias : 0 };
+    return { ok: true, prazoPagamento: valor, prazoPagamentoDias: diasTodos.length ? parseInt(diasTodos[0], 10) : 0 };
   } catch (e) {
     return { ok: false, erro: e.message };
   }
@@ -372,10 +375,10 @@ function criarCliente(nome, vendedorId, prazoPagamento) {
     SCHEMA_CLIENTE.forEach((c, i) => aba.setColumnWidth(i + 1, c.largura));
     aba.getRange(2, 4, 500, 2).setNumberFormat("dd/MM/yyyy");
 
-    // Prazo de pagamento (dias) — salvo na célula S1, fora do SCHEMA_CLIENTE
-    const pN = v => parseFloat(String(v || "0").replace(",", ".")) || 0;
-    const diasPrazo = Math.round(pN(prazoPagamento));
-    if (diasPrazo > 0) aba.getRange("S1").setValue(diasPrazo + " dias");
+    // Prazo de pagamento (dias) — salvo na célula S1, fora do SCHEMA_CLIENTE.
+    // Aceita um número único ("90") ou parcelado ("60/90", pagamento em parcelas).
+    const diasPrazoTodos = String(prazoPagamento || "").match(/\d+/g) || [];
+    if (diasPrazoTodos.length) aba.getRange("S1").setValue(diasPrazoTodos.join("/") + " dias");
 
     _log(vendedorId, "CRIAR_CLIENTE", nomeAba);
     return { ok: true, nomeAba };

@@ -256,7 +256,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
             <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2)">
               <span>Prazo de pagamento:</span>
-              <input type="text" inputmode="numeric" id="cad-prazo-pagamento" placeholder="Ex: 90" style="width:64px;text-align:center" autocomplete="off" onkeydown="if(event.key==='Enter')salvarPrazoPagamentoCad()">
+              <input type="text" id="cad-prazo-pagamento" placeholder="Ex: 90 ou 60/90" style="width:90px;text-align:center" autocomplete="off" onkeydown="if(event.key==='Enter')salvarPrazoPagamentoCad()">
               <span>dias</span>
               <button class="btn btn-ghost btn-sm" onclick="salvarPrazoPagamentoCad()">&#x1F4BE; Salvar</button>
             </div>
@@ -326,7 +326,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
           <div class="field" style="flex-shrink:0;margin-bottom:0">
             <label>Prazo de pagamento</label>
             <div style="display:flex;align-items:center;gap:6px">
-              <input type="text" inputmode="numeric" id="adm-novo-cliente-prazo" placeholder="90" style="width:64px;text-align:center" autocomplete="off" onkeydown="if(event.key==='Enter')criarNovoCliente()">
+              <input type="text" id="adm-novo-cliente-prazo" placeholder="90 ou 60/90" style="width:90px;text-align:center" autocomplete="off" onkeydown="if(event.key==='Enter')criarNovoCliente()">
               <span style="font-size:13px;color:var(--text2);white-space:nowrap">dias</span>
             </div>
           </div>
@@ -786,6 +786,29 @@ function confParseCampos(linhas){
     m=all.match(/MARFIM\s*(RS|BA|CE|MG)\b/i);
     if(!m)m=all.match(/Cidade\s*:[^\-\n]*-\s*(RS|BA|CE|MG)\b/i);
     if(m)c.uf=m[1].toUpperCase();
+    // Prazo de pagamento: tabela "Previsao" com colunas "Dias Parcela" /
+    // "Valor Parcela" -- pagamento em parcelas (ex.: 60 e 90 dias, 50%/50%
+    // do total), bem diferente do "N dias" unico de DASS/RAMARIM. Cada
+    // parcela sai numa linha propria da tabela ("60 R$5,85", "90 R$5,85"...).
+    var idxDias=-1;
+    for(var di=0;di<linhas.length;di++){if(/Dias\s+Parcela/i.test(linhas[di])){idxDias=di;break;}}
+    if(idxDias>=0){
+      var diasParcela=[];
+      for(var pi=idxDias+1;pi<linhas.length;pi++){
+        if(/^Total\b/i.test(linhas[pi]))break;
+        var pm=linhas[pi].match(/^(\d{2,3})\s*R\$/);
+        if(pm)diasParcela.push(pm[1]);
+      }
+      if(!diasParcela.length){
+        // Fallback: cabecalho e valores ficaram na mesma linha reconstruida
+        var ml=linhas[idxDias].match(/Valor\s+Parcela\s+([\s\S]+)/i);
+        if(ml){
+          var seq=ml[1].match(/(\d{2,3})\s*R\$/g)||[];
+          diasParcela=seq.map(function(s){return s.match(/\d+/)[0];});
+        }
+      }
+      if(diasParcela.length)c.prazoPagamento=diasParcela.join("/");
+    }
   }else{
     // Formato DASS (blocos de texto)
     m=all.match(/Data da emiss\S{0,4}\s*:?\s*(\d{2}\/\d{2}\/\d{4})/i);if(m)c.emissao=m[1];
@@ -1204,7 +1227,7 @@ async function confArquivosSelecionados(files){
     for(var i=0;i<arquivos.length;i++){
       var file=arquivos[i];
       loading(true,"Lendo PDF "+(i+1)+" de "+arquivos.length+": "+file.name);
-      var item={id:++confSeqId,arquivo:file.name,file:file,linhas:[],campos:null,clientesDisponiveis:clientes,cliente:"",uf:"RS",resultados:null,prazoCadastrado:0,erro:""};
+      var item={id:++confSeqId,arquivo:file.name,file:file,linhas:[],campos:null,clientesDisponiveis:clientes,cliente:"",uf:"RS",resultados:null,prazoCadastradoTodos:[],erro:""};
       try{
         var buf=await file.arrayBuffer();
         item.linhas=await confExtrairLinhas(buf);
@@ -1269,7 +1292,7 @@ async function confExecutarAnalise(item,aba,uf,cache){
     blocos=confExtrairBlocos(item.linhas);parseFn=null;
   }
   item.resultados=confValidar(blocos,r.refs,uf,item.campos.emissao,parseFn);
-  item.prazoCadastrado=r.prazoPagamentoDias;
+  item.prazoCadastradoTodos=r.prazoPagamentoDiasTodos||[];
   item.erroAnalise="";
 }
 
@@ -1378,20 +1401,23 @@ function confRenderResultados(item){
   }).join(" ");
   var vigenciaAnteriorCount=res.filter(function(r){return r.vigenciaAnterior;}).length;
   if(vigenciaAnteriorCount)resumo+=" <span class=\"badge warn\" style=\"font-size:12px;padding:4px 12px\">&#x26A0; Preco de vigencia anterior: "+vigenciaAnteriorCount+"</span>";
-  var prazoCadastrado=item.prazoCadastrado;
-  var prazoPdf=campos.prazoPagamento?parseInt(campos.prazoPagamento,10):0;
+  var prazoCadastradoTodos=item.prazoCadastradoTodos||[];
+  var prazoPdfTodos=(campos.prazoPagamento||"").split("/").map(function(s){return parseInt(s,10);}).filter(function(n){return n>0;});
   var prazoHtml="";
-  if(prazoPdf||prazoCadastrado){
-    if(prazoPdf&&prazoCadastrado){
-      if(prazoPdf===prazoCadastrado){
-        prazoHtml="<div style=\"margin-top:8px\"><span class=\"badge ok\">&#x2713; Prazo de pagamento: "+prazoPdf+" dias (confere com o cadastro)</span></div>";
+  if(prazoPdfTodos.length||prazoCadastradoTodos.length){
+    var pdfLabel=prazoPdfTodos.join("/")+" dias";
+    var cadLabel=prazoCadastradoTodos.join("/")+" dias";
+    if(prazoPdfTodos.length&&prazoCadastradoTodos.length){
+      var confereTodos=prazoPdfTodos.length===prazoCadastradoTodos.length&&prazoPdfTodos.every(function(d,i){return d===prazoCadastradoTodos[i];});
+      if(confereTodos){
+        prazoHtml="<div style=\"margin-top:8px\"><span class=\"badge ok\">&#x2713; Prazo de pagamento: "+pdfLabel+" (confere com o cadastro)</span></div>";
       }else{
-        prazoHtml="<div style=\"margin-top:8px\"><span class=\"badge err\">&#x26A0; Prazo de pagamento divergente: pedido "+prazoPdf+" dias &times; cadastro "+prazoCadastrado+" dias</span></div>";
+        prazoHtml="<div style=\"margin-top:8px\"><span class=\"badge err\">&#x26A0; Prazo de pagamento divergente: pedido "+pdfLabel+" &times; cadastro "+cadLabel+"</span></div>";
       }
-    }else if(prazoPdf){
-      prazoHtml="<div style=\"margin-top:8px\"><span class=\"badge warn\">&#x26A0; Pedido indica prazo de "+prazoPdf+" dias, mas o cliente nao tem prazo de pagamento cadastrado</span></div>";
+    }else if(prazoPdfTodos.length){
+      prazoHtml="<div style=\"margin-top:8px\"><span class=\"badge warn\">&#x26A0; Pedido indica prazo de "+pdfLabel+", mas o cliente nao tem prazo de pagamento cadastrado</span></div>";
     }else{
-      prazoHtml="<div style=\"margin-top:8px\"><span class=\"badge\">Prazo de pagamento cadastrado: "+prazoCadastrado+" dias (nao encontrado no pedido)</span></div>";
+      prazoHtml="<div style=\"margin-top:8px\"><span class=\"badge\">Prazo de pagamento cadastrado: "+cadLabel+" (nao encontrado no pedido)</span></div>";
     }
   }
   var head="<div style=\"margin-top:16px;padding-top:16px;border-top:1px solid var(--border)\">"
@@ -1520,7 +1546,7 @@ async function recarregarListaCad(aba){
   var r=await gas("getReferencias",aba,"",S.vendedor.id);
   S.refsCad=r.ok?r.refs:[];
   document.getElementById("cad-busca").value="";
-  document.getElementById("cad-prazo-pagamento").value=(r.ok&&r.prazoPagamentoDias)?r.prazoPagamentoDias:"";
+  document.getElementById("cad-prazo-pagamento").value=(r.ok&&r.prazoPagamentoDiasTodos&&r.prazoPagamentoDiasTodos.length)?r.prazoPagamentoDiasTodos.join("/"):"";
   S.descontosEstado={ba:r.ok?r.descontoBA||0:0,ce:r.ok?r.descontoCE||0:0,mg:r.ok?r.descontoMG||0:0};
   document.getElementById("cad-desconto-ba").value=S.descontosEstado.ba!==0?S.descontosEstado.ba:"";
   document.getElementById("cad-desconto-ce").value=S.descontosEstado.ce!==0?S.descontosEstado.ce:"";
@@ -1536,7 +1562,8 @@ async function salvarPrazoPagamentoCad(){
   try{
     var r=await gas("salvarPrazoPagamento",aba,prazo,S.vendedor.id);
     if(!r.ok){toast(r.erro,"error");loading(false);return;}
-    document.getElementById("cad-prazo-pagamento").value=r.prazoPagamentoDias?r.prazoPagamentoDias:"";
+    var diasSalvos=(r.prazoPagamento||"").match(/\d+/g)||[];
+    document.getElementById("cad-prazo-pagamento").value=diasSalvos.join("/");
     toast("Prazo de pagamento salvo!","success");
   }catch(e){toast("Erro ao salvar prazo.","error");}
   loading(false);

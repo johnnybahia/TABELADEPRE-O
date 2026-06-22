@@ -89,12 +89,16 @@ As células **T1** (BA), **U1** (CE) e **V1** (MG) de cada aba de cliente armaze
 
 ### Célula S1 — Prazo de pagamento (metadado, fora do SCHEMA_CLIENTE)
 
-A célula **S1** de cada aba de cliente armazena o prazo de pagamento no formato `"<N> dias"` (ex: `"90 dias"`). Não faz parte do `SCHEMA_CLIENTE` (que cobre apenas A-M) e não é afetada por `migrarSchema()`.
+A célula **S1** de cada aba de cliente armazena o prazo de pagamento no formato `"<N> dias"` (ex: `"90 dias"`) ou, para pagamento em parcelas, `"<N1>/<N2> dias"` (ex: `"60/90 dias"`, caso DILLY). Não faz parte do `SCHEMA_CLIENTE` (que cobre apenas A-M) e não é afetada por `migrarSchema()`.
 
-- Definida ao criar um cliente novo (`criarCliente`, campo "Prazo de pagamento" no formulário "Novo Cliente").
-- Editável para clientes existentes na aba "Cadastrar" (campo "Prazo de pagamento" acima do formulário de referência → `salvarPrazoPagamento`).
-- `getReferencias` retorna `prazoPagamento` (string bruta da célula) e `prazoPagamentoDias` (número extraído via regex `/(\d+)/`, robusto a variações como `"90"`, `"90 dias"`, `"90DIAS"`).
-- Na aba "Conferir", `confParseCampos` extrai o prazo do PDF (`Condições de pagto: 90DIAS` → regex `/Condi\S*\s+de\s+pag\S*\s*:?\s*(\d+)\s*dias/i`) e `confRender` compara com `prazoPagamentoDias` cadastrado, exibindo um badge de conferência (confere / divergente / não cadastrado).
+- Definida ao criar um cliente novo (`criarCliente`, campo "Prazo de pagamento" no formulário "Novo Cliente"). O campo aceita um número único (`90`) ou parcelado (`60/90`).
+- Editável para clientes existentes na aba "Cadastrar" (campo "Prazo de pagamento" acima do formulário de referência → `salvarPrazoPagamento`), mesmo formato livre (`90` ou `60/90`).
+- `getReferencias` retorna `prazoPagamento` (string bruta da célula), `prazoPagamentoDias` (primeiro número, via regex `/\d+/g`, robusto a variações como `"90"`, `"90 dias"`, `"90DIAS"`) e `prazoPagamentoDiasTodos` (array com **todos** os números da célula, ex: `[60, 90]` — usado na comparação multi-parcela).
+- Na aba "Conferir", `confParseCampos` extrai o prazo do PDF:
+  - DASS/RAMARIM: `Condições de pagto: 90DIAS` → regex `/Condi\S*\s+de\s+pag\S*\s*:?\s*(\d+)\s*dias/i` → um único número.
+  - DILLY: tabela "Previsão" com colunas "Dias Parcela" / "Valor Parcela" na última página de cada OC — pagamento sempre em 2 parcelas iguais (50%/50% do total), tipicamente 60 e 90 dias. `confParseCampos` localiza a linha `Dias Parcela`, lê cada linha seguinte que casa `^(\d{2,3})\s*R\$` até a linha `Total`, e monta `prazoPagamento` como `"60/90"` (com fallback para o caso em que cabeçalho e valores caem na mesma linha reconstruída).
+  - Em ambos os casos `c.prazoPagamento` é uma string que pode conter um ou mais números separados por `/`.
+- `confRenderResultados` compara a lista de dias extraída do PDF (`campos.prazoPagamento.split("/")`) com a lista cadastrada (`item.prazoCadastradoTodos`, vindo de `prazoPagamentoDiasTodos`): listas iguais (mesmo tamanho e mesma ordem) → badge "confere"; tamanhos/valores diferentes → "divergente" (mostra ambas as listas, ex: `pedido 60/90 dias × cadastro 90 dias` — sinaliza cadastro legado ainda não migrado para o formato parcelado); só um dos dois lados tem dado → aviso de "sem cadastro" ou "não encontrado no pedido".
 
 ---
 
@@ -225,7 +229,7 @@ O parsing foi calibrado com as OCs da DASS, da RAMARIM e da DILLY (PDFs de exemp
   - **Cálculo**: par (`PR`), base 100cm → `esperado = (tamanho_cm / 100) × preço da UF`; comparação em centavos com igualdade exata (`confPrecoConfere`): o esperado é arredondado para 2 casas e deve bater 100% com o preço do pedido.
   - **Validação nos exemplos** (UF=CE): `OC_480965` (8MM, base CE 0,57) → 6/6 **OK** (120cm 0,68 · 125cm 0,71 · 130cm 0,74 batem 100% após arredondar). Os 4 PDFs **6MM** dão **DIVERGENTE em todos os itens**: os pedidos embutem base ≈ 0,57, mas o CE 6MM cadastrado é 0,56 — diferença de ~1 centavo, agora sempre sinalizada (comparação exata em centavos). É **achado de dado real** (rever o preço CE da `M21020 6MM` para 0,57), não bug do parser.
   - **Marca** (`MORMAII`/`SKECHERS`, do cabeçalho) também aparece na Descricao das linhas da tabela (`...preto/cores Mormaii`) — disponível para desambiguar quando código + espessura empatarem (uso futuro).
-  - **Prazo**: o pagamento DILLY é em parcelas (`60`/`90 dias`, tabela "Dias Parcela"), modelo diferente do "N dias" de DASS/RAMARIM — `prazoPagamento` ainda não é extraído deste formato (badge mostra só o cadastrado). `Situação` pode ser `Aberta` ou `Recebida` (não afeta o parser).
+  - **Prazo**: o pagamento DILLY é em 2 parcelas iguais (50%/50% do total), tabela "Previsão" → "Dias Parcela"/"Valor Parcela" na última página, tipicamente `60`/`90 dias` — modelo diferente do "N dias" único de DASS/RAMARIM. Extraído por `confParseCampos` como `prazoPagamento="60/90"` e comparado em `confRenderResultados` contra `prazoPagamentoDiasTodos` cadastrado na célula S1 (ver seção "Célula S1" acima). `Situação` pode ser `Aberta` ou `Recebida` (não afeta o parser).
   - Outras observações: cor codificada (`BRANCO 102` / `PRETO 100` — 100/102 são cor, não tamanho); `Situação` pode ser `Aberta` ou `Recebida`; pagamento em parcelas (60/90 dias) — modelo diferente do "N dias" de DASS/RAMARIM, tratar prazo depois.
 
 ---

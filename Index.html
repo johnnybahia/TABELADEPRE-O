@@ -713,10 +713,21 @@ function confBaseRef(ref){
 // apos (assim M2173 casa com "M2173.114" / "M2173 BRANCO" mas nao com
 // "M21730"). Separadores espaco/ponto/barra/hifen sao tolerados dentro do
 // codigo ("MR110022" casa com "MR 110022"; "MFGP/T2" casa com "MFGPT2").
+// Cliente pode digitar um prefixo diferente do cadastrado (ex.: cadastro
+// "M15051/P", pedido traz "REF15051/P" -- troca o "M" por "REF"): quando o
+// codigo cadastrado comeca com "M"+digito (convencao Marfim), aceita tambem
+// "REF" no lugar do "M", mantendo o RESTANTE do codigo (incl. sufixo "/P")
+// exigido integralmente -- assim "REF15051" so casa com cadastro "M15051"
+// (sem "/P") e "REF15051/P" so casa com "M15051/P", sem ambiguidade entre
+// os dois quando ambos existem cadastrados.
 function confRefRegex(base){
   var n=normTxt(base);
   if(n.length<3)return null;
-  return new RegExp("(?:^|[^A-Z0-9]|\\bREF)"+n.split("").join("[\\s./\\-]*")+"(?![0-9])","i");
+  var partes=["(?:^|[^A-Z0-9]|\\bREF)"+n.split("").join("[\\s./\\-]*")+"(?![0-9])"];
+  if(/^M\d/.test(n)){
+    partes.push("\\bREF[\\s./\\-]*"+n.slice(1).split("").join("[\\s./\\-]*")+"(?![0-9])");
+  }
+  return new RegExp(partes.join("|"),"i");
 }
 
 // Detecta se o conjunto de linhas extraidas pertence a uma OC da RAMARIM

@@ -1647,6 +1647,7 @@ async function salvarRef(){
       var normNova=normTxt(baseNova);
       var siblings=S.refsCad.filter(function(r){
         if(linhaEdicao&&String(r.linha)===String(linhaEdicao))return false;
+        if(r.unidade!=="pares"&&r.unidade!=="pecas")return false;
         var v=extrairVarianteMm(confBaseRef(r.ref));
         return v&&normTxt(v.codigoBase)===normNova;
       });
@@ -1662,7 +1663,8 @@ async function salvarRef(){
     if(!r.ok){toast(r.erro,"error");loading(false);return;}
     toast("Referencia salva!","success");limparFormCad();await recarregarListaCad(aba);
     var atualMap=calcAtualPorRef(S.refsCad);
-    var refAtual=atualMap[String(dados.ref).toUpperCase().trim()];
+    var medidaNova=parseFloat(String(dados.medidaBase).trim().replace(",","."))||0;
+    var refAtual=atualMap[refVarianteKey({ref:dados.ref,medidaBase:medidaNova})];
     if(refAtual&&confirm("Notificar vendedores sobre o novo preco de "+refAtual.ref+"?")){
       loading(true,"Notificando...");
       try{var re=await gas("enviarEmailReferencia",aba,refAtual,S.vendedor.id);toast(re.ok?re.msg:re.erro,re.ok?"success":"error");}catch(ex){toast("Erro ao notificar.","error");}
@@ -1782,7 +1784,7 @@ async function salvarAtualizarPreco(){
     toast("Preco atualizado!","success");
     await recarregarListaCad(aba);
     var atualMap=calcAtualPorRef(S.refsCad);
-    var refAtual=atualMap[String(refOrig.ref).toUpperCase()];
+    var refAtual=atualMap[refVarianteKey(refOrig)];
     if(refAtual&&confirm("Notificar vendedores sobre o novo preco de "+refAtual.ref+"?")){
       loading(true,"Notificando...");
       try{var re=await gas("enviarEmailReferencia",aba,refAtual,S.vendedor.id);toast(re.ok?re.msg:re.erro,re.ok?"success":"error");}catch(ex){toast("Erro ao notificar.","error");}

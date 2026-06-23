@@ -279,7 +279,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
         <div class="form-card">
           <p class="section-title" id="cad-form-title">Nova Referencia</p>
           <div class="form-grid">
-            <div class="field full"><label>Referencia *</label><input type="text" id="cad-ref" placeholder="Ex: CAD001-BRANCO"></div>
+            <div class="field full"><label>Referencia *</label><input type="text" id="cad-ref" placeholder="Ex: CAD001-BRANCO"><div id="cad-ref-hint" style="display:none;font-size:11px;color:var(--text2);margin-top:4px">&#x26A0;&#xFE0F; Se este codigo tiver variantes de espessura com preco proprio (nao proporcional), inclua a medida ao final, ex: "M21020 8MM". Deixe sem sufixo se este item nao tiver essa variacao.</div></div>
             <div class="field full"><label>Descricao</label><input type="text" id="cad-desc" placeholder="Ex: Cadarco tenis 100cm"></div>
             <div class="field"><label>Tipo de Unidade *</label><select id="cad-unidade" onchange="atualizarCamposMedida()"><option value="metros">Metros (por largura)</option><option value="pares">Pares (por tamanho)</option><option value="pecas">Pecas (por tamanho)</option><option value="kg">Kg (preco unico)</option></select></div>
             <div class="field"><label id="cad-medida-label">Largura base (mm) *</label><input type="number" id="cad-medida-base" placeholder="Ex: 10" step="0.01" min="0"></div>
@@ -519,22 +519,31 @@ async function buscarRefs(){
 
 // Chave ordenavel da data de inicio ("dd/MM/yyyy" → "yyyyMMdd")
 function refDataKey(x){return x.dataInicio?x.dataInicio.split("/").reverse().join(""):"";}
-// Para cada referencia, qual linha e o PRECO ATUAL: vigente hoje com a DataInicio mais recente
+// Referencia + MedidaBase identifica a variante: larguras/tamanhos diferentes sob o
+// mesmo codigo sao itens distintos (cada um com seu proprio "preco atual"), nao
+// versoes desatualizadas um do outro — mesmo criterio que confEscolherVigencia usa
+// na conferencia de PDF.
+function refVarianteKey(x){return String(x.ref).toUpperCase()+"|"+(x.medidaBase||0);}
+// Para cada variante (referencia+medidaBase), qual linha e o PRECO ATUAL: vigente
+// hoje com a DataInicio mais recente
 function calcAtualPorRef(refs){
   var atual={};
   refs.forEach(function(ref){
     if(!ref.vigente)return;
-    var k=String(ref.ref).toUpperCase();
+    var k=refVarianteKey(ref);
     if(!atual[k]||refDataKey(ref)>refDataKey(atual[k]))atual[k]=ref;
   });
   return atual;
 }
-// Agrupa por referencia; dentro do grupo o preco atual vem primeiro e o restante por data desc
+// Agrupa por referencia e, dentro dela, por medidaBase; dentro de cada variante o
+// preco atual vem primeiro e o restante por data desc
 function ordenarPorRefEData(refs,atual){
   return refs.slice().sort(function(a,b){
     var ka=String(a.ref).toUpperCase(),kb=String(b.ref).toUpperCase();
     if(ka!==kb)return ka<kb?-1:1;
-    var aa=atual[ka]===a,ab=atual[kb]===b;
+    var ma=a.medidaBase||0,mb=b.medidaBase||0;
+    if(ma!==mb)return ma-mb;
+    var aa=atual[refVarianteKey(a)]===a,ab=atual[refVarianteKey(b)]===b;
     if(aa!==ab)return aa?-1:1;
     return refDataKey(b).localeCompare(refDataKey(a));
   });
@@ -547,7 +556,7 @@ function renderRefs(r,containerId,modoEdicao){
   var d=new Date();
   var hojeKey=d.getFullYear()+("0"+(d.getMonth()+1)).slice(-2)+("0"+d.getDate()).slice(-2);
   el.innerHTML=ordenarPorRefEData(r.refs,atualPorRef).map(function(ref){
-    var isAtual=atualPorRef[String(ref.ref).toUpperCase()]===ref;
+    var isAtual=atualPorRef[refVarianteKey(ref)]===ref;
     var futura=!ref.vigente&&refDataKey(ref)>hojeKey;
     var unidade=ref.unidade||"metros";
     var medidaBase=ref.medidaBase||0;
@@ -637,7 +646,7 @@ function montarPrint(lista,cliente,modo,refFiltro){
   var linhas=ordenarPorRefEData(lista,atualPorRef).map(function(ref){
     var unidade=ref.unidade||"metros";
     var medidaBase=ref.medidaBase||0;
-    var isAtual=atualPorRef[String(ref.ref).toUpperCase()]===ref;
+    var isAtual=atualPorRef[refVarianteKey(ref)]===ref;
     var futura=!ref.vigente&&refDataKey(ref)>hojeKey;
     var stTxt=isAtual?"Preco atual":ref.vigente?"Vigente (antigo)":futura?"Programado":"Vencido";
     var stBg=isAtual?"#d1fae5":ref.vigente||futura?"#fef3c7":"#fee2e2";
@@ -704,6 +713,15 @@ function confBaseRef(ref){
   return s
     .replace(/\b(?:C\s*\/\s*GOMA|COM\s+GOMA|SEM\s+GOMA|S\s*\/\s*GOMA|ENGOMAD[OA]?|EGOMAD[OA]?|GOMAD[OA]|GOMA|ENGO)\b/gi," ")
     .replace(/\s+/g," ").trim();
+}
+// Extrai "<codigo-base> <N>MM" do final de uma referencia-base (ja sem goma/descricao
+// entre parenteses — ver confBaseRef): usado por confValidar para casar variantes de
+// espessura na conferencia de PDF e pelo cadastro para alertar quando uma referencia
+// parece pertencer a uma familia de variantes mas foi salva sem a espessura.
+function extrairVarianteMm(base){
+  var m=String(base||"").match(/^(.+?)\s+(\d+(?:[.,]\d+)?\s*MM)\s*$/i);
+  if(!m||normTxt(m[1]).length<3)return null;
+  return {codigoBase:m[1].trim(),mm:m[2].replace(/\s+/g,"").toUpperCase()};
 }
 // Regex de casamento da referencia: ancorada no INICIO do codigo
 // (nao pode haver letra/numero antes -- ou o rotulo "REF" colado sem
@@ -1027,8 +1045,8 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn){
     // que o MM seja localizado em qualquer posicao do bloco do PDF — e nao
     // necessariamente logo apos o codigo principal.
     var rxBase=null,rxMm=null,codigoBase=null,medidaMm=null;
-    var mMm=base.match(/^(.+?)\s+(\d+(?:[.,]\d+)?\s*MM)\s*$/i);
-    if(mMm&&normTxt(mMm[1]).length>=3){rxBase=confRefRegex(mMm[1]);rxMm=confRefRegex(mMm[2]);codigoBase=mMm[1].trim();medidaMm=mMm[2].replace(/\s+/g,"").toUpperCase();}
+    var variante=extrairVarianteMm(base);
+    if(variante){rxBase=confRefRegex(variante.codigoBase);rxMm=confRefRegex(variante.mm);codigoBase=variante.codigoBase;medidaMm=variante.mm;}
     if(!mapa[k])mapa[k]={nome:r.ref,norm:n,goma:goma,rx:confRefRegex(base),rxBase:rxBase,rxMm:rxMm,codigoBase:codigoBase,medidaMm:medidaMm,rows:[]};
     mapa[k].rows.push(r);
   });
@@ -1618,13 +1636,35 @@ async function salvarRef(){
   if(!dados.ref||!dados.dataInicio){toast("Preencha os campos obrigatorios (*).","error");return;}
   if(!dados.medidaBase||parseFloat(dados.medidaBase)<=0){toast("Informe a medida base (largura ou tamanho).","error");return;}
   var linhaEdicao=document.getElementById("cad-linha-edicao").value;
+  // Alerta (nao bloqueia): pares/pecas cuja referencia nao tem sufixo de espessura
+  // (ex: "8MM") mas que ja tem variantes com sufixo cadastradas para o mesmo codigo-base
+  // — sinal forte de que o usuario esqueceu de incluir a espessura desta referencia,
+  // o que faz a conferencia de PDF nao conseguir distinguir as variantes (ver
+  // extrairVarianteMm/confValidar).
+  if(dados.unidade==="pares"||dados.unidade==="pecas"){
+    var baseNova=confBaseRef(dados.ref);
+    if(!extrairVarianteMm(baseNova)){
+      var normNova=normTxt(baseNova);
+      var siblings=S.refsCad.filter(function(r){
+        if(linhaEdicao&&String(r.linha)===String(linhaEdicao))return false;
+        if(r.unidade!=="pares"&&r.unidade!=="pecas")return false;
+        var v=extrairVarianteMm(confBaseRef(r.ref));
+        return v&&normTxt(v.codigoBase)===normNova;
+      });
+      if(siblings.length){
+        var exemplos=siblings.slice(0,3).map(function(r){return r.ref;}).join(", ");
+        if(!confirm("Ja existem variantes com espessura cadastradas para este codigo ("+exemplos+"). Esta referencia nao tem espessura (mm) no final do codigo — isso pode causar conflito na conferencia de pedidos em PDF.\n\nSalvar assim mesmo?"))return;
+      }
+    }
+  }
   loading(true,"Salvando...");
   try{
     var r=await gas("salvarReferencia",aba,dados,S.vendedor.id,linhaEdicao?Number(linhaEdicao):null);
     if(!r.ok){toast(r.erro,"error");loading(false);return;}
     toast("Referencia salva!","success");limparFormCad();await recarregarListaCad(aba);
     var atualMap=calcAtualPorRef(S.refsCad);
-    var refAtual=atualMap[String(dados.ref).toUpperCase().trim()];
+    var medidaNova=parseFloat(String(dados.medidaBase).trim().replace(",","."))||0;
+    var refAtual=atualMap[refVarianteKey({ref:dados.ref,medidaBase:medidaNova})];
     if(refAtual&&confirm("Notificar vendedores sobre o novo preco de "+refAtual.ref+"?")){
       loading(true,"Notificando...");
       try{var re=await gas("enviarEmailReferencia",aba,refAtual,S.vendedor.id);toast(re.ok?re.msg:re.erro,re.ok?"success":"error");}catch(ex){toast("Erro ao notificar.","error");}
@@ -1666,6 +1706,7 @@ function atualizarCamposMedida(){
   if(u==="kg"){lbl.textContent="Medida base (nao se aplica a kg)";inp.placeholder="(opcional)";}
   else if(u==="metros"){lbl.textContent="Largura base (mm) *";inp.placeholder="Ex: 10";}
   else{lbl.textContent="Tamanho base (cm) *";inp.placeholder="Ex: 100";}
+  document.getElementById("cad-ref-hint").style.display=(u==="pares"||u==="pecas")?"block":"none";
 }
 
 function filtrarListaCad(){
@@ -1743,7 +1784,7 @@ async function salvarAtualizarPreco(){
     toast("Preco atualizado!","success");
     await recarregarListaCad(aba);
     var atualMap=calcAtualPorRef(S.refsCad);
-    var refAtual=atualMap[String(refOrig.ref).toUpperCase()];
+    var refAtual=atualMap[refVarianteKey(refOrig)];
     if(refAtual&&confirm("Notificar vendedores sobre o novo preco de "+refAtual.ref+"?")){
       loading(true,"Notificando...");
       try{var re=await gas("enviarEmailReferencia",aba,refAtual,S.vendedor.id);toast(re.ok?re.msg:re.erro,re.ok?"success":"error");}catch(ex){toast("Erro ao notificar.","error");}

@@ -519,22 +519,31 @@ async function buscarRefs(){
 
 // Chave ordenavel da data de inicio ("dd/MM/yyyy" → "yyyyMMdd")
 function refDataKey(x){return x.dataInicio?x.dataInicio.split("/").reverse().join(""):"";}
-// Para cada referencia, qual linha e o PRECO ATUAL: vigente hoje com a DataInicio mais recente
+// Referencia + MedidaBase identifica a variante: larguras/tamanhos diferentes sob o
+// mesmo codigo sao itens distintos (cada um com seu proprio "preco atual"), nao
+// versoes desatualizadas um do outro — mesmo criterio que confEscolherVigencia usa
+// na conferencia de PDF.
+function refVarianteKey(x){return String(x.ref).toUpperCase()+"|"+(x.medidaBase||0);}
+// Para cada variante (referencia+medidaBase), qual linha e o PRECO ATUAL: vigente
+// hoje com a DataInicio mais recente
 function calcAtualPorRef(refs){
   var atual={};
   refs.forEach(function(ref){
     if(!ref.vigente)return;
-    var k=String(ref.ref).toUpperCase();
+    var k=refVarianteKey(ref);
     if(!atual[k]||refDataKey(ref)>refDataKey(atual[k]))atual[k]=ref;
   });
   return atual;
 }
-// Agrupa por referencia; dentro do grupo o preco atual vem primeiro e o restante por data desc
+// Agrupa por referencia e, dentro dela, por medidaBase; dentro de cada variante o
+// preco atual vem primeiro e o restante por data desc
 function ordenarPorRefEData(refs,atual){
   return refs.slice().sort(function(a,b){
     var ka=String(a.ref).toUpperCase(),kb=String(b.ref).toUpperCase();
     if(ka!==kb)return ka<kb?-1:1;
-    var aa=atual[ka]===a,ab=atual[kb]===b;
+    var ma=a.medidaBase||0,mb=b.medidaBase||0;
+    if(ma!==mb)return ma-mb;
+    var aa=atual[refVarianteKey(a)]===a,ab=atual[refVarianteKey(b)]===b;
     if(aa!==ab)return aa?-1:1;
     return refDataKey(b).localeCompare(refDataKey(a));
   });
@@ -547,7 +556,7 @@ function renderRefs(r,containerId,modoEdicao){
   var d=new Date();
   var hojeKey=d.getFullYear()+("0"+(d.getMonth()+1)).slice(-2)+("0"+d.getDate()).slice(-2);
   el.innerHTML=ordenarPorRefEData(r.refs,atualPorRef).map(function(ref){
-    var isAtual=atualPorRef[String(ref.ref).toUpperCase()]===ref;
+    var isAtual=atualPorRef[refVarianteKey(ref)]===ref;
     var futura=!ref.vigente&&refDataKey(ref)>hojeKey;
     var unidade=ref.unidade||"metros";
     var medidaBase=ref.medidaBase||0;
@@ -637,7 +646,7 @@ function montarPrint(lista,cliente,modo,refFiltro){
   var linhas=ordenarPorRefEData(lista,atualPorRef).map(function(ref){
     var unidade=ref.unidade||"metros";
     var medidaBase=ref.medidaBase||0;
-    var isAtual=atualPorRef[String(ref.ref).toUpperCase()]===ref;
+    var isAtual=atualPorRef[refVarianteKey(ref)]===ref;
     var futura=!ref.vigente&&refDataKey(ref)>hojeKey;
     var stTxt=isAtual?"Preco atual":ref.vigente?"Vigente (antigo)":futura?"Programado":"Vencido";
     var stBg=isAtual?"#d1fae5":ref.vigente||futura?"#fef3c7":"#fee2e2";

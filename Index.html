@@ -1073,18 +1073,31 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn){
     var item=parseFn(bloco);
     if(!item)return;
     var blocoGoma=confTemGoma(bloco);
-    // candidatas que casam no bloco; vence o codigo mais longo e,
-    // em empate, a variante cujo atributo goma coincide com o pedido.
-    // Quando a referencia tem MM no codigo, testa codigo-base e MM
-    // de forma independente (cada um pode estar em qualquer posicao no bloco).
+    var medidaPdf=item.cm||item.mm||0;
+    // candidatas que casam no bloco; vence, em ordem: (1) a variante cuja
+    // MedidaBase cadastrada bate com a medida do pedido -- sem isso, uma
+    // variante que embute a espessura no proprio texto do codigo (ex:
+    // "MFGP 15MM S/GOMA") vencia por codigo mais longo sobre a variante
+    // correta que so declara a espessura na coluna MedidaBase (ex: "MFGP
+    // C/Goma" com MedidaBase=15mm), mesmo com o atributo goma errado; (2) em
+    // empate, a variante cujo atributo goma coincide com o pedido; (3) por
+    // fim, o codigo mais longo (mais especifico). Quando a referencia tem MM
+    // no codigo, testa codigo-base e MM de forma independente (cada um pode
+    // estar em qualquer posicao no bloco).
     var hits=cands.filter(function(c){
       if(!c.rx)return false;
       if(c.rxMm)return !!(c.rxBase&&c.rxBase.test(bloco)&&c.rxMm.test(bloco));
       return c.rx.test(bloco);
     });
+    var medidaBate=function(c){
+      return medidaPdf>0&&c.rows.some(function(r){return Math.abs((r.medidaBase||0)-medidaPdf)<0.01;});
+    };
     hits.sort(function(a,b){
-      if(b.norm.length!==a.norm.length)return b.norm.length-a.norm.length;
-      return ((b.goma===blocoGoma)?1:0)-((a.goma===blocoGoma)?1:0);
+      var ma=medidaBate(a)?1:0,mb=medidaBate(b)?1:0;
+      if(mb!==ma)return mb-ma;
+      var ga=(a.goma===blocoGoma)?1:0,gb=(b.goma===blocoGoma)?1:0;
+      if(gb!==ga)return gb-ga;
+      return b.norm.length-a.norm.length;
     });
     var hit=hits[0]||null;
     var res={seq:item.seq,bloco:bloco,precoPdf:item.preco,qtd:item.qtd,medida:0,medidaLabel:"",refNome:hit?hit.nome:"",descricao:"",unidade:"",vigencia:"",esperado:null,status:"",motivo:""};

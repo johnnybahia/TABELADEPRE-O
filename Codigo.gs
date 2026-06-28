@@ -41,6 +41,50 @@ function doGet(e) {
 }
 
 // ============================================================
+// SESSÃO — token de sessão por login, validado em todas as
+// funções de backend (em vez de confiar no vendedorId enviado
+// pelo cliente). Permissões (admin/clientes) são sempre
+// reconsultadas em tempo real na aba VENDEDORES a partir do
+// vendedorId resolvido pelo token, nunca cacheadas no token —
+// revogar acesso na planilha tem efeito imediato.
+// ============================================================
+const SESSAO_TTL_SEGUNDOS = 6 * 60 * 60; // 6h — máximo permitido pelo CacheService
+
+function _criarSessao(vendedorId) {
+  const token = Utilities.getUuid();
+  CacheService.getScriptCache().put("sessao_" + token, String(vendedorId), SESSAO_TTL_SEGUNDOS);
+  return token;
+}
+
+function _validarSessao(token) {
+  if (!token) return null;
+  return CacheService.getScriptCache().get("sessao_" + token) || null;
+}
+
+// Resolve um token para o vendedorId real; lança erro padronizado se inválido/expirado.
+function _exigirSessao(token) {
+  const vendedorId = _validarSessao(token);
+  if (!vendedorId) throw new Error("SESSAO_EXPIRADA");
+  return vendedorId;
+}
+
+function _buscarVendedor(vendedorId) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const aba = ss.getSheetByName(ABA_VENDEDORES);
+  if (!aba) return null;
+  const dados = aba.getDataRange().getValues();
+  for (let i = 1; i < dados.length; i++) {
+    if (String(dados[i][0]).trim() !== String(vendedorId).trim()) continue;
+    return {
+      id: String(dados[i][0]),
+      nome: String(dados[i][1] || ""),
+      clientes: String(dados[i][3] || "").split("|").map(c => c.trim()).filter(Boolean)
+    };
+  }
+  return null;
+}
+
+// ============================================================
 // AUTENTICAÇÃO
 // ============================================================
 function login(id, senha) {
@@ -55,8 +99,9 @@ function login(id, senha) {
       if (String(vid).trim() === String(id).trim() &&
           String(vsenha).trim() === String(senha).trim()) {
         const clientesPermitidos = String(clientes).split("|").map(c => c.trim()).filter(Boolean);
+        const token = _criarSessao(vid);
         _log(nome, "LOGIN", "");
-        return { ok: true, vendedor: { id: vid, nome, clientes: clientesPermitidos } };
+        return { ok: true, token, vendedor: { id: vid, nome, clientes: clientesPermitidos } };
       }
     }
     return { ok: false, erro: "Credenciais inválidas." };
@@ -68,12 +113,17 @@ function login(id, senha) {
 // ============================================================
 // LISTAR CLIENTES DISPONÍVEIS PARA O VENDEDOR
 // ============================================================
-function getClientes(vendedorId, clientesPermitidos) {
+function getClientes(token) {
   try {
+    const vendedorId = _exigirSessao(token);
+    const vendedor = _buscarVendedor(vendedorId);
+    if (!vendedor) return { ok: false, erro: "Vendedor não encontrado." };
+
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const todasAbas = ss.getSheets().map(s => s.getName());
     const abasCliente = todasAbas.filter(n => n.toUpperCase().endsWith(SUFIXO_CLIENTE));
 
+    const clientesPermitidos = vendedor.clientes;
     if (!clientesPermitidos || clientesPermitidos.length === 0) return { ok: true, clientes: [] };
 
     // Se lista contém "*", libera todos
@@ -86,6 +136,7 @@ function getClientes(vendedorId, clientesPermitidos) {
 
     return { ok: true, clientes: resultado };
   } catch (e) {
+    if (e.message === "SESSAO_EXPIRADA") return { ok: false, erro: "Sessão expirada. Faça login novamente.", sessaoExpirada: true };
     return { ok: false, erro: e.message };
   }
 }
@@ -93,7 +144,20 @@ function getClientes(vendedorId, clientesPermitidos) {
 // ============================================================
 // BUSCAR REFERÊNCIAS POR CLIENTE (com filtro de busca e vigência)
 // ============================================================
-function getReferencias(nomeAba, busca, vendedorId) {
+function getReferencias(nomeAba, busca, token) {
+  try {
+    const vendedorId = _exigirSessao(token);
+    return _getReferencias(nomeAba, busca, vendedorId);
+  } catch (e) {
+    if (e.message === "SESSAO_EXPIRADA") return { ok: false, erro: "Sessão expirada. Faça login novamente.", sessaoExpirada: true };
+    return { ok: false, erro: e.message };
+  }
+}
+
+// Versão interna, usada por getReferencias (já validada via token) e por
+// chamadas internas do próprio backend (ex.: enviarEmailAtualizacao) que já
+// têm um vendedorId resolvido e confiável.
+function _getReferencias(nomeAba, busca, vendedorId) {
   try {
     if (!_validarAcesso(vendedorId, nomeAba)) return { ok: false, erro: "Acesso não autorizado." };
 
@@ -168,8 +232,9 @@ function getReferencias(nomeAba, busca, vendedorId) {
 // ============================================================
 // SALVAR PRAZO DE PAGAMENTO (célula S1 da aba do cliente)
 // ============================================================
-function salvarPrazoPagamento(nomeAba, prazo, vendedorId) {
+function salvarPrazoPagamento(nomeAba, prazo, token) {
   try {
+    const vendedorId = _exigirSessao(token);
     if (!_validarAcesso(vendedorId, nomeAba)) return { ok: false, erro: "Acesso não autorizado." };
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -185,6 +250,7 @@ function salvarPrazoPagamento(nomeAba, prazo, vendedorId) {
     _log(vendedorId, "SALVAR_PRAZO_PAGAMENTO", nomeAba + " -> " + (valor || "(vazio)"));
     return { ok: true, prazoPagamento: valor, prazoPagamentoDias: diasTodos.length ? parseInt(diasTodos[0], 10) : 0 };
   } catch (e) {
+    if (e.message === "SESSAO_EXPIRADA") return { ok: false, erro: "Sessão expirada. Faça login novamente.", sessaoExpirada: true };
     return { ok: false, erro: e.message };
   }
 }
@@ -193,8 +259,9 @@ function salvarPrazoPagamento(nomeAba, prazo, vendedorId) {
 // SALVAR DESCONTOS/ACRÉSCIMOS POR ESTADO (células T1/U1/V1 da aba do cliente)
 // Positivo = acréscimo %, negativo = desconto %. Zero/vazio = desabilita auto-fill.
 // ============================================================
-function salvarDescontosEstado(nomeAba, descontos, vendedorId) {
+function salvarDescontosEstado(nomeAba, descontos, token) {
   try {
+    const vendedorId = _exigirSessao(token);
     if (!_validarAcesso(vendedorId, nomeAba)) return { ok: false, erro: "Acesso não autorizado." };
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -214,6 +281,7 @@ function salvarDescontosEstado(nomeAba, descontos, vendedorId) {
     _log(vendedorId, "SALVAR_DESCONTOS_ESTADO", nomeAba + " -> BA:" + ba + "% CE:" + ce + "% MG:" + mg + "%");
     return { ok: true, descontoBA: ba, descontoCE: ce, descontoMG: mg };
   } catch (e) {
+    if (e.message === "SESSAO_EXPIRADA") return { ok: false, erro: "Sessão expirada. Faça login novamente.", sessaoExpirada: true };
     return { ok: false, erro: e.message };
   }
 }
@@ -221,8 +289,9 @@ function salvarDescontosEstado(nomeAba, descontos, vendedorId) {
 // ============================================================
 // CADASTRAR / EDITAR REFERÊNCIA
 // ============================================================
-function salvarReferencia(nomeAba, dados, vendedorId, linhaEdicao) {
+function salvarReferencia(nomeAba, dados, token, linhaEdicao) {
   try {
+    const vendedorId = _exigirSessao(token);
     if (!_validarAcesso(vendedorId, nomeAba)) return { ok: false, erro: "Acesso não autorizado." };
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -279,6 +348,7 @@ function salvarReferencia(nomeAba, dados, vendedorId, linhaEdicao) {
     _log(vendedorId, linhaEdicao ? "EDITAR" : "CADASTRAR", `${nomeAba} | ${ref}`);
     return { ok: true };
   } catch (e) {
+    if (e.message === "SESSAO_EXPIRADA") return { ok: false, erro: "Sessão expirada. Faça login novamente.", sessaoExpirada: true };
     return { ok: false, erro: e.message };
   }
 }
@@ -286,8 +356,9 @@ function salvarReferencia(nomeAba, dados, vendedorId, linhaEdicao) {
 // ============================================================
 // RENOVAR REFERÊNCIA — fecha período atual e abre novo
 // ============================================================
-function renovarReferencia(nomeAba, linhaOrigem, dados, vendedorId) {
+function renovarReferencia(nomeAba, linhaOrigem, dados, token) {
   try {
+    const vendedorId = _exigirSessao(token);
     if (!_validarAcesso(vendedorId, nomeAba)) return { ok: false, erro: "Acesso não autorizado." };
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -338,6 +409,7 @@ function renovarReferencia(nomeAba, linhaOrigem, dados, vendedorId) {
     _log(vendedorId, "RENOVAR", `${nomeAba} | ${rowData[0]} | L${linha}→L${ultimaLinha}`);
     return { ok: true };
   } catch (e) {
+    if (e.message === "SESSAO_EXPIRADA") return { ok: false, erro: "Sessão expirada. Faça login novamente.", sessaoExpirada: true };
     return { ok: false, erro: e.message };
   }
 }
@@ -345,8 +417,9 @@ function renovarReferencia(nomeAba, linhaOrigem, dados, vendedorId) {
 // ============================================================
 // ADMIN: CRIAR NOVO CLIENTE (nova aba na planilha)
 // ============================================================
-function criarCliente(nome, vendedorId, prazoPagamento) {
+function criarCliente(nome, token, prazoPagamento) {
   try {
+    const vendedorId = _exigirSessao(token);
     if (!_ehAdmin(vendedorId)) return { ok: false, erro: "Sem permissão." };
 
     const nomeLimpo = String(nome || "").trim();
@@ -383,6 +456,7 @@ function criarCliente(nome, vendedorId, prazoPagamento) {
     _log(vendedorId, "CRIAR_CLIENTE", nomeAba);
     return { ok: true, nomeAba };
   } catch (e) {
+    if (e.message === "SESSAO_EXPIRADA") return { ok: false, erro: "Sessão expirada. Faça login novamente.", sessaoExpirada: true };
     return { ok: false, erro: e.message };
   }
 }
@@ -404,8 +478,10 @@ function calcularPreco(preco, metros) {
 // ============================================================
 // ADMIN: LISTAR VENDEDORES
 // ============================================================
-function getVendedores(vendedorId) {
+function getVendedores(token) {
   try {
+    const vendedorId = _exigirSessao(token);
+
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const aba = ss.getSheetByName(ABA_VENDEDORES);
     if (!aba) return { ok: false, erro: "Aba VENDEDORES não encontrada." };
@@ -427,6 +503,7 @@ function getVendedores(vendedorId) {
     }
     return { ok: true, vendedores: lista };
   } catch (e) {
+    if (e.message === "SESSAO_EXPIRADA") return { ok: false, erro: "Sessão expirada. Faça login novamente.", sessaoExpirada: true };
     return { ok: false, erro: e.message };
   }
 }
@@ -434,8 +511,9 @@ function getVendedores(vendedorId) {
 // ============================================================
 // ADMIN: SALVAR VENDEDOR  (coluna E = email)
 // ============================================================
-function salvarVendedor(vendedorId, dados, linhaEdicao) {
+function salvarVendedor(token, dados, linhaEdicao) {
   try {
+    const vendedorId = _exigirSessao(token);
     if (!_ehAdmin(vendedorId)) return { ok: false, erro: "Sem permissão." };
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -452,6 +530,7 @@ function salvarVendedor(vendedorId, dados, linhaEdicao) {
 
     return { ok: true };
   } catch (e) {
+    if (e.message === "SESSAO_EXPIRADA") return { ok: false, erro: "Sessão expirada. Faça login novamente.", sessaoExpirada: true };
     return { ok: false, erro: e.message };
   }
 }
@@ -459,8 +538,9 @@ function salvarVendedor(vendedorId, dados, linhaEdicao) {
 // ============================================================
 // ADMIN: ENVIAR EMAIL DE ATUALIZAÇÃO DE PREÇOS
 // ============================================================
-function enviarEmailAtualizacao(nomeAba, vendedorIdRemetente) {
+function enviarEmailAtualizacao(nomeAba, token) {
   try {
+    const vendedorIdRemetente = _exigirSessao(token);
     if (!_ehAdmin(vendedorIdRemetente)) return { ok: false, erro: "Sem permissão." };
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -468,7 +548,7 @@ function enviarEmailAtualizacao(nomeAba, vendedorIdRemetente) {
     if (!abaV) return { ok: false, erro: "Aba VENDEDORES não encontrada." };
 
     // Buscar referências vigentes do cliente para montar o email
-    const resRefs = getReferencias(nomeAba, "", vendedorIdRemetente);
+    const resRefs = _getReferencias(nomeAba, "", vendedorIdRemetente);
     if (!resRefs.ok) return { ok: false, erro: resRefs.erro };
     const refs = resRefs.refs;
 
@@ -577,6 +657,7 @@ function enviarEmailAtualizacao(nomeAba, vendedorIdRemetente) {
       msg: `${enviados} email(s) enviado(s).${semEmail.length ? " Sem email: " + semEmail.join(", ") + "." : ""}${erros.length ? " Falhas: " + erros.join("; ") : ""}`
     };
   } catch (e) {
+    if (e.message === "SESSAO_EXPIRADA") return { ok: false, erro: "Sessão expirada. Faça login novamente.", sessaoExpirada: true };
     return { ok: false, erro: e.message };
   }
 }
@@ -584,8 +665,9 @@ function enviarEmailAtualizacao(nomeAba, vendedorIdRemetente) {
 // ============================================================
 // NOTIFICAR VENDEDORES — email sobre UMA referência específica
 // ============================================================
-function enviarEmailReferencia(nomeAba, refDados, vendedorId) {
+function enviarEmailReferencia(nomeAba, refDados, token) {
   try {
+    const vendedorId = _exigirSessao(token);
     if (!_ehAdmin(vendedorId)) return { ok: false, erro: "Sem permissão." };
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -706,6 +788,7 @@ function enviarEmailReferencia(nomeAba, refDados, vendedorId) {
       msg: `${enviados} email(s) enviado(s).${semEmail.length ? " Sem email: " + semEmail.join(", ") + "." : ""}${erros.length ? " Falhas: " + erros.join("; ") : ""}`
     };
   } catch (e) {
+    if (e.message === "SESSAO_EXPIRADA") return { ok: false, erro: "Sessão expirada. Faça login novamente.", sessaoExpirada: true };
     return { ok: false, erro: e.message };
   }
 }
@@ -718,8 +801,9 @@ function enviarEmailReferencia(nomeAba, refDados, vendedorId) {
 // replyTo: email cadastrado do vendedor que solicitou (não o remetente fixo
 // usado nos outros emails), para que a resposta vá direto para quem pediu.
 // ============================================================
-function notificarItemSemPreco(dados, vendedorId) {
+function notificarItemSemPreco(dados, token) {
   try {
+    const vendedorId = _exigirSessao(token);
     if (!_validarAcesso(vendedorId, dados.cliente)) return { ok: false, erro: "Acesso não autorizado." };
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -834,6 +918,7 @@ function notificarItemSemPreco(dados, vendedorId) {
       msg: `Direção notificada (${admins.length} destinatário(s)).${remetenteEmail ? "" : " Atenção: seu cadastro não tem email — a resposta não poderá vir direto para você."}`
     };
   } catch (e) {
+    if (e.message === "SESSAO_EXPIRADA") return { ok: false, erro: "Sessão expirada. Faça login novamente.", sessaoExpirada: true };
     return { ok: false, erro: e.message };
   }
 }
@@ -842,32 +927,17 @@ function notificarItemSemPreco(dados, vendedorId) {
 // UTILITÁRIOS INTERNOS
 // ============================================================
 function _validarAcesso(vendedorId, nomeAba) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const aba = ss.getSheetByName(ABA_VENDEDORES);
-  if (!aba) return false;
-
-  const dados = aba.getDataRange().getValues();
-  for (let i = 1; i < dados.length; i++) {
-    if (String(dados[i][0]).trim() !== String(vendedorId).trim()) continue;
-    const clientes = String(dados[i][3] || "").split("|").map(c => c.trim().toUpperCase());
-    if (clientes.includes("*")) return true;
-    if (clientes.includes(nomeAba.toUpperCase())) return true;
-    return false;
-  }
-  return false;
+  const vendedor = _buscarVendedor(vendedorId);
+  if (!vendedor) return false;
+  const clientes = vendedor.clientes.map(c => c.toUpperCase());
+  if (clientes.includes("*")) return true;
+  return clientes.includes(String(nomeAba).toUpperCase());
 }
 
 function _ehAdmin(vendedorId) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const aba = ss.getSheetByName(ABA_VENDEDORES);
-  if (!aba) return false;
-  const dados = aba.getDataRange().getValues();
-  for (let i = 1; i < dados.length; i++) {
-    if (String(dados[i][0]).trim() !== String(vendedorId).trim()) continue;
-    const clientes = String(dados[i][3] || "").split("|").map(c => c.trim());
-    return clientes.includes("*");
-  }
-  return false;
+  const vendedor = _buscarVendedor(vendedorId);
+  if (!vendedor) return false;
+  return vendedor.clientes.includes("*");
 }
 
 function _datasSeOverlapam(ini1, fim1, ini2, fim2) {

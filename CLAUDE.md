@@ -10,6 +10,21 @@ Dados persistidos em Google Sheets. Cada cliente tem uma aba própria com sufixo
 
 ---
 
+## Fluxo de calibração: tabelas de preço reais como fonte de verdade
+
+O usuário mantém na raiz do repositório exports CSV das tabelas de preço reais de cada cliente (ex.: `tabela de preços - DASS CLIENTE.csv`, `tabela de preços - DILLY CLIENTE.csv`, `tabela de preços - RAMARIM CLIENTE.csv`). Esses arquivos são a fonte de verdade do cadastro real — use-os (em vez de supor o formato) sempre que for investigar um problema de conferência de PDF (aba "Conferir").
+
+Fluxo esperado quando o usuário reporta uma divergência/erro de classificação:
+1. O usuário sobe o(s) PDF(s) de pedido e/ou print do resultado, e o CSV da tabela do cliente envolvido (via upload no repositório GitHub, não necessariamente neste workspace — pode ser preciso `git fetch`/`git show origin/main:<arquivo>` para acessar).
+2. Localizar o item real no CSV (`grep`) para entender exatamente como a referência/descrição/MedidaBase foi cadastrada — **não adivinhar o formato**, casos legados costumam ter inconsistências (ex.: espessura embutida no texto da Referencia em algumas linhas e só na coluna MedidaBase em outras).
+3. Identificar a causa raiz no código de parsing/match (`Index.html`, funções `conf*`) reproduzindo o cenário (ideal: script Node isolando as funções puras, sem depender do Apps Script/DOM, para simular `confValidar` contra os dados reais).
+4. Ajustar a lógica de interpretação/match para cobrir o caso — preferindo regras determinísticas mais abrangentes (mais sinônimos, mais robustez a variação de formato) a heurísticas vagas, já que a conferência exige bater preço exato em centavos (ver regra de comparação de preço abaixo).
+5. Validar com o caso reportado e com casos vizinhos (mesma família de referência, outras combinações de atributo) para não regredir nada.
+
+Esses CSVs **não substituem** a leitura ao vivo da planilha pelo `Codigo.gs` em produção — são apenas snapshots usados para depuração e calibração do parser.
+
+---
+
 ## Regra crítica: mudanças no schema da planilha
 
 **Toda vez que adicionar, renomear ou remover uma coluna nas abas de cliente, você DEVE:**

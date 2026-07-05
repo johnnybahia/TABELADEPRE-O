@@ -413,12 +413,18 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
 <div id="print-output"></div>
 
 <script>
-var S={vendedor:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],confItens:[],descontosEstado:{ba:0,ce:0,mg:0},admVendedores:[]};
+var S={vendedor:null,token:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],confItens:[],descontosEstado:{ba:0,ce:0,mg:0},admVendedores:[]};
 
 function gas(fn){
   var args=Array.prototype.slice.call(arguments,1);
   return new Promise(function(res,rej){
-    var r=google.script.run.withSuccessHandler(res).withFailureHandler(rej);
+    var r=google.script.run.withSuccessHandler(function(resultado){
+      if(resultado&&resultado.sessaoExpirada){
+        fazerLogout();
+        toast("Sessão expirada. Faça login novamente.","error");
+      }
+      res(resultado);
+    }).withFailureHandler(rej);
     r[fn].apply(r,args);
   });
 }
@@ -439,6 +445,7 @@ async function fazerLogin(){
     var r=await gas("login",id,senha);
     if(!r.ok){document.getElementById("login-erro").textContent=r.erro;loading(false);return;}
     S.vendedor=r.vendedor;
+    S.token=r.token;
     document.getElementById("topbar-nome").textContent=r.vendedor.nome;
     document.getElementById("screen-login").classList.remove("active");
     document.getElementById("screen-main").classList.add("active");
@@ -452,7 +459,7 @@ async function fazerLogin(){
 document.getElementById("login-senha").addEventListener("keydown",function(e){if(e.key==="Enter")fazerLogin();});
 
 function fazerLogout(){
-  S={vendedor:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],confItens:[],descontosEstado:{ba:0,ce:0,mg:0}};
+  S={vendedor:null,token:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],confItens:[],descontosEstado:{ba:0,ce:0,mg:0},admVendedores:[]};
   document.getElementById("screen-main").classList.remove("active");
   document.getElementById("screen-login").classList.add("active");
   document.getElementById("login-id").value="";
@@ -477,7 +484,7 @@ function trocarTab(tab){
 async function carregarClientes(){
   loading(true,"Carregando clientes...");
   try{
-    var r=await gas("getClientes",S.vendedor.id,S.vendedor.clientes);
+    var r=await gas("getClientes",S.token);
     var grid=document.getElementById("client-grid");
     grid.innerHTML="";
     if(!r.ok||!r.clientes.length){grid.innerHTML="<p style=\"color:var(--text2);font-size:13px\">Nenhum cliente disponivel.</p>";loading(false);return;}
@@ -511,7 +518,7 @@ async function buscarRefs(){
   S.buscarTimer=setTimeout(async function(){
     var busca=document.getElementById("busca-input").value.trim();
     loading(true,"Buscando...");
-    try{var r=await gas("getReferencias",S.clienteSelecionado,busca,S.vendedor.id);renderRefs(r,"ref-list",false);}
+    try{var r=await gas("getReferencias",S.clienteSelecionado,busca,S.token);renderRefs(r,"ref-list",false);}
     catch(e){toast("Erro ao buscar.","error");}
     loading(false);
   },400);
@@ -627,7 +634,7 @@ async function gerarImpressao(){
   fecharModalPrint();
   loading(true,"Gerando relatorio...");
   try{
-    var r=await gas("getReferencias",S.clienteSelecionado,"",S.vendedor.id);
+    var r=await gas("getReferencias",S.clienteSelecionado,"",S.token);
     if(!r.ok){toast(r.erro,"error");loading(false);return;}
     var lista=r.refs;
     if(S.printMode==="vigentes")lista=lista.filter(function(x){return x.vigente;});
@@ -1261,7 +1268,7 @@ async function confArquivosSelecionados(files){
   loading(true,"Lendo PDF...");
   try{
     await ensurePdfJs();
-    var rc=await gas("getClientes",S.vendedor.id,S.vendedor.clientes);
+    var rc=await gas("getClientes",S.token);
     var clientes=(rc.ok&&rc.clientes)?rc.clientes:[];
     var novos=[];
     for(var i=0;i<arquivos.length;i++){
@@ -1314,10 +1321,10 @@ async function confExecutarAnalise(item,aba,uf,cache){
   item.cliente=aba;item.uf=uf;
   var r;
   if(cache){
-    if(!cache[aba])cache[aba]=await gas("getReferencias",aba,"",S.vendedor.id);
+    if(!cache[aba])cache[aba]=await gas("getReferencias",aba,"",S.token);
     r=cache[aba];
   }else{
-    r=await gas("getReferencias",aba,"",S.vendedor.id);
+    r=await gas("getReferencias",aba,"",S.token);
   }
   if(!r.ok){item.erroAnalise=r.erro;return;}
   // Seleciona extrator + parser conforme o formato detectado (DILLY, RAMARIM ou
@@ -1549,7 +1556,7 @@ async function confNotificarSemPreco(id,ridx){
         payload.pdfOmitido="tamanho";
       }
     }
-    var re=await gas("notificarItemSemPreco",payload,S.vendedor.id);
+    var re=await gas("notificarItemSemPreco",payload,S.token);
     toast(re.ok?re.msg:re.erro,re.ok?"success":"error");
     if(re.ok){r.notificado=true;confRenderTudo();}
   }catch(ex){toast("Erro ao notificar a direcao.","error");}
@@ -1567,7 +1574,7 @@ async function confNotificarSemPreco(id,ridx){
 
 // CADASTRAR
 async function carregarClientesCad(){
-  var r=await gas("getClientes",S.vendedor.id,S.vendedor.clientes);
+  var r=await gas("getClientes",S.token);
   var sel=document.getElementById("cad-cliente");
   sel.innerHTML="<option value=\"\">Selecione o cliente...</option>";
   if(r.ok)r.clientes.forEach(function(c){var o=document.createElement("option");o.value=c;o.textContent=c.replace(/ CLIENTE$/i,"");sel.appendChild(o);});
@@ -1583,7 +1590,7 @@ async function atualizarClienteCad(){
 async function recarregarListaCad(aba){
   if(!aba)aba=document.getElementById("cad-cliente").value;
   loading(true,"Carregando...");
-  var r=await gas("getReferencias",aba,"",S.vendedor.id);
+  var r=await gas("getReferencias",aba,"",S.token);
   S.refsCad=r.ok?r.refs:[];
   document.getElementById("cad-busca").value="";
   document.getElementById("cad-prazo-pagamento").value=(r.ok&&r.prazoPagamentoDiasTodos&&r.prazoPagamentoDiasTodos.length)?r.prazoPagamentoDiasTodos.join("/"):"";
@@ -1600,7 +1607,7 @@ async function salvarPrazoPagamentoCad(){
   var prazo=document.getElementById("cad-prazo-pagamento").value.trim();
   loading(true,"Salvando...");
   try{
-    var r=await gas("salvarPrazoPagamento",aba,prazo,S.vendedor.id);
+    var r=await gas("salvarPrazoPagamento",aba,prazo,S.token);
     if(!r.ok){toast(r.erro,"error");loading(false);return;}
     var diasSalvos=(r.prazoPagamento||"").match(/\d+/g)||[];
     document.getElementById("cad-prazo-pagamento").value=diasSalvos.join("/");
@@ -1618,7 +1625,7 @@ async function salvarDescontosEstadoCad(){
   };
   loading(true,"Salvando...");
   try{
-    var r=await gas("salvarDescontosEstado",aba,descontos,S.vendedor.id);
+    var r=await gas("salvarDescontosEstado",aba,descontos,S.token);
     if(!r.ok){toast(r.erro,"error");loading(false);return;}
     S.descontosEstado={ba:r.descontoBA||0,ce:r.descontoCE||0,mg:r.descontoMG||0};
     document.getElementById("cad-desconto-ba").value=S.descontosEstado.ba!==0?S.descontosEstado.ba:"";
@@ -1672,7 +1679,7 @@ async function salvarRef(){
   }
   loading(true,"Salvando...");
   try{
-    var r=await gas("salvarReferencia",aba,dados,S.vendedor.id,linhaEdicao?Number(linhaEdicao):null);
+    var r=await gas("salvarReferencia",aba,dados,S.token,linhaEdicao?Number(linhaEdicao):null);
     if(!r.ok){toast(r.erro,"error");loading(false);return;}
     toast("Referencia salva!","success");limparFormCad();await recarregarListaCad(aba);
     var atualMap=calcAtualPorRef(S.refsCad);
@@ -1680,7 +1687,7 @@ async function salvarRef(){
     var refAtual=atualMap[refVarianteKey({ref:dados.ref,medidaBase:medidaNova})];
     if(refAtual&&confirm("Notificar vendedores sobre o novo preco de "+refAtual.ref+"?")){
       loading(true,"Notificando...");
-      try{var re=await gas("enviarEmailReferencia",aba,refAtual,S.vendedor.id);toast(re.ok?re.msg:re.erro,re.ok?"success":"error");}catch(ex){toast("Erro ao notificar.","error");}
+      try{var re=await gas("enviarEmailReferencia",aba,refAtual,S.token);toast(re.ok?re.msg:re.erro,re.ok?"success":"error");}catch(ex){toast("Erro ao notificar.","error");}
       loading(false);
     }
   }catch(e){toast("Erro ao salvar.","error");}
@@ -1792,7 +1799,7 @@ async function salvarAtualizarPreco(){
   fecharModalAtualizar();
   loading(true,"Atualizando...");
   try{
-    var r=await gas("renovarReferencia",aba,refOrig.linha,dados,S.vendedor.id);
+    var r=await gas("renovarReferencia",aba,refOrig.linha,dados,S.token);
     if(!r.ok){toast(r.erro,"error");loading(false);return;}
     toast("Preco atualizado!","success");
     await recarregarListaCad(aba);
@@ -1800,7 +1807,7 @@ async function salvarAtualizarPreco(){
     var refAtual=atualMap[refVarianteKey(refOrig)];
     if(refAtual&&confirm("Notificar vendedores sobre o novo preco de "+refAtual.ref+"?")){
       loading(true,"Notificando...");
-      try{var re=await gas("enviarEmailReferencia",aba,refAtual,S.vendedor.id);toast(re.ok?re.msg:re.erro,re.ok?"success":"error");}catch(ex){toast("Erro ao notificar.","error");}
+      try{var re=await gas("enviarEmailReferencia",aba,refAtual,S.token);toast(re.ok?re.msg:re.erro,re.ok?"success":"error");}catch(ex){toast("Erro ao notificar.","error");}
       loading(false);
     }
   }catch(e){toast("Erro ao atualizar.","error");}
@@ -1812,7 +1819,7 @@ function escHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").
 async function carregarAdminLista(){
   loading(true,"Carregando...");
   try{
-    var rV=await gas("getVendedores",S.vendedor.id);
+    var rV=await gas("getVendedores",S.token);
     var elV=document.getElementById("adm-lista");
     if(!rV.ok){elV.innerHTML="<p style=\"color:var(--danger)\">"+escHtml(rV.erro)+"</p>";loading(false);return;}
     S.admVendedores=rV.vendedores;
@@ -1821,7 +1828,7 @@ async function carregarAdminLista(){
       return "<div class=\"form-card\" style=\"margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px\"><div style=\"flex:1;min-width:0\"><div style=\"font-weight:700\">"+escHtml(v.nome)+" <span style=\"color:var(--text2);font-size:12px\">("+escHtml(v.id)+")</span></div><div style=\"font-size:12px;color:var(--text2);margin-top:4px\">"+nomeClientes+"</div><div style=\"font-size:11px;color:var(--text2);margin-top:2px\">&#x1F4E7; "+escHtml(v.email||"Sem email")+"</div></div><button class=\"btn btn-ghost\" style=\"font-size:12px;padding:4px 12px;flex-shrink:0\" onclick=\"editarVendedor("+i+")\">&#x270F; Editar</button></div>";
     }).join("");
 
-    var rC=await gas("getClientes",S.vendedor.id,["*"]);
+    var rC=await gas("getClientes",S.token);
     var elC=document.getElementById("adm-clientes-lista");
     if(!rC.ok||!rC.clientes.length){
       elC.innerHTML="<p style=\"color:var(--text2);font-size:13px\">Nenhum cliente cadastrado.</p>";
@@ -1839,7 +1846,7 @@ async function criarNovoCliente(){
   var prazo=document.getElementById("adm-novo-cliente-prazo").value.trim();
   loading(true,"Criando cliente...");
   try{
-    var r=await gas("criarCliente",nome,S.vendedor.id,prazo);
+    var r=await gas("criarCliente",nome,S.token,prazo);
     var msg=document.getElementById("adm-novo-cliente-msg");
     if(!r.ok){msg.innerHTML="<span style=\"color:var(--danger)\">"+escHtml(r.erro)+"</span>";loading(false);return;}
     msg.innerHTML="<span style=\"color:var(--success)\">&#x2713; Aba \""+escHtml(r.nomeAba)+"\" criada com sucesso.</span>";
@@ -1889,7 +1896,7 @@ async function salvarVendedor(){
   if(!dados.id||!dados.nome||!dados.senha){toast("ID, nome e senha sao obrigatorios.","error");return;}
   loading(true,"Salvando...");
   try{
-    var r=await gas("salvarVendedor",S.vendedor.id,dados,linha?Number(linha):null);
+    var r=await gas("salvarVendedor",S.token,dados,linha?Number(linha):null);
     if(!r.ok){toast(r.erro,"error");loading(false);return;}
     toast("Vendedor salvo!","success");limparAdm();await carregarAdminLista();
   }catch(e){toast("Erro.","error");}
@@ -1908,7 +1915,7 @@ async function abrirModalNotificar(){
   if(!aba){toast("Selecione um cliente.","error");return;}
   loading(true,"Verificando destinatarios...");
   try{
-    var r=await gas("getVendedores",S.vendedor.id);
+    var r=await gas("getVendedores",S.token);
     loading(false);
     if(!r.ok){toast(r.erro,"error");return;}
     var comEmail=[];var semEmail=[];
@@ -1939,7 +1946,7 @@ async function confirmarNotificar(){
   fecharModalNotificar();
   loading(true,"Enviando emails...");
   try{
-    var r=await gas("enviarEmailAtualizacao",aba,S.vendedor.id);
+    var r=await gas("enviarEmailAtualizacao",aba,S.token);
     if(!r.ok){toast(r.erro,"error");}
     else{toast(r.msg,"success");}
   }catch(e){toast("Erro ao enviar.","error");}
@@ -1951,7 +1958,7 @@ async function notificarRef(ref){
   if(!confirm("Enviar email sobre "+ref.ref+" para os vendedores do cliente?"))return;
   loading(true,"Enviando email...");
   try{
-    var r=await gas("enviarEmailReferencia",aba,ref,S.vendedor.id);
+    var r=await gas("enviarEmailReferencia",aba,ref,S.token);
     if(!r.ok){toast(r.erro,"error");}
     else{toast(r.msg,"success");}
   }catch(e){toast("Erro ao enviar email.","error");}

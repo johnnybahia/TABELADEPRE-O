@@ -87,8 +87,33 @@ function _buscarVendedor(vendedorId) {
 // ============================================================
 // AUTENTICAÇÃO
 // ============================================================
+// Trava contra tentativa e erro (brute force): após LOGIN_MAX_TENTATIVAS
+// senhas erradas para o MESMO código de vendedor, aquele código fica
+// bloqueado por LOGIN_BLOQUEIO_SEGUNDOS. O contador vive no CacheService
+// (some sozinho após o período de bloqueio, sem inatividade) e é keyed
+// pelo ID digitado — assim um ataque só bloqueia o próprio ID alvo, nunca
+// derruba o login dos outros vendedores. Um login correto zera o contador.
+const LOGIN_MAX_TENTATIVAS = 5;
+const LOGIN_BLOQUEIO_SEGUNDOS = 15 * 60; // 15 min
+
+function _chaveTentativas(id) {
+  return "login_fail_" + String(id || "").trim().toUpperCase();
+}
+
 function login(id, senha) {
   try {
+    const cache = CacheService.getScriptCache();
+    const chave = _chaveTentativas(id);
+    const raw = cache.get(chave);
+    const estado = raw ? JSON.parse(raw) : { tentativas: 0, bloqueadoAte: 0 };
+    const agora = Date.now();
+
+    // Já bloqueado? Rejeita sem sequer checar a senha.
+    if (estado.bloqueadoAte && agora < estado.bloqueadoAte) {
+      const min = Math.max(1, Math.ceil((estado.bloqueadoAte - agora) / 60000));
+      return { ok: false, erro: `Muitas tentativas. Tente novamente em ${min} min.`, bloqueado: true };
+    }
+
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const aba = ss.getSheetByName(ABA_VENDEDORES);
     if (!aba) return { ok: false, erro: "Aba VENDEDORES não encontrada." };
@@ -98,13 +123,28 @@ function login(id, senha) {
       const [vid, nome, vsenha, clientes] = dados[i];
       if (String(vid).trim() === String(id).trim() &&
           String(vsenha).trim() === String(senha).trim()) {
+        cache.remove(chave); // login correto → zera a trava
         const clientesPermitidos = String(clientes).split("|").map(c => c.trim()).filter(Boolean);
         const token = _criarSessao(vid);
         _log(nome, "LOGIN", "");
         return { ok: true, token, vendedor: { id: vid, nome, clientes: clientesPermitidos } };
       }
     }
-    return { ok: false, erro: "Credenciais inválidas." };
+
+    // Credencial errada → conta a tentativa e, se estourar o limite, bloqueia.
+    estado.tentativas = (estado.tentativas || 0) + 1;
+    let msg;
+    if (estado.tentativas >= LOGIN_MAX_TENTATIVAS) {
+      estado.bloqueadoAte = agora + LOGIN_BLOQUEIO_SEGUNDOS * 1000;
+      estado.tentativas = 0; // zera o contador; agora vale o bloqueio
+      msg = `Muitas tentativas. Acesso bloqueado por ${Math.round(LOGIN_BLOQUEIO_SEGUNDOS / 60)} min.`;
+      _log(String(id || "").trim(), "LOGIN_BLOQUEADO", `${LOGIN_MAX_TENTATIVAS} tentativas`);
+    } else {
+      const restantes = LOGIN_MAX_TENTATIVAS - estado.tentativas;
+      msg = `Credenciais inválidas. ${restantes} tentativa(s) restante(s) antes do bloqueio.`;
+    }
+    cache.put(chave, JSON.stringify(estado), LOGIN_BLOQUEIO_SEGUNDOS);
+    return { ok: false, erro: msg };
   } catch (e) {
     return { ok: false, erro: e.message };
   }
@@ -947,6 +987,148 @@ function _datasSeOverlapam(ini1, fim1, ini2, fim2) {
   const s2 = ini2 ? ini2.getTime() : -Infinity;
   const e2 = fim2 ? fim2.getTime() : Infinity;
   return s1 <= e2 && s2 <= e1;
+}
+
+// ============================================================
+// BACKUP AUTOMÁTICO — envia por email um .csv de cada aba de cliente
+// a todos os administradores (coluna D = "*") com email cadastrado.
+//
+// Como ligar: rode UMA VEZ a função criarGatilhoBackup() no editor do
+// Apps Script. Ela instala um gatilho de tempo que roda backupQuinzenal()
+// diariamente; a função só dispara o email quando já se passaram
+// BACKUP_INTERVALO_DIAS dias desde o último envio (guardado em
+// PropertiesService). Rodar diário + checar a data é mais confiável que
+// pedir ao Google "a cada 15 dias": se uma execução falhar ou o servidor
+// pular um dia, o envio se recupera sozinho no dia seguinte.
+// ============================================================
+const BACKUP_INTERVALO_DIAS = 15;
+const BACKUP_PROP_ULTIMO = "backup_ultimo_envio";
+
+// Converte uma aba inteira em texto CSV, com escape correto de aspas,
+// vírgulas e quebras de linha, e datas formatadas dd/MM/yyyy.
+function _gerarCsvAba(aba) {
+  const dados = aba.getDataRange().getValues();
+  const tz = Session.getScriptTimeZone();
+  return dados.map(linha => linha.map(cel => {
+    let v;
+    if (cel instanceof Date) v = Utilities.formatDate(cel, tz, "dd/MM/yyyy");
+    else v = String(cel == null ? "" : cel);
+    if (/[",\n\r]/.test(v)) v = '"' + v.replace(/"/g, '""') + '"';
+    return v;
+  }).join(",")).join("\r\n");
+}
+
+// Monta e envia o email de backup com um anexo CSV por aba de cliente.
+// Reutilizável: chamada pelo gatilho (backupQuinzenal) e pelo botão manual
+// do admin (enviarBackupManual).
+function enviarBackupClientes() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const abaV = ss.getSheetByName(ABA_VENDEDORES);
+    if (!abaV) return { ok: false, erro: "Aba VENDEDORES não encontrada." };
+
+    const dadosV = abaV.getDataRange().getValues();
+    const admins = [];
+    for (let i = 1; i < dadosV.length; i++) {
+      if (!dadosV[i][0]) continue;
+      const clientes = String(dadosV[i][3] || "").split("|").map(c => c.trim());
+      const email = String(dadosV[i][4] || "").trim();
+      if (clientes.includes("*") && email && email.includes("@")) admins.push(email);
+    }
+    if (admins.length === 0) return { ok: false, erro: "Nenhum administrador com email cadastrado." };
+
+    const abasCliente = ss.getSheets().filter(s => s.getName().toUpperCase().endsWith(SUFIXO_CLIENTE.toUpperCase()));
+    if (abasCliente.length === 0) return { ok: false, erro: "Nenhuma aba de cliente encontrada." };
+
+    const tz = Session.getScriptTimeZone();
+    const hoje = Utilities.formatDate(new Date(), tz, "dd/MM/yyyy");
+    const stamp = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
+
+    // Um anexo .csv por cliente. O prefixo ﻿ (BOM UTF-8) faz o Excel
+    // abrir os acentos corretamente ao dar duplo clique no arquivo.
+    const attachments = abasCliente.map(aba => {
+      const csv = _gerarCsvAba(aba);
+      const nomeArq = aba.getName().replace(/ CLIENTE$/i, "").replace(/[^\w.-]+/g, "_") + "_" + stamp + ".csv";
+      return Utilities.newBlob("\uFEFF" + csv, "text/csv", nomeArq);
+    });
+
+    const listaClientes = abasCliente
+      .map(a => `<li style="margin-bottom:2px">${a.getName().replace(/ CLIENTE$/i, "")}</li>`)
+      .join("");
+
+    const corpoHtml = `
+    <div style="font-family:Arial,sans-serif;max-width:620px;margin:0 auto;color:#222">
+      <div style="background:#0d0f14;padding:20px 24px;border-radius:8px 8px 0 0">
+        <table width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td><img src="https://i.ibb.co/FGGjdsM/LOGO-MARFIM.jpg" style="height:44px;width:auto"></td>
+          <td align="right" style="color:#e8a020;font-size:13px">
+            Backup das tabelas de preço<br><span style="color:#8890a8;font-size:11px">${hoje}</span>
+          </td>
+        </tr></table>
+      </div>
+      <div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:24px 28px;border-radius:0 0 8px 8px">
+        <p style="margin:0 0 6px 0">Olá, Direção.</p>
+        <p style="margin:0 0 16px 0;color:#555">
+          Segue o backup automático das tabelas de preço. Cada cliente vem como um arquivo <strong>.csv</strong> em anexo (${abasCliente.length} no total) — guarde este email ou salve os arquivos em local seguro.
+        </p>
+        <div style="font-size:10px;font-weight:700;color:#888;letter-spacing:.06em;margin-bottom:6px">CLIENTES NESTE BACKUP</div>
+        <ul style="margin:0 0 16px 18px;padding:0;font-size:13px;color:#444">${listaClientes}</ul>
+        <p style="margin:0;font-size:11px;color:#aaa;text-align:center">
+          Email automático gerado pelo sistema de tabela de preços Marfim. Não responda.
+        </p>
+      </div>
+    </div>`;
+
+    MailApp.sendEmail({
+      to: admins.join(","),
+      subject: `[Marfim] Backup das tabelas de preço — ${hoje}`,
+      htmlBody: corpoHtml,
+      attachments: attachments
+    });
+
+    _log("SISTEMA", "BACKUP", `${abasCliente.length} aba(s) -> ${admins.join(", ")}`);
+    return { ok: true, abas: abasCliente.length, destinatarios: admins.length,
+             msg: `Backup enviado: ${abasCliente.length} cliente(s) para ${admins.length} administrador(es).` };
+  } catch (e) {
+    return { ok: false, erro: e.message };
+  }
+}
+
+// Alvo do gatilho de tempo. Só envia quando já passaram BACKUP_INTERVALO_DIAS
+// dias desde o último envio bem-sucedido.
+function backupQuinzenal() {
+  const props = PropertiesService.getScriptProperties();
+  const ultimo = props.getProperty(BACKUP_PROP_ULTIMO);
+  const agora = Date.now();
+  if (ultimo) {
+    const diasPassados = (agora - Number(ultimo)) / (1000 * 60 * 60 * 24);
+    if (diasPassados < BACKUP_INTERVALO_DIAS) return; // ainda não é hora
+  }
+  const res = enviarBackupClientes();
+  if (res.ok) props.setProperty(BACKUP_PROP_ULTIMO, String(agora));
+}
+
+// Instala (ou reinstala, sem duplicar) o gatilho diário que aciona o backup.
+// Rodar UMA vez no editor do Apps Script para ligar os backups automáticos.
+function criarGatilhoBackup() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === "backupQuinzenal") ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger("backupQuinzenal").timeBased().everyDays(1).atHour(6).create();
+  return `Gatilho instalado: verificação diária às 6h, envio a cada ${BACKUP_INTERVALO_DIAS} dias.`;
+}
+
+// Botão "Enviar backup agora" da aba Admin — dispara o backup na hora,
+// sem esperar o gatilho, e NÃO altera a data do próximo envio automático.
+function enviarBackupManual(token) {
+  try {
+    const vendedorId = _exigirSessao(token);
+    if (!_ehAdmin(vendedorId)) return { ok: false, erro: "Sem permissão." };
+    return enviarBackupClientes();
+  } catch (e) {
+    if (e.message === "SESSAO_EXPIRADA") return { ok: false, erro: "Sessão expirada. Faça login novamente.", sessaoExpirada: true };
+    return { ok: false, erro: e.message };
+  }
 }
 
 // ============================================================

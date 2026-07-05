@@ -315,6 +315,16 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
     <!-- ADMIN -->
     <div class="panel" id="panel-admin">
 
+      <!-- BACKUP -->
+      <p class="section-title">Backup das tabelas</p>
+      <div class="form-card" style="margin-bottom:24px">
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <button class="btn btn-success" style="background:var(--navy);flex-shrink:0" onclick="enviarBackupAgora()">&#x1F4E6; Enviar backup agora</button>
+          <span style="font-size:13px;color:var(--text2)">Envia um arquivo .csv de cada cliente por email para todos os administradores. O envio automático a cada 15 dias precisa ser ligado uma vez no Apps Script (fun&ccedil;&atilde;o <code>criarGatilhoBackup</code>).</span>
+        </div>
+        <div id="adm-backup-msg" style="font-size:13px;margin-top:10px;min-height:18px"></div>
+      </div>
+
       <!-- NOVO CLIENTE -->
       <p class="section-title">Novo Cliente</p>
       <div class="form-card" style="margin-bottom:24px">
@@ -1962,6 +1972,18 @@ async function notificarRef(ref){
     if(!r.ok){toast(r.erro,"error");}
     else{toast(r.msg,"success");}
   }catch(e){toast("Erro ao enviar email.","error");}
+  loading(false);
+}
+async function enviarBackupAgora(){
+  if(!confirm("Enviar agora um backup .csv de todos os clientes para os administradores?"))return;
+  var msg=document.getElementById("adm-backup-msg");
+  msg.textContent="";
+  loading(true,"Gerando backup...");
+  try{
+    var r=await gas("enviarBackupManual",S.token);
+    if(!r.ok){msg.style.color="var(--danger)";msg.textContent=r.erro||"Falha ao enviar backup.";toast(r.erro||"Falha ao enviar backup.","error");}
+    else{msg.style.color="var(--success)";msg.textContent=r.msg;toast(r.msg,"success");}
+  }catch(e){msg.style.color="var(--danger)";msg.textContent="Erro ao enviar backup.";toast("Erro ao enviar backup.","error");}
   loading(false);
 }
 </script>

@@ -541,26 +541,72 @@ function refDataKey(x){return x.dataInicio?x.dataInicio.split("/").reverse().joi
 // versoes desatualizadas um do outro — mesmo criterio que confEscolherVigencia usa
 // na conferencia de PDF.
 function refVarianteKey(x){return String(x.ref).toUpperCase()+"|"+(x.medidaBase||0);}
-// Para cada variante (referencia+medidaBase), qual linha e o PRECO ATUAL: vigente
-// hoje com a DataInicio mais recente
+// Dentro da mesma variante, a Descricao tambem separa itens distintos (ex.: M15055
+// "(cad.tranç.48f. Pol cores diversas)" × "(cad.tranç.48fu.pol. Preto/branco)" —
+// dois produtos sob o mesmo codigo, cada um com seu proprio "preco atual").
+// Duas descricoes sao o MESMO item quando uma CONTEM a outra: atualizacoes de preco
+// costumam apenas acrescentar uma anotacao ao redor da descricao original (ex.:
+// "(desconto concedido 03/04/2024) (cad.tranç.32fu.pol.cores Asics)" e a mesma
+// coisa que "(cad.tranç.32fu.pol.cores Asics)"); descricao vazia (cadastro legado)
+// casa com qualquer uma. O agrupamento e transitivo: duas linhas
+// "(desconto <data>) (nucleo)" com datas de anotacao diferentes se unem atraves da
+// linha original "(nucleo)".
+function refDescNorm(x){return String(x.descricao||"").replace(/\s+/g," ").trim().toUpperCase();}
+function refDescMatch(a,b){return a===""||b===""||a.indexOf(b)!==-1||b.indexOf(a)!==-1;}
+// Para cada item (variante + grupo de descricao), qual linha e o PRECO ATUAL:
+// vigente hoje com a DataInicio mais recente. Retorna {atual: Set das linhas
+// atuais, itemKey: Map linha→chave do item} — uma variante pode ter mais de um
+// "preco atual" quando ha descricoes distintas sob o mesmo codigo.
 function calcAtualPorRef(refs){
-  var atual={};
-  refs.forEach(function(ref){
-    if(!ref.vigente)return;
-    var k=refVarianteKey(ref);
-    if(!atual[k]||refDataKey(ref)>refDataKey(atual[k]))atual[k]=ref;
+  var grupos={};
+  refs.forEach(function(ref,i){var k=refVarianteKey(ref);(grupos[k]||(grupos[k]=[])).push(i);});
+  var pai=refs.map(function(_,i){return i;});
+  function find(i){while(pai[i]!==i){pai[i]=pai[pai[i]];i=pai[i];}return i;}
+  var norm=refs.map(function(ref){return refDescNorm(ref);});
+  Object.keys(grupos).forEach(function(k){
+    var idx=grupos[k];
+    for(var a=0;a<idx.length;a++)for(var b=a+1;b<idx.length;b++)
+      if(refDescMatch(norm[idx[a]],norm[idx[b]]))pai[find(idx[a])]=find(idx[b]);
   });
-  return atual;
+  // representante do grupo de descricao: a menor delas (a descricao "nucleo", sem anotacoes)
+  var rep={};
+  refs.forEach(function(ref,i){var r=find(i);if(rep[r]===undefined||norm[i].length<rep[r].length)rep[r]=norm[i];});
+  var itemKey=new Map(),atualPorItem={};
+  refs.forEach(function(ref,i){
+    var k=refVarianteKey(ref)+"|"+rep[find(i)];
+    itemKey.set(ref,k);
+    if(!ref.vigente)return;
+    if(!atualPorItem[k]||refDataKey(ref)>refDataKey(atualPorItem[k]))atualPorItem[k]=ref;
+  });
+  var atual=new Set();
+  Object.keys(atualPorItem).forEach(function(k){atual.add(atualPorItem[k]);});
+  return {atual:atual,itemKey:itemKey};
 }
-// Agrupa por referencia e, dentro dela, por medidaBase; dentro de cada variante o
+// Localiza o "preco atual" do item de alvo ({ref,medidaBase,descricao}): acha na
+// lista a linha com a mesma descricao normalizada dentro da variante e devolve o
+// preco atual do grupo dela; sem casamento exato de descricao, cai no atual mais
+// recente da variante inteira (comportamento antigo).
+function refAtualDoItem(info,refs,alvo){
+  var k=refVarianteKey(alvo),d=refDescNorm(alvo),base=null;
+  refs.forEach(function(r){if(!base&&refVarianteKey(r)===k&&refDescNorm(r)===d)base=r;});
+  var melhor=null;
+  info.atual.forEach(function(r){
+    var mesmo=base?info.itemKey.get(r)===info.itemKey.get(base):refVarianteKey(r)===k;
+    if(mesmo&&(!melhor||refDataKey(r)>refDataKey(melhor)))melhor=r;
+  });
+  return melhor;
+}
+// Agrupa por referencia, medidaBase e grupo de descricao; dentro de cada item o
 // preco atual vem primeiro e o restante por data desc
-function ordenarPorRefEData(refs,atual){
+function ordenarPorRefEData(refs,info){
   return refs.slice().sort(function(a,b){
     var ka=String(a.ref).toUpperCase(),kb=String(b.ref).toUpperCase();
     if(ka!==kb)return ka<kb?-1:1;
     var ma=a.medidaBase||0,mb=b.medidaBase||0;
     if(ma!==mb)return ma-mb;
-    var aa=atual[refVarianteKey(a)]===a,ab=atual[refVarianteKey(b)]===b;
+    var ia=info.itemKey.get(a),ib=info.itemKey.get(b);
+    if(ia!==ib)return ia<ib?-1:1;
+    var aa=info.atual.has(a),ab=info.atual.has(b);
     if(aa!==ab)return aa?-1:1;
     return refDataKey(b).localeCompare(refDataKey(a));
   });
@@ -569,11 +615,11 @@ function renderRefs(r,containerId,modoEdicao){
   var el=document.getElementById(containerId);
   if(!r.ok){el.innerHTML="<div class=\"empty-state\"><div class=\"icon\">&#x26A0;&#xFE0F;</div><p>"+r.erro+"</p></div>";return;}
   if(!r.refs.length){el.innerHTML="<div class=\"empty-state\"><div class=\"icon\">&#x1F4ED;</div><p>Nenhuma referencia encontrada</p></div>";return;}
-  var atualPorRef=calcAtualPorRef(r.refs);
+  var atualInfo=calcAtualPorRef(r.refs);
   var d=new Date();
   var hojeKey=d.getFullYear()+("0"+(d.getMonth()+1)).slice(-2)+("0"+d.getDate()).slice(-2);
-  el.innerHTML=ordenarPorRefEData(r.refs,atualPorRef).map(function(ref){
-    var isAtual=atualPorRef[refVarianteKey(ref)]===ref;
+  el.innerHTML=ordenarPorRefEData(r.refs,atualInfo).map(function(ref){
+    var isAtual=atualInfo.atual.has(ref);
     var futura=!ref.vigente&&refDataKey(ref)>hojeKey;
     var unidade=ref.unidade||"metros";
     var medidaBase=ref.medidaBase||0;
@@ -657,13 +703,13 @@ function montarPrint(lista,cliente,modo,refFiltro){
   var nomeCliente=cliente.replace(/ CLIENTE$/i,"");
   var modoLabel={todos:"Lista Completa",vigentes:"Precos Vigentes",item:"Historico: "+refFiltro}[modo];
   var hoje=new Date().toLocaleDateString("pt-BR");
-  var atualPorRef=calcAtualPorRef(lista);
+  var atualInfo=calcAtualPorRef(lista);
   var dHoje=new Date();
   var hojeKey=dHoje.getFullYear()+("0"+(dHoje.getMonth()+1)).slice(-2)+("0"+dHoje.getDate()).slice(-2);
-  var linhas=ordenarPorRefEData(lista,atualPorRef).map(function(ref){
+  var linhas=ordenarPorRefEData(lista,atualInfo).map(function(ref){
     var unidade=ref.unidade||"metros";
     var medidaBase=ref.medidaBase||0;
-    var isAtual=atualPorRef[refVarianteKey(ref)]===ref;
+    var isAtual=atualInfo.atual.has(ref);
     var futura=!ref.vigente&&refDataKey(ref)>hojeKey;
     var stTxt=isAtual?"Preco atual":ref.vigente?"Vigente (antigo)":futura?"Programado":"Vencido";
     var stBg=isAtual?"#d1fae5":ref.vigente||futura?"#fef3c7":"#fee2e2";
@@ -1692,9 +1738,9 @@ async function salvarRef(){
     var r=await gas("salvarReferencia",aba,dados,S.token,linhaEdicao?Number(linhaEdicao):null);
     if(!r.ok){toast(r.erro,"error");loading(false);return;}
     toast("Referencia salva!","success");limparFormCad();await recarregarListaCad(aba);
-    var atualMap=calcAtualPorRef(S.refsCad);
+    var atualInfo=calcAtualPorRef(S.refsCad);
     var medidaNova=parseFloat(String(dados.medidaBase).trim().replace(",","."))||0;
-    var refAtual=atualMap[refVarianteKey({ref:dados.ref,medidaBase:medidaNova})];
+    var refAtual=refAtualDoItem(atualInfo,S.refsCad,{ref:dados.ref,medidaBase:medidaNova,descricao:dados.descricao});
     if(refAtual&&confirm("Notificar vendedores sobre o novo preco de "+refAtual.ref+"?")){
       loading(true,"Notificando...");
       try{var re=await gas("enviarEmailReferencia",aba,refAtual,S.token);toast(re.ok?re.msg:re.erro,re.ok?"success":"error");}catch(ex){toast("Erro ao notificar.","error");}
@@ -1813,8 +1859,8 @@ async function salvarAtualizarPreco(){
     if(!r.ok){toast(r.erro,"error");loading(false);return;}
     toast("Preco atualizado!","success");
     await recarregarListaCad(aba);
-    var atualMap=calcAtualPorRef(S.refsCad);
-    var refAtual=atualMap[refVarianteKey(refOrig)];
+    var atualInfo=calcAtualPorRef(S.refsCad);
+    var refAtual=refAtualDoItem(atualInfo,S.refsCad,refOrig);
     if(refAtual&&confirm("Notificar vendedores sobre o novo preco de "+refAtual.ref+"?")){
       loading(true,"Notificando...");
       try{var re=await gas("enviarEmailReferencia",aba,refAtual,S.token);toast(re.ok?re.msg:re.erro,re.ok?"success":"error");}catch(ex){toast("Erro ao notificar.","error");}

@@ -46,6 +46,7 @@ const SCHEMA_CLIENTE = [
   { nome: "PrecoCE",     largura: 100 },
   { nome: "PrecoMG",     largura: 100 },
   { nome: "Peso",        largura: 100 },
+  { nome: "PrecoAtivo",  largura: 100 },
   // → adicione novas colunas SEMPRE ao final
 ];
 ```
@@ -86,9 +87,29 @@ Ambas são **idempotentes** — podem ser executadas múltiplas vezes sem risco 
 | K      | PrecoCE      | Number  | Não (usa Preco base se vazio/zero) |
 | L      | PrecoMG      | Number  | Não (usa Preco base se vazio/zero) |
 | M      | Peso         | Number  | Não (peso do material, ex: g/m) |
+| N      | PrecoAtivo   | Number  | Não (`1` = preço ativado manualmente por admin; vazio = normal) |
 
 Itens sem Unidade/MedidaBase (legados) são tratados como `metros` com cálculo direto `preco × entrada`.
 Preços por estado são opcionais; quando zero/ausentes, o frontend usa o Preco base.
+
+### Regra de "Preço atual" e ativação manual (coluna PrecoAtivo)
+
+O "Preço atual" de cada variante (Referencia + MedidaBase) é decidido automaticamente: linha **vigente** com a **DataInicio mais recente** (`calcAtualPorRef` no `Index.html`). Além dele, linhas com `PrecoAtivo = 1` **e ainda vigentes** também são tratadas como ativas (`refEhAtual`): recebem o badge "📌 Preco ativado", a calculadora e aparecem como ativas na impressão.
+
+A ativação manual existe para as tabelas legadas em que a mesma referência agrupa itens distintos que só a descrição separa (ex.: `M15055` "48f. Pol cores diversas" × "48fu.pol. Preto/branco") — a regra automática marca só um deles como atual e o admin força o outro a permanecer ativo.
+
+- Botão "📌 Ativar preco" / "Desativar preco" nos cards das listas (consulta e Cadastrar), visível **apenas para admins** (coluna D = `*`); backend `setPrecoAtivo(nomeAba, linha, ativo, token)` valida admin via `_ehAdmin` e grava `1`/vazio na coluna N.
+- `salvarReferencia` preserva a marcação ao editar a linha; `renovarReferencia` **não** herda a marcação para a nova vigência (ela já vira o preço atual automático).
+- Marcação em linha fora de vigência é ignorada pelo frontend (linha vencida nunca fica ativa).
+
+### Correção automática de largura no cadastro (pares/peças)
+
+Para evitar famílias de variantes indistinguíveis (caso real `M21020` da RAMARIM: 6mm e 8mm só na descrição), `salvarRef` no frontend corrige o cadastro de itens `pares`/`pecas` cuja referência **não** termina com sufixo de largura (`extrairVarianteMm`): se a Descrição ou Observações mencionam a largura, ela é anexada à referência (ex.: ref `M21020` + desc `...6mm...` → salva como `M21020 6MM`) e o usuário é avisado no toast. Regras do extrator (`cadExtrairMmTexto`, calibrado com as tabelas reais):
+
+- Ignora menções de **fio refletivo** (`reflet.0,5mm`, `refl.0,5mm`, `refletivo 0,5mm`) — componente do cadarço, não a largura dele.
+- Só aceita valor **inteiro** (todas as referências reais com sufixo usam inteiro, e a vírgula de um decimal quebraria o `confRefRegex` da conferência de PDF); decimais reais como `2,5mm` (elásticos) permanecem só na descrição.
+- Exige exatamente **um** valor distinto no texto — dois valores diferentes = ambíguo, não corrige (cai no aviso já existente de variantes irmãs com mm).
+- Se o usuário não informar a largura em lugar nenhum, nada é feito (permanece só o aviso antigo de variantes irmãs, quando aplicável).
 
 ### Células T1/U1/V1 — Variação de preço por estado (metadado, fora do SCHEMA_CLIENTE)
 

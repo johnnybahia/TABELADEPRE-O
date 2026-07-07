@@ -541,72 +541,32 @@ function refDataKey(x){return x.dataInicio?x.dataInicio.split("/").reverse().joi
 // versoes desatualizadas um do outro — mesmo criterio que confEscolherVigencia usa
 // na conferencia de PDF.
 function refVarianteKey(x){return String(x.ref).toUpperCase()+"|"+(x.medidaBase||0);}
-// Dentro da mesma variante, a Descricao tambem separa itens distintos (ex.: M15055
-// "(cad.tranç.48f. Pol cores diversas)" × "(cad.tranç.48fu.pol. Preto/branco)" —
-// dois produtos sob o mesmo codigo, cada um com seu proprio "preco atual").
-// Duas descricoes sao o MESMO item quando uma CONTEM a outra: atualizacoes de preco
-// costumam apenas acrescentar uma anotacao ao redor da descricao original (ex.:
-// "(desconto concedido 03/04/2024) (cad.tranç.32fu.pol.cores Asics)" e a mesma
-// coisa que "(cad.tranç.32fu.pol.cores Asics)"); descricao vazia (cadastro legado)
-// casa com qualquer uma. O agrupamento e transitivo: duas linhas
-// "(desconto <data>) (nucleo)" com datas de anotacao diferentes se unem atraves da
-// linha original "(nucleo)".
-function refDescNorm(x){return String(x.descricao||"").replace(/\s+/g," ").trim().toUpperCase();}
-function refDescMatch(a,b){return a===""||b===""||a.indexOf(b)!==-1||b.indexOf(a)!==-1;}
-// Para cada item (variante + grupo de descricao), qual linha e o PRECO ATUAL:
-// vigente hoje com a DataInicio mais recente. Retorna {atual: Set das linhas
-// atuais, itemKey: Map linha→chave do item} — uma variante pode ter mais de um
-// "preco atual" quando ha descricoes distintas sob o mesmo codigo.
+// Para cada variante (referencia+medidaBase), qual linha e o PRECO ATUAL: vigente
+// hoje com a DataInicio mais recente
 function calcAtualPorRef(refs){
-  var grupos={};
-  refs.forEach(function(ref,i){var k=refVarianteKey(ref);(grupos[k]||(grupos[k]=[])).push(i);});
-  var pai=refs.map(function(_,i){return i;});
-  function find(i){while(pai[i]!==i){pai[i]=pai[pai[i]];i=pai[i];}return i;}
-  var norm=refs.map(function(ref){return refDescNorm(ref);});
-  Object.keys(grupos).forEach(function(k){
-    var idx=grupos[k];
-    for(var a=0;a<idx.length;a++)for(var b=a+1;b<idx.length;b++)
-      if(refDescMatch(norm[idx[a]],norm[idx[b]]))pai[find(idx[a])]=find(idx[b]);
-  });
-  // representante do grupo de descricao: a menor delas (a descricao "nucleo", sem anotacoes)
-  var rep={};
-  refs.forEach(function(ref,i){var r=find(i);if(rep[r]===undefined||norm[i].length<rep[r].length)rep[r]=norm[i];});
-  var itemKey=new Map(),atualPorItem={};
-  refs.forEach(function(ref,i){
-    var k=refVarianteKey(ref)+"|"+rep[find(i)];
-    itemKey.set(ref,k);
+  var atual={};
+  refs.forEach(function(ref){
     if(!ref.vigente)return;
-    if(!atualPorItem[k]||refDataKey(ref)>refDataKey(atualPorItem[k]))atualPorItem[k]=ref;
+    var k=refVarianteKey(ref);
+    if(!atual[k]||refDataKey(ref)>refDataKey(atual[k]))atual[k]=ref;
   });
-  var atual=new Set();
-  Object.keys(atualPorItem).forEach(function(k){atual.add(atualPorItem[k]);});
-  return {atual:atual,itemKey:itemKey};
+  return atual;
 }
-// Localiza o "preco atual" do item de alvo ({ref,medidaBase,descricao}): acha na
-// lista a linha com a mesma descricao normalizada dentro da variante e devolve o
-// preco atual do grupo dela; sem casamento exato de descricao, cai no atual mais
-// recente da variante inteira (comportamento antigo).
-function refAtualDoItem(info,refs,alvo){
-  var k=refVarianteKey(alvo),d=refDescNorm(alvo),base=null;
-  refs.forEach(function(r){if(!base&&refVarianteKey(r)===k&&refDescNorm(r)===d)base=r;});
-  var melhor=null;
-  info.atual.forEach(function(r){
-    var mesmo=base?info.itemKey.get(r)===info.itemKey.get(base):refVarianteKey(r)===k;
-    if(mesmo&&(!melhor||refDataKey(r)>refDataKey(melhor)))melhor=r;
-  });
-  return melhor;
-}
-// Agrupa por referencia, medidaBase e grupo de descricao; dentro de cada item o
+// Linha ativa para consulta = preco atual automatico da variante OU linha ativada
+// manualmente pelo admin (coluna PrecoAtivo, botao "Ativar preco") e ainda
+// vigente. A ativacao manual existe para as tabelas legadas onde a mesma
+// referencia agrupa itens distintos que so a descricao separa (ex: M15055 48f ×
+// 48fu.pol.) — o admin forca o segundo preco a permanecer ativo.
+function refEhAtual(ref,atualMap){return atualMap[refVarianteKey(ref)]===ref||(!!ref.precoAtivo&&ref.vigente);}
+// Agrupa por referencia e, dentro dela, por medidaBase; dentro de cada variante o
 // preco atual vem primeiro e o restante por data desc
-function ordenarPorRefEData(refs,info){
+function ordenarPorRefEData(refs,atual){
   return refs.slice().sort(function(a,b){
     var ka=String(a.ref).toUpperCase(),kb=String(b.ref).toUpperCase();
     if(ka!==kb)return ka<kb?-1:1;
     var ma=a.medidaBase||0,mb=b.medidaBase||0;
     if(ma!==mb)return ma-mb;
-    var ia=info.itemKey.get(a),ib=info.itemKey.get(b);
-    if(ia!==ib)return ia<ib?-1:1;
-    var aa=info.atual.has(a),ab=info.atual.has(b);
+    var aa=atual[refVarianteKey(a)]===a,ab=atual[refVarianteKey(b)]===b;
     if(aa!==ab)return aa?-1:1;
     return refDataKey(b).localeCompare(refDataKey(a));
   });
@@ -615,11 +575,14 @@ function renderRefs(r,containerId,modoEdicao){
   var el=document.getElementById(containerId);
   if(!r.ok){el.innerHTML="<div class=\"empty-state\"><div class=\"icon\">&#x26A0;&#xFE0F;</div><p>"+r.erro+"</p></div>";return;}
   if(!r.refs.length){el.innerHTML="<div class=\"empty-state\"><div class=\"icon\">&#x1F4ED;</div><p>Nenhuma referencia encontrada</p></div>";return;}
-  var atualInfo=calcAtualPorRef(r.refs);
+  var atualPorRef=calcAtualPorRef(r.refs);
+  var isAdmin=!!(S.vendedor&&S.vendedor.clientes&&S.vendedor.clientes.includes("*"));
   var d=new Date();
   var hojeKey=d.getFullYear()+("0"+(d.getMonth()+1)).slice(-2)+("0"+d.getDate()).slice(-2);
-  el.innerHTML=ordenarPorRefEData(r.refs,atualInfo).map(function(ref){
-    var isAtual=atualInfo.atual.has(ref);
+  el.innerHTML=ordenarPorRefEData(r.refs,atualPorRef).map(function(ref){
+    var isAuto=atualPorRef[refVarianteKey(ref)]===ref;
+    var isManual=!!ref.precoAtivo&&ref.vigente;
+    var isAtual=isAuto||isManual;
     var futura=!ref.vigente&&refDataKey(ref)>hojeKey;
     var unidade=ref.unidade||"metros";
     var medidaBase=ref.medidaBase||0;
@@ -633,7 +596,8 @@ function renderRefs(r,containerId,modoEdicao){
         +(ce?"<div class=\"estado-pill\"><div class=\"estado-uf\">CE</div><div class=\"estado-val\">"+fmt(ce)+"</div></div>":"")
         +(mg?"<div class=\"estado-pill\"><div class=\"estado-uf\">MG</div><div class=\"estado-val\">"+fmt(mg)+"</div></div>":"")
         +"</div>":"";
-    var vigBadge=isAtual?"<span class=\"badge ok\">&#x2B50; Preco atual</span>"
+    var vigBadge=isAuto?"<span class=\"badge ok\">&#x2B50; Preco atual</span>"
+      :isManual?"<span class=\"badge ok\">&#x1F4CC; Preco ativado</span>"
       :ref.vigente?"<span class=\"badge warn\">&#x26A0; Ha preco mais recente</span>"
       :futura?"<span class=\"badge warn\">&#x1F552; Programado p/ "+escHtml(ref.dataInicio||"")+"</span>"
       :"<span class=\"badge err\">&#x2717; Fora de vigencia</span>";
@@ -646,8 +610,16 @@ function renderRefs(r,containerId,modoEdicao){
     var calcArgs="'"+parseInt(ref.linha,10)+"',"+medidaBase+","+rs+","+ba+","+ce+","+mg;
     var usaCalc=/mm/i.test(medidaLabel)?false:/cm/i.test(medidaLabel)?true:!unidadeDireta(unidade);
     var calcHtml=(isAtual&&usaCalc)?"<div class=\"calc-row\"><input type=\"text\" inputmode=\"decimal\" placeholder=\""+calcPlaceholder+"\" id=\"calc-"+ref.linha+"\" oninput=\"calcular("+calcArgs+")\" style=\"width:120px\"><button class=\"btn btn-ghost btn-sm\" onclick=\"calcular("+calcArgs+")\">Calcular</button></div><div id=\"estados-"+ref.linha+"\" style=\"display:flex;flex-wrap:wrap;gap:6px;margin-top:6px\"></div>":"";
+    // Botao de ativacao manual (somente admins, somente linhas vigentes): ativa
+    // uma linha que nao e o preco atual automatico, ou remove uma ativacao feita
+    // antes. Persiste na coluna PrecoAtivo via setPrecoAtivo (backend).
+    var ativoBtn="";
+    if(isAdmin&&ref.vigente){
+      if(ref.precoAtivo)ativoBtn="<div style=\"margin-top:8px\"><button class=\"btn btn-ghost btn-sm\" onclick=\"togglePrecoAtivo("+parseInt(ref.linha,10)+",false,"+(modoEdicao?"true":"false")+")\">&#x1F4CC; Desativar preco</button></div>";
+      else if(!isAuto)ativoBtn="<div style=\"margin-top:8px\"><button class=\"btn btn-ghost btn-sm\" style=\"color:var(--accent);border-color:var(--accent)\" onclick=\"togglePrecoAtivo("+parseInt(ref.linha,10)+",true,"+(modoEdicao?"true":"false")+")\">&#x1F4CC; Ativar preco</button></div>";
+    }
     var cardClass=isAtual?"atual":futura?"futura":ref.vigente?"antiga":"vencida";
-    return "<div class=\"ref-card "+cardClass+"\"><div class=\"ref-card-header\"><div><div class=\"ref-code\">"+escHtml(ref.ref)+"</div>"+(ref.descricao?"<div class=\"ref-desc\">"+escHtml(ref.descricao)+"</div>":"")+medidaHtml+"</div></div>"+estadosCard+"<div class=\"ref-meta\" style=\"margin-top:8px\">"+vigBadge+"<span class=\"badge\">&#x1F4C5; De: "+escHtml(ref.dataInicio||"–")+"</span><span class=\"badge\">&#x1F4C5; Ate: "+escHtml(ref.dataFim)+"</span>"+pesoBadge+"</div>"+obsHtml+calcHtml+acoes+"</div>";
+    return "<div class=\"ref-card "+cardClass+"\"><div class=\"ref-card-header\"><div><div class=\"ref-code\">"+escHtml(ref.ref)+"</div>"+(ref.descricao?"<div class=\"ref-desc\">"+escHtml(ref.descricao)+"</div>":"")+medidaHtml+"</div></div>"+estadosCard+"<div class=\"ref-meta\" style=\"margin-top:8px\">"+vigBadge+"<span class=\"badge\">&#x1F4C5; De: "+escHtml(ref.dataInicio||"–")+"</span><span class=\"badge\">&#x1F4C5; Ate: "+escHtml(ref.dataFim)+"</span>"+pesoBadge+"</div>"+obsHtml+ativoBtn+calcHtml+acoes+"</div>";
   }).join("");
 }
 
@@ -663,6 +635,23 @@ function calcular(id,medidaBase,precoRS,precoBA,precoCE,precoMG){
       .map(function(e){return "<span class=\"badge\">"+e[0]+": "+fmt(c(e[1]))+"</span>";});
     elEst.innerHTML=tags.join(" ");
   }
+}
+
+// Liga/desliga a ativacao manual de preco de uma linha (admin). modoCad indica
+// se o clique veio da lista da aba Cadastrar (recarrega via recarregarListaCad)
+// ou da lista de consulta (recarrega via buscarRefs).
+async function togglePrecoAtivo(linha,ativo,modoCad){
+  var aba=modoCad?document.getElementById("cad-cliente").value:S.clienteSelecionado;
+  if(!aba){toast("Selecione um cliente.","error");return;}
+  loading(true,ativo?"Ativando preco...":"Desativando preco...");
+  try{
+    var r=await gas("setPrecoAtivo",aba,linha,ativo,S.token);
+    if(!r.ok){toast(r.erro,"error");loading(false);return;}
+    toast(ativo?"Preco ativado para consulta!":"Ativacao manual removida.","success");
+    if(modoCad)await recarregarListaCad(aba);
+    else await buscarRefs();
+  }catch(e){toast("Erro ao salvar ativacao.","error");}
+  loading(false);
 }
 
 // IMPRESSAO
@@ -703,15 +692,16 @@ function montarPrint(lista,cliente,modo,refFiltro){
   var nomeCliente=cliente.replace(/ CLIENTE$/i,"");
   var modoLabel={todos:"Lista Completa",vigentes:"Precos Vigentes",item:"Historico: "+refFiltro}[modo];
   var hoje=new Date().toLocaleDateString("pt-BR");
-  var atualInfo=calcAtualPorRef(lista);
+  var atualPorRef=calcAtualPorRef(lista);
   var dHoje=new Date();
   var hojeKey=dHoje.getFullYear()+("0"+(dHoje.getMonth()+1)).slice(-2)+("0"+dHoje.getDate()).slice(-2);
-  var linhas=ordenarPorRefEData(lista,atualInfo).map(function(ref){
+  var linhas=ordenarPorRefEData(lista,atualPorRef).map(function(ref){
     var unidade=ref.unidade||"metros";
     var medidaBase=ref.medidaBase||0;
-    var isAtual=atualInfo.atual.has(ref);
+    var isAuto=atualPorRef[refVarianteKey(ref)]===ref;
+    var isAtual=refEhAtual(ref,atualPorRef);
     var futura=!ref.vigente&&refDataKey(ref)>hojeKey;
-    var stTxt=isAtual?"Preco atual":ref.vigente?"Vigente (antigo)":futura?"Programado":"Vencido";
+    var stTxt=isAuto?"Preco atual":isAtual?"Preco ativado":ref.vigente?"Vigente (antigo)":futura?"Programado":"Vencido";
     var stBg=isAtual?"#d1fae5":ref.vigente||futura?"#fef3c7":"#fee2e2";
     var stCor=isAtual?"#065f46":ref.vigente||futura?"#92400e":"#991b1b";
     var precoInfo=[["RS",ref.precoRS],["BA",ref.precoBA],["CE",ref.precoCE],["MG",ref.precoMG]]
@@ -785,6 +775,30 @@ function extrairVarianteMm(base){
   var m=String(base||"").match(/^(.+?)\s+(\d+(?:[.,]\d+)?\s*MM)\s*$/i);
   if(!m||normTxt(m[1]).length<3)return null;
   return {codigoBase:m[1].trim(),mm:m[2].replace(/\s+/g,"").toUpperCase()};
+}
+// Extrai a largura em MM mencionada na Descricao/Observacoes de um item de
+// pares/pecas, para corrigir cadastros onde o usuario esqueceu a largura na
+// referencia (ela vira sufixo: "M21020" + desc "...6mm..." → "M21020 6MM").
+// Regras calibradas com as tabelas reais (DASS/DILLY/RAMARIM):
+// - ignora fio refletivo ("reflet.0,5mm", "refl.0,5mm", "refletivo 0,5mm") —
+//   e um componente do cadarco, nao a largura dele;
+// - so aceita valor INTEIRO (6, 8, 10...): todas as referencias reais com
+//   sufixo de largura usam inteiro ("M21020 6MM"), e a virgula de um decimal
+//   quebraria o confRefRegex da conferencia de PDF; decimais reais como
+//   "2,5mm" (elasticos) ficam so na descricao, como hoje;
+// - exige exatamente UM valor distinto no texto — dois valores diferentes =
+//   ambiguo, nao corrige (o usuario decide manualmente).
+function cadExtrairMmTexto(txt){
+  var s=String(txt||"");
+  var vals={},re=/(\d+(?:[.,]\d+)?)\s*mm(?![a-z0-9])/gi,m;
+  while((m=re.exec(s))){
+    if(/refl/i.test(s.slice(Math.max(0,m.index-12),m.index)))continue;
+    var n=parseFloat(m[1].replace(",","."));
+    if(!(n>0)||n%1!==0)continue;
+    vals[n]=true;
+  }
+  var lista=Object.keys(vals);
+  return lista.length===1?lista[0]+"MM":null;
 }
 // Regex de casamento da referencia: ancorada no INICIO do codigo
 // (nao pode haver letra/numero antes -- ou o rotulo "REF" colado sem
@@ -1717,19 +1731,30 @@ async function salvarRef(){
   // — sinal forte de que o usuario esqueceu de incluir a espessura desta referencia,
   // o que faz a conferencia de PDF nao conseguir distinguir as variantes (ver
   // extrairVarianteMm/confValidar).
+  var refCorrigida=false;
   if(dados.unidade==="pares"||dados.unidade==="pecas"){
     var baseNova=confBaseRef(dados.ref);
     if(!extrairVarianteMm(baseNova)){
-      var normNova=normTxt(baseNova);
-      var siblings=S.refsCad.filter(function(r){
-        if(linhaEdicao&&String(r.linha)===String(linhaEdicao))return false;
-        if(r.unidade!=="pares"&&r.unidade!=="pecas")return false;
-        var v=extrairVarianteMm(confBaseRef(r.ref));
-        return v&&normTxt(v.codigoBase)===normNova;
-      });
-      if(siblings.length){
-        var exemplos=siblings.slice(0,3).map(function(r){return r.ref;}).join(", ");
-        if(!confirm("Ja existem variantes com espessura cadastradas para este codigo ("+exemplos+"). Esta referencia nao tem espessura (mm) no final do codigo — isso pode causar conflito na conferencia de pedidos em PDF.\n\nSalvar assim mesmo?"))return;
+      // Largura informada na descricao/observacao mas ausente na referencia:
+      // anexa automaticamente o sufixo "<N>MM" (padrao das tabelas, ex.
+      // "M21020 6MM") — evita familias de variantes indistinguiveis, como o
+      // caso M21020 da RAMARIM em que 6mm e 8mm so existiam na descricao.
+      var mmAuto=cadExtrairMmTexto(String(dados.descricao||"")+" "+String(dados.obs||""));
+      if(mmAuto){
+        dados.ref=dados.ref+" "+mmAuto;
+        refCorrigida=true;
+      }else{
+        var normNova=normTxt(baseNova);
+        var siblings=S.refsCad.filter(function(r){
+          if(linhaEdicao&&String(r.linha)===String(linhaEdicao))return false;
+          if(r.unidade!=="pares"&&r.unidade!=="pecas")return false;
+          var v=extrairVarianteMm(confBaseRef(r.ref));
+          return v&&normTxt(v.codigoBase)===normNova;
+        });
+        if(siblings.length){
+          var exemplos=siblings.slice(0,3).map(function(r){return r.ref;}).join(", ");
+          if(!confirm("Ja existem variantes com espessura cadastradas para este codigo ("+exemplos+"). Esta referencia nao tem espessura (mm) no final do codigo — isso pode causar conflito na conferencia de pedidos em PDF.\n\nSalvar assim mesmo?"))return;
+        }
       }
     }
   }
@@ -1737,10 +1762,11 @@ async function salvarRef(){
   try{
     var r=await gas("salvarReferencia",aba,dados,S.token,linhaEdicao?Number(linhaEdicao):null);
     if(!r.ok){toast(r.erro,"error");loading(false);return;}
-    toast("Referencia salva!","success");limparFormCad();await recarregarListaCad(aba);
-    var atualInfo=calcAtualPorRef(S.refsCad);
+    toast(refCorrigida?"Referencia salva como \""+dados.ref.toUpperCase().trim()+"\" (largura movida da descricao para a referencia).":"Referencia salva!","success");
+    limparFormCad();await recarregarListaCad(aba);
+    var atualMap=calcAtualPorRef(S.refsCad);
     var medidaNova=parseFloat(String(dados.medidaBase).trim().replace(",","."))||0;
-    var refAtual=refAtualDoItem(atualInfo,S.refsCad,{ref:dados.ref,medidaBase:medidaNova,descricao:dados.descricao});
+    var refAtual=atualMap[refVarianteKey({ref:dados.ref,medidaBase:medidaNova})];
     if(refAtual&&confirm("Notificar vendedores sobre o novo preco de "+refAtual.ref+"?")){
       loading(true,"Notificando...");
       try{var re=await gas("enviarEmailReferencia",aba,refAtual,S.token);toast(re.ok?re.msg:re.erro,re.ok?"success":"error");}catch(ex){toast("Erro ao notificar.","error");}
@@ -1859,8 +1885,8 @@ async function salvarAtualizarPreco(){
     if(!r.ok){toast(r.erro,"error");loading(false);return;}
     toast("Preco atualizado!","success");
     await recarregarListaCad(aba);
-    var atualInfo=calcAtualPorRef(S.refsCad);
-    var refAtual=refAtualDoItem(atualInfo,S.refsCad,refOrig);
+    var atualMap=calcAtualPorRef(S.refsCad);
+    var refAtual=atualMap[refVarianteKey(refOrig)];
     if(refAtual&&confirm("Notificar vendedores sobre o novo preco de "+refAtual.ref+"?")){
       loading(true,"Notificando...");
       try{var re=await gas("enviarEmailReferencia",aba,refAtual,S.token);toast(re.ok?re.msg:re.erro,re.ok?"success":"error");}catch(ex){toast("Erro ao notificar.","error");}

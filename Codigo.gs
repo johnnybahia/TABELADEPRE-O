@@ -28,6 +28,7 @@ const SCHEMA_CLIENTE = [
   { nome: "PrecoCE",     largura: 100 },
   { nome: "PrecoMG",     largura: 100 },
   { nome: "Peso",        largura: 100 },
+  { nome: "PrecoAtivo",  largura: 100 }, // 1 = preço ativado manualmente por admin (botão "Ativar preço"); vazio = normal
   // → próximas colunas aqui
 ];
 
@@ -212,7 +213,7 @@ function _getReferencias(nomeAba, busca, vendedorId) {
     const pN = v => parseFloat(String(v || "0").replace(",", ".")) || 0;
     const resultado = [];
     for (let i = 1; i < dados.length; i++) {
-      const [ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase, precoRS, precoBA, precoCE, precoMG, peso] = dados[i];
+      const [ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase, precoRS, precoBA, precoCE, precoMG, peso, precoAtivo] = dados[i];
       if (!ref) continue;
 
       const refStr = String(ref).toUpperCase();
@@ -245,6 +246,7 @@ function _getReferencias(nomeAba, busca, vendedorId) {
         precoCE: pN(precoCE),
         precoMG: pN(precoMG),
         peso: pN(peso),
+        precoAtivo: pN(precoAtivo) > 0,
         vigente
       });
     }
@@ -363,6 +365,11 @@ function salvarReferencia(nomeAba, dados, token, linhaEdicao) {
       if (sobreposicao) return { ok: false, erro: `Conflito de vigência com registro existente na linha ${i + 1}.` };
     }
 
+    // Coluna PrecoAtivo: na edição preserva a marcação manual já existente na
+    // linha; cadastro novo começa sem marcação.
+    const colPrecoAtivo = SCHEMA_CLIENTE.findIndex(c => c.nome === "PrecoAtivo") + 1;
+    const precoAtivoExistente = linhaEdicao ? aba.getRange(linhaEdicao, colPrecoAtivo).getValue() : "";
+
     const linha = [
       ref.toUpperCase().trim(),
       descricao || "",
@@ -376,7 +383,8 @@ function salvarReferencia(nomeAba, dados, token, linhaEdicao) {
       pN(precoBA),
       pN(precoCE),
       pN(precoMG),
-      pN(peso)
+      pN(peso),
+      precoAtivoExistente || ""
     ];
 
     if (linhaEdicao) {
@@ -440,6 +448,7 @@ function renovarReferencia(nomeAba, linhaOrigem, dados, token) {
       pN(precoCE),
       pN(precoMG),
       rowData[12] || 0,                  // peso (copiado)
+      "",                                // PrecoAtivo: marcação manual não é herdada — a nova vigência já é o preço atual automático
     ];
 
     aba.appendRow(novaLinha);
@@ -447,6 +456,39 @@ function renovarReferencia(nomeAba, linhaOrigem, dados, token) {
     aba.getRange(ultimaLinha, 4, 1, 2).setNumberFormat("dd/MM/yyyy");
 
     _log(vendedorId, "RENOVAR", `${nomeAba} | ${rowData[0]} | L${linha}→L${ultimaLinha}`);
+    return { ok: true };
+  } catch (e) {
+    if (e.message === "SESSAO_EXPIRADA") return { ok: false, erro: "Sessão expirada. Faça login novamente.", sessaoExpirada: true };
+    return { ok: false, erro: e.message };
+  }
+}
+
+// ============================================================
+// ATIVAR/DESATIVAR PREÇO MANUALMENTE (coluna PrecoAtivo — admin)
+// Marca uma linha específica como "preço atual" independente da regra
+// automática (data mais nova por referência+medida). Usado nas tabelas
+// legadas onde a mesma referência tem itens distintos que só a descrição
+// separa (ex: M15055 48f × 48fu.pol.) — o admin força o segundo preço a
+// permanecer ativo para consulta. Só afeta linhas vigentes: a marcação em
+// linha fora de vigência é ignorada pelo frontend.
+// ============================================================
+function setPrecoAtivo(nomeAba, linhaAlvo, ativo, token) {
+  try {
+    const vendedorId = _exigirSessao(token);
+    if (!_ehAdmin(vendedorId)) return { ok: false, erro: "Apenas administradores podem ativar/desativar preços." };
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const aba = ss.getSheetByName(nomeAba);
+    if (!aba) return { ok: false, erro: "Aba do cliente não encontrada." };
+
+    const linha = Number(linhaAlvo);
+    if (!linha || linha < 2 || linha > aba.getLastRow()) return { ok: false, erro: "Linha inválida." };
+
+    const colPrecoAtivo = SCHEMA_CLIENTE.findIndex(c => c.nome === "PrecoAtivo") + 1;
+    aba.getRange(linha, colPrecoAtivo).setValue(ativo ? 1 : "");
+
+    const ref = aba.getRange(linha, 1).getValue();
+    _log(vendedorId, ativo ? "ATIVAR_PRECO" : "DESATIVAR_PRECO", `${nomeAba} | ${ref} | L${linha}`);
     return { ok: true };
   } catch (e) {
     if (e.message === "SESSAO_EXPIRADA") return { ok: false, erro: "Sessão expirada. Faça login novamente.", sessaoExpirada: true };

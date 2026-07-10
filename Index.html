@@ -405,6 +405,26 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
     </div>
   </div>
 </div>
+<!-- MODAL CONFLITO DE VIGENCIA (referencia repetida) -->
+<div class="modal-overlay" id="modal-conflito">
+  <div class="modal" style="max-width:520px">
+    <h3>&#x26A0;&#xFE0F; Referencia ja cadastrada</h3>
+    <p class="modal-sub" id="modal-conflito-ref"></p>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:8px">Ja existe cadastro desta referencia com a mesma medida e vigencia sobreposta:</p>
+    <div id="modal-conflito-lista" style="max-height:180px;overflow-y:auto;margin-bottom:14px"></div>
+    <div id="modal-conflito-atualizar-wrap" style="margin-bottom:12px">
+      <button class="btn btn-success" style="width:100%;background:var(--navy)" onclick="confirmarConflito('atualizar')">&#x1F504; Atualizar preco</button>
+      <div style="font-size:11px;color:var(--text2);margin-top:4px">A vigencia anterior e encerrada (data de fim = dia anterior ao novo inicio) e o novo preco entra como preco atual.</div>
+    </div>
+    <div style="margin-bottom:6px">
+      <button class="btn btn-ghost" style="width:100%;color:var(--accent);border-color:var(--accent)" id="modal-conflito-dup-btn" onclick="confirmarConflito('duplicar')">&#x1F4CC; Cadastrar item repetido</button>
+      <div style="font-size:11px;color:var(--text2);margin-top:4px" id="modal-conflito-dup-desc"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModalConflito()">Cancelar</button>
+    </div>
+  </div>
+</div>
 <!-- MODAL NOTIFICAR -->
 <div class="modal-overlay" id="modal-notificar">
   <div class="modal">
@@ -423,7 +443,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
 <div id="print-output"></div>
 
 <script>
-var S={vendedor:null,token:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],confItens:[],descontosEstado:{ba:0,ce:0,mg:0},admVendedores:[]};
+var S={vendedor:null,token:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],confItens:[],descontosEstado:{ba:0,ce:0,mg:0},admVendedores:[],cadConflito:null};
 
 function gas(fn){
   var args=Array.prototype.slice.call(arguments,1);
@@ -1758,11 +1778,29 @@ async function salvarRef(){
       }
     }
   }
+  await cadSalvarReferencia(aba,dados,linhaEdicao,refCorrigida,"");
+}
+// Envia o salvarReferencia ao backend e trata a resposta de conflito de
+// vigencia (mesma referencia + mesma medida ja cadastrada em periodo
+// sobreposto). modoConflito: "" detecta o conflito e abre o modal de decisao;
+// "atualizar" encerra a vigencia anterior e cadastra a linha nova (que vira o
+// preco atual automatico); "duplicar" cadastra como item repetido deliberado —
+// o backend grava PrecoAtivo=1 na linha nova e nas conflitantes para os dois
+// precos continuarem ativos.
+async function cadSalvarReferencia(aba,dados,linhaEdicao,refCorrigida,modoConflito){
   loading(true,"Salvando...");
   try{
-    var r=await gas("salvarReferencia",aba,dados,S.token,linhaEdicao?Number(linhaEdicao):null);
-    if(!r.ok){toast(r.erro,"error");loading(false);return;}
-    toast(refCorrigida?"Referencia salva como \""+dados.ref.toUpperCase().trim()+"\" (largura movida da descricao para a referencia).":"Referencia salva!","success");
+    var r=await gas("salvarReferencia",aba,dados,S.token,linhaEdicao?Number(linhaEdicao):null,modoConflito||null);
+    if(!r.ok){
+      loading(false);
+      if(r.conflito){abrirModalConflito(aba,dados,linhaEdicao,refCorrigida,r.conflitos||[]);return;}
+      toast(r.erro,"error");
+      return;
+    }
+    var msgOk=modoConflito==="duplicar"&&r.duplicado?"Item repetido cadastrado. Os dois precos permanecem ativos para consulta."
+      :modoConflito==="atualizar"&&r.vigenciasEncerradas?"Preco atualizado! A vigencia anterior foi encerrada."
+      :refCorrigida?"Referencia salva como \""+dados.ref.toUpperCase().trim()+"\" (largura movida da descricao para a referencia).":"Referencia salva!";
+    toast(msgOk,"success");
     limparFormCad();await recarregarListaCad(aba);
     var atualMap=calcAtualPorRef(S.refsCad);
     var medidaNova=parseFloat(String(dados.medidaBase).trim().replace(",","."))||0;
@@ -1774,6 +1812,37 @@ async function salvarRef(){
     }
   }catch(e){toast("Erro ao salvar.","error");}
   loading(false);
+}
+// MODAL CONFLITO — aberto quando o backend detecta que a mesma variante
+// (referencia + medida) ja tem linha com vigencia sobreposta. O usuario decide:
+// atualizar o preco (encerra a vigencia antiga; so no cadastro novo), cadastrar
+// como item repetido deliberado (os dois precos ficam ativos) ou cancelar.
+function abrirModalConflito(aba,dados,linhaEdicao,refCorrigida,conflitos){
+  S.cadConflito={aba:aba,dados:dados,linhaEdicao:linhaEdicao,refCorrigida:refCorrigida};
+  document.getElementById("modal-conflito-ref").textContent="Referencia: "+dados.ref.toUpperCase().trim();
+  document.getElementById("modal-conflito-lista").innerHTML=conflitos.map(function(c){
+    return "<div style=\"padding:8px 0;border-bottom:1px solid var(--border)\">"
+      +"<div style=\"font-weight:600;font-size:13px\">"+escHtml(c.ref)+(c.descricao?" <span style=\"font-weight:400;color:var(--text2)\">&mdash; "+escHtml(c.descricao)+"</span>":"")+"</div>"
+      +"<div style=\"font-size:11px;color:var(--text3);margin-top:2px\">"+escHtml(c.dataInicio||"–")+" &rarr; "+escHtml(c.dataFim||"Sem vencimento")+" <span style=\"color:var(--text3)\">(linha "+parseInt(c.linha,10)+")</span></div>"
+      +(c.obs?"<div style=\"font-size:11px;color:var(--text2);margin-top:2px\">&#x1F4DD; "+escHtml(c.obs)+"</div>":"")
+      +"</div>";
+  }).join("");
+  // Na edicao de uma linha ja existente, "atualizar" nao se aplica (a linha em
+  // edicao nao e uma vigencia nova) — so oferece salvar mesmo assim.
+  document.getElementById("modal-conflito-atualizar-wrap").style.display=linhaEdicao?"none":"block";
+  document.getElementById("modal-conflito-dup-btn").innerHTML=linhaEdicao?"&#x1F4BE; Salvar mesmo assim":"&#x1F4CC; Cadastrar item repetido";
+  document.getElementById("modal-conflito-dup-desc").textContent=linhaEdicao
+    ?"Salva a edicao mesmo com outra linha da mesma referencia em vigencia sobreposta (as ativacoes de cada linha sao preservadas)."
+    :"Use quando for o mesmo item com observacoes/descricao diferentes: as duas linhas permanecem ativas para consulta (marcadas como preco ativado).";
+  document.getElementById("modal-conflito").classList.add("active");
+}
+function fecharModalConflito(){document.getElementById("modal-conflito").classList.remove("active");S.cadConflito=null;}
+async function confirmarConflito(modo){
+  if(!S.cadConflito)return;
+  var p=S.cadConflito;
+  S.cadConflito=null;
+  document.getElementById("modal-conflito").classList.remove("active");
+  await cadSalvarReferencia(p.aba,p.dados,p.linhaEdicao,p.refCorrigida,modo);
 }
 function editarRef(ref){
   document.getElementById("cad-form-title").textContent="Editar Referencia";

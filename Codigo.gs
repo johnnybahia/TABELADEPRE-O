@@ -330,8 +330,26 @@ function salvarDescontosEstado(nomeAba, descontos, token) {
 
 // ============================================================
 // CADASTRAR / EDITAR REFERÊNCIA
+// modoConflito (opcional) decide o que fazer quando a MESMA variante
+// (Referencia + MedidaBase) já tem linha com vigência sobreposta:
+//   - vazio/null  → não grava nada; retorna { ok:false, conflito:true,
+//                   conflitos:[...] } para o frontend abrir o modal de decisão;
+//   - "atualizar" → encerra a vigência das linhas conflitantes (DataFim = nova
+//                   DataInicio − 1 dia) e cadastra a linha nova, que vira o
+//                   preço atual automático (mesmo efeito de renovarReferencia);
+//                   só vale para cadastro novo, não para edição;
+//   - "duplicar"  → cadastra mesmo assim como item repetido deliberado (mesmo
+//                   item com observações/descrição diferentes — admin apenas):
+//                   grava PrecoAtivo=1 na linha nova E nas conflitantes, para
+//                   os dois preços permanecerem ativos (mesmo mecanismo da
+//                   ativação manual, ver setPrecoAtivo). Na edição de uma linha
+//                   repetida já existente, apenas libera o salvamento (as
+//                   marcações de cada linha são preservadas como estão).
+// Linhas da mesma referência com MedidaBase DIFERENTE não são conflito: são
+// variantes de tamanho legítimas (mesmo critério de refVarianteKey /
+// confEscolherVigencia no frontend) e coexistem vigentes normalmente.
 // ============================================================
-function salvarReferencia(nomeAba, dados, token, linhaEdicao) {
+function salvarReferencia(nomeAba, dados, token, linhaEdicao, modoConflito) {
   try {
     const vendedorId = _exigirSessao(token);
     if (!_validarAcesso(vendedorId, nomeAba)) return { ok: false, erro: "Acesso não autorizado." };
@@ -351,24 +369,65 @@ function salvarReferencia(nomeAba, dados, token, linhaEdicao) {
 
     if (dFim && dFim < dInicio) return { ok: false, erro: "Data de fim não pode ser anterior à data de início." };
 
-    // Verificar sobreposição de datas para mesma referência
+    // Verificar sobreposição de datas para a mesma variante (Referencia + MedidaBase)
+    const fmtData = (d, vazio) => d ? Utilities.formatDate(new Date(d), Session.getScriptTimeZone(), "dd/MM/yyyy") : vazio;
     const todasLinhas = aba.getDataRange().getValues();
+    const conflitos = [];
     for (let i = 1; i < todasLinhas.length; i++) {
       if (linhaEdicao && (i + 1) === linhaEdicao) continue; // pula linha sendo editada
-      const [rRef, , , rInicio, rFim] = todasLinhas[i];
+      const [rRef, rDesc, , rInicio, rFim, rObs, , rMedida] = todasLinhas[i];
       if (String(rRef).toUpperCase().trim() !== String(ref).toUpperCase().trim()) continue;
+      if (pN(rMedida) !== pN(medidaBase)) continue; // outra variante de tamanho — coexiste, não conflita
 
       const existInicio = rInicio ? new Date(rInicio) : null;
       const existFim = rFim ? new Date(rFim) : null;
 
-      const sobreposicao = _datasSeOverlapam(dInicio, dFim, existInicio, existFim);
-      if (sobreposicao) return { ok: false, erro: `Conflito de vigência com registro existente na linha ${i + 1}.` };
+      if (_datasSeOverlapam(dInicio, dFim, existInicio, existFim)) {
+        conflitos.push({
+          linha: i + 1,
+          ref: String(rRef),
+          descricao: String(rDesc || ""),
+          obs: String(rObs || ""),
+          dataInicio: fmtData(rInicio, ""),
+          dataFim: fmtData(rFim, "Sem vencimento"),
+          _inicio: existInicio
+        });
+      }
+    }
+
+    let duplicarNovo = false;
+    if (conflitos.length) {
+      if (modoConflito === "atualizar") {
+        if (linhaEdicao) return { ok: false, erro: "Atualizar preço não se aplica à edição de linha — cadastre como nova referência." };
+        if (conflitos.some(c => c._inicio && c._inicio.getTime() >= dInicio.getTime()))
+          return { ok: false, erro: "Já existe registro com data de início igual ou posterior à nova. Ajuste as datas ou cadastre como item repetido." };
+        // Encerra a vigência das linhas antigas: DataFim = nova DataInicio − 1 dia
+        const dataFimAntiga = new Date(dInicio);
+        dataFimAntiga.setDate(dataFimAntiga.getDate() - 1);
+        conflitos.forEach(c => {
+          const cel = aba.getRange(c.linha, 5);
+          cel.setValue(dataFimAntiga);
+          cel.setNumberFormat("dd/MM/yyyy");
+        });
+      } else if (modoConflito === "duplicar") {
+        if (!_ehAdmin(vendedorId)) return { ok: false, erro: "Apenas administradores podem cadastrar item repetido." };
+        duplicarNovo = !linhaEdicao;
+      } else {
+        return {
+          ok: false,
+          conflito: true,
+          erro: `Conflito de vigência com registro existente na linha ${conflitos[0].linha}.`,
+          conflitos: conflitos.map(c => ({ linha: c.linha, ref: c.ref, descricao: c.descricao, obs: c.obs, dataInicio: c.dataInicio, dataFim: c.dataFim }))
+        };
+      }
     }
 
     // Coluna PrecoAtivo: na edição preserva a marcação manual já existente na
-    // linha; cadastro novo começa sem marcação.
+    // linha; cadastro novo começa sem marcação — exceto item repetido deliberado
+    // (duplicarNovo), que já nasce marcado para permanecer ativo junto com a
+    // linha antiga mesmo quando a data da outra for mais recente.
     const colPrecoAtivo = SCHEMA_CLIENTE.findIndex(c => c.nome === "PrecoAtivo") + 1;
-    const precoAtivoExistente = linhaEdicao ? aba.getRange(linhaEdicao, colPrecoAtivo).getValue() : "";
+    const precoAtivoExistente = linhaEdicao ? aba.getRange(linhaEdicao, colPrecoAtivo).getValue() : (duplicarNovo ? 1 : "");
 
     const linha = [
       ref.toUpperCase().trim(),
@@ -393,8 +452,16 @@ function salvarReferencia(nomeAba, dados, token, linhaEdicao) {
       aba.appendRow(linha);
     }
 
-    _log(vendedorId, linhaEdicao ? "EDITAR" : "CADASTRAR", `${nomeAba} | ${ref}`);
-    return { ok: true };
+    // Item repetido deliberado: marca também as linhas conflitantes, para que o
+    // preço antigo continue ativo mesmo com a linha nova tendo data mais recente.
+    if (duplicarNovo) conflitos.forEach(c => aba.getRange(c.linha, colPrecoAtivo).setValue(1));
+
+    const acao = linhaEdicao ? "EDITAR"
+      : duplicarNovo ? "CADASTRAR_DUPLICADO"
+      : (modoConflito === "atualizar" && conflitos.length) ? "ATUALIZAR_PRECO"
+      : "CADASTRAR";
+    _log(vendedorId, acao, `${nomeAba} | ${ref}`);
+    return { ok: true, duplicado: duplicarNovo, vigenciasEncerradas: (!linhaEdicao && modoConflito === "atualizar") ? conflitos.length : 0 };
   } catch (e) {
     if (e.message === "SESSAO_EXPIRADA") return { ok: false, erro: "Sessão expirada. Faça login novamente.", sessaoExpirada: true };
     return { ok: false, erro: e.message };

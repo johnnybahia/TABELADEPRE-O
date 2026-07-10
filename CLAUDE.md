@@ -102,6 +102,16 @@ A ativação manual existe para as tabelas legadas em que a mesma referência ag
 - `salvarReferencia` preserva a marcação ao editar a linha; `renovarReferencia` **não** herda a marcação para a nova vigência (ela já vira o preço atual automático).
 - Marcação em linha fora de vigência é ignorada pelo frontend (linha vencida nunca fica ativa).
 
+### Conflito de vigência no cadastro (modal "Referencia ja cadastrada")
+
+O bloqueio de cadastro repetido não é mais um erro seco. `salvarReferencia(nomeAba, dados, token, linhaEdicao, modoConflito)` detecta sobreposição de vigência **por variante** (mesma `Referencia` **e** mesma `MedidaBase`, comparadas via `pN` — mesmo critério de `refVarianteKey`/`confEscolherVigencia`; medidas diferentes são variantes de tamanho legítimas e coexistem sem aviso) e responde conforme `modoConflito`:
+
+- **vazio/null** — não grava nada; retorna `{ ok:false, conflito:true, conflitos:[{linha, ref, descricao, obs, dataInicio, dataFim}] }`. O frontend (`cadSalvarReferencia`) abre o modal `#modal-conflito` listando as linhas conflitantes com três saídas: Atualizar preço, Cadastrar item repetido, Cancelar.
+- **`"atualizar"`** — atualização de preço pelo formulário: encerra a vigência das linhas conflitantes (`DataFim = nova DataInicio − 1 dia`, como `renovarReferencia`) e cadastra a linha nova, que vira o preço atual automático. Só para cadastro novo (erro na edição); também dá erro se alguma linha conflitante tiver `DataInicio` igual/posterior à nova (o encerramento geraria vigência invertida).
+- **`"duplicar"`** — cadastro repetido deliberado (**admin apenas**, caso "mesmo item, observações/descrição diferentes"): grava a linha nova **já com `PrecoAtivo = 1`** e marca `PrecoAtivo = 1` também nas linhas conflitantes — os dois preços permanecem ativos (badge "📌 Preco ativado") mesmo com a data nova, via o mecanismo de ativação manual acima. Na **edição** de uma linha repetida existente (o conflito com a linha irmã dispararia o bloqueio e tornaria duplicados ineditáveis), `"duplicar"` apenas libera o salvamento, preservando as marcações de cada linha como estão.
+
+Log de auditoria: `CADASTRAR_DUPLICADO` e `ATUALIZAR_PRECO`, além dos já existentes `CADASTRAR`/`EDITAR`.
+
 ### Correção automática de largura no cadastro (pares/peças)
 
 Para evitar famílias de variantes indistinguíveis (caso real `M21020` da RAMARIM: 6mm e 8mm só na descrição), `salvarRef` no frontend corrige o cadastro de itens `pares`/`pecas` cuja referência **não** termina com sufixo de largura (`extrairVarianteMm`): se a Descrição ou Observações mencionam a largura, ela é anexada à referência (ex.: ref `M21020` + desc `...6mm...` → salva como `M21020 6MM`) e o usuário é avisado no toast. Regras do extrator (`cadExtrairMmTexto`, calibrado com as tabelas reais):

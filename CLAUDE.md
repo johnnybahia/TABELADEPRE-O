@@ -47,6 +47,7 @@ const SCHEMA_CLIENTE = [
   { nome: "PrecoMG",     largura: 100 },
   { nome: "Peso",        largura: 100 },
   { nome: "PrecoAtivo",  largura: 100 },
+  { nome: "PrecoBase",   largura: 100 },
   // → adicione novas colunas SEMPRE ao final
 ];
 ```
@@ -88,9 +89,23 @@ Ambas são **idempotentes** — podem ser executadas múltiplas vezes sem risco 
 | L      | PrecoMG      | Number  | Não (usa Preco base se vazio/zero) |
 | M      | Peso         | Number  | Não (peso do material, ex: g/m) |
 | N      | PrecoAtivo   | Number  | Não (`1` = preço ativado manualmente por admin; vazio = normal) |
+| O      | PrecoBase    | Number  | Não (preço base **informativo** dos clientes "preço duplo", ex. DAKOTA — visível só na aba Cadastrar; não entra em consulta, impressão nem emails) |
 
 Itens sem Unidade/MedidaBase (legados) são tratados como `metros` com cálculo direto `preco × entrada`.
 Preços por estado são opcionais; quando zero/ausentes, o frontend usa o Preco base.
+
+**Atenção (colunas legadas N/O/P):** as abas antigas importadas trazem cabeçalhos legados `Custo/RS` (N), `Custo/BA/CE` (O) e `nov./22` (P) — e, em DASS/RAMARIM, ainda há **dados** de custo nessas colunas. `migrarSchema()` não sobrescreve cabeçalho ocupado, mas o código lê/escreve **por posição**: N é tratada como `PrecoAtivo` e O como `PrecoBase` independentemente do texto do cabeçalho. O frontend preserva o valor existente de O ao editar uma linha (round-trip via `precoBase`), mas o ideal é mover os custos legados para colunas além do schema (ex.: AA em diante) e renomear N1/O1 para os nomes do schema.
+
+### Clientes "preço duplo" (origem/destino) — ex.: DAKOTA
+
+Configurados na lista `CLIENTES_PRECO_DUPLO` em `Codigo.gs` (nome do cliente sem o sufixo ` CLIENTE`; helper `_ehPrecoDuplo(nomeAba)`; o frontend recebe o flag em `getReferencias().precoDuplo` e o guarda em `S.consPrecoDuplo`/`S.cadPrecoDuplo`). Nesses clientes:
+
+- **As colunas de preço por estado mudam de papel** (mesma ordem dos cabeçalhos renomeados na planilha do cliente): **I (PrecoRS) = RS/CE**, **J (PrecoBA) = RS/RS**, **K (PrecoCE) = CE/CE**; **L (PrecoMG) não é usada** (campo oculto na interface). Os rótulos vêm de `rotulosPreco(duplo)` no `Index.html` (rótulo `null` = coluna oculta) e valem para consulta, calculadora, histórico, impressão e emails.
+- **Preço base (coluna O, PrecoBase)**: informado no formulário do Cadastrar (campo "BASE (R$)", com dica) e no modal Atualizar Preço; é **apenas informativo** — fica salvo no item e aparece só na lista/histórico da aba Cadastrar (badge "💰 Base"), nunca na consulta, impressão ou emails. `renovarReferencia` **não** copia o PrecoBase da vigência antiga (usa o digitado no modal, ou vazio).
+- **Variações % sobre o preço base** ficam nas células **W1 (RS/CE), X1 (RS/RS), Y1 (CE/CE)** — T1/U1/V1 **não** são usadas nesses clientes. Mesma semântica das T1/U1/V1 (número puro, zero/vazio = sem auto-preenchimento; `preco = base × (1 + var/100)`). Salvas por `salvarDescontosEstado` (que detecta o modo e grava W1:Y1 recebendo `{rsce, rsrs, cece}`); retornadas por `getReferencias` como `descontoRSCE`/`descontoRSRS`/`descontoCECE`. No frontend, `autoFillDuplo` aplica as variações ao digitar o preço base (os três mesmos inputs de variação da aba Cadastrar são reutilizados com rótulos trocados; `autoFillEstados` vira no-op no modo duplo).
+- **Regra de "preço atual" por descrição**: a variante passa a ser `Referencia + MedidaBase + Descricao` (`refVarianteKey(x, duplo)` no `Index.html`). A mesma referência com **descrições diferentes** são itens distintos — **todos ficam ativos** (cada um com seu próprio preço atual); com a **mesma descrição** vale a regra normal (só a linha vigente de DataInicio mais recente). O botão "📌 Ativar preco"/ativação manual continua funcionando normalmente.
+- **Conflito de vigência no cadastro**: `salvarReferencia` só considera conflito quando `Referencia + MedidaBase + Descricao` coincidem (descrição comparada com trim+uppercase) — cadastrar a mesma referência com descrição diferente salva direto, sem modal, e as duas linhas coexistem ativas.
+- A conferência de PDF (aba "Conferir") **não** tem formato DAKOTA calibrado ainda — nada foi alterado nesse fluxo.
 
 ### Regra de "Preço atual" e ativação manual (coluna PrecoAtivo)
 
@@ -132,10 +147,11 @@ As células **T1** (BA), **U1** (CE) e **V1** (MG) de cada aba de cliente armaze
 - Escritas em batch por `salvarDescontosEstado` via `getRange("T1:V1").setValues(...)`.
 - Visíveis na aba "Cadastrar" (admin), linha "Variação por estado (% sobre RS): BA/CE/MG [Salvar variações]".
 - `autoFillEstados(rsId, baId, ceId, mgId)` no frontend aplica os valores ao digitar no campo RS; limpa os campos dos estados quando RS é apagado.
+- **Clientes "preço duplo"** (ex. DAKOTA) não usam T1/U1/V1: as variações deles ficam em **W1/X1/Y1** e são % sobre o **preço base** (ver seção "Clientes 'preço duplo'" acima). `getReferencias` lê o intervalo `T1:Y1` em um único batch.
 
 ### Célula S1 — Prazo de pagamento (metadado, fora do SCHEMA_CLIENTE)
 
-A célula **S1** de cada aba de cliente armazena o prazo de pagamento no formato `"<N> dias"` (ex: `"90 dias"`) ou, para pagamento em parcelas, `"<N1>/<N2> dias"` (ex: `"60/90 dias"`, caso DILLY). Não faz parte do `SCHEMA_CLIENTE` (que cobre apenas A-M) e não é afetada por `migrarSchema()`.
+A célula **S1** de cada aba de cliente armazena o prazo de pagamento no formato `"<N> dias"` (ex: `"90 dias"`) ou, para pagamento em parcelas, `"<N1>/<N2> dias"` (ex: `"60/90 dias"`, caso DILLY). Não faz parte do `SCHEMA_CLIENTE` (que cobre apenas A-O) e não é afetada por `migrarSchema()`.
 
 - Definida ao criar um cliente novo (`criarCliente`, campo "Prazo de pagamento" no formulário "Novo Cliente"). O campo aceita um número único (`90`) ou parcelado (`60/90`).
 - Editável para clientes existentes na aba "Cadastrar" (campo "Prazo de pagamento" acima do formulário de referência → `salvarPrazoPagamento`), mesmo formato livre (`90` ou `60/90`).

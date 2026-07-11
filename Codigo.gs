@@ -29,8 +29,30 @@ const SCHEMA_CLIENTE = [
   { nome: "PrecoMG",     largura: 100 },
   { nome: "Peso",        largura: 100 },
   { nome: "PrecoAtivo",  largura: 100 }, // 1 = preço ativado manualmente por admin (botão "Ativar preço"); vazio = normal
+  { nome: "PrecoBase",   largura: 100 }, // preço base informativo (clientes "preço duplo", ex. DAKOTA) — visível só na aba Cadastrar
   // → próximas colunas aqui
 ];
+
+// ============================================================
+// CLIENTES COM PREÇO POR ORIGEM/DESTINO ("preço duplo")
+// Nesses clientes as colunas de preço por estado mudam de papel
+// (mesma ordem dos cabeçalhos renomeados na planilha do cliente):
+//   I (PrecoRS) = RS/CE · J (PrecoBA) = RS/RS · K (PrecoCE) = CE/CE · L (PrecoMG) = não usada
+// O admin informa um preço base (coluna O, PrecoBase — apenas informativo,
+// visível só na aba Cadastrar) e as variações % sobre esse preço base ficam
+// nas células W1/X1/Y1 (ver getReferencias/salvarDescontosEstado) — as células
+// T1/U1/V1 (variação por estado sobre RS) não são usadas nesses clientes.
+// A regra de "preço atual" também muda: a variante é Referencia + MedidaBase
+// + Descricao — a mesma referência com descrições diferentes são itens
+// distintos e TODOS ficam ativos; com a mesma descrição vale a regra normal
+// (só a linha vigente de data mais nova).
+// ============================================================
+const CLIENTES_PRECO_DUPLO = ["DAKOTA"];
+
+function _ehPrecoDuplo(nomeAba) {
+  const nome = String(nomeAba || "").toUpperCase().replace(/ CLIENTE$/, "").trim();
+  return CLIENTES_PRECO_DUPLO.indexOf(nome) >= 0;
+}
 
 // ============================================================
 // PONTO DE ENTRADA WEB
@@ -213,7 +235,7 @@ function _getReferencias(nomeAba, busca, vendedorId) {
     const pN = v => parseFloat(String(v || "0").replace(",", ".")) || 0;
     const resultado = [];
     for (let i = 1; i < dados.length; i++) {
-      const [ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase, precoRS, precoBA, precoCE, precoMG, peso, precoAtivo] = dados[i];
+      const [ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase, precoRS, precoBA, precoCE, precoMG, peso, precoAtivo, precoBase] = dados[i];
       if (!ref) continue;
 
       const refStr = String(ref).toUpperCase();
@@ -247,6 +269,7 @@ function _getReferencias(nomeAba, busca, vendedorId) {
         precoMG: pN(precoMG),
         peso: pN(peso),
         precoAtivo: pN(precoAtivo) > 0,
+        precoBase: pN(precoBase),
         vigente
       });
     }
@@ -260,12 +283,19 @@ function _getReferencias(nomeAba, busca, vendedorId) {
 
     // Descontos/acréscimos por estado em % (células T1/U1/V1, fora do SCHEMA_CLIENTE)
     // Positivo = acréscimo, negativo = desconto. Zero/vazio = sem auto-preenchimento.
-    const [dBA, dCE, dMG] = aba.getRange("T1:V1").getValues()[0];
+    // Clientes "preço duplo" usam W1/X1/Y1: variação % sobre o PREÇO BASE para as
+    // colunas I (RS/CE), J (RS/RS) e K (CE/CE), nessa ordem.
+    const [dBA, dCE, dMG, dRSCE, dRSRS, dCECE] = aba.getRange("T1:Y1").getValues()[0];
     const descontoBA = pN(dBA);
     const descontoCE = pN(dCE);
     const descontoMG = pN(dMG);
 
-    return { ok: true, refs: resultado, prazoPagamento: prazoRaw, prazoPagamentoDias, prazoPagamentoDiasTodos, descontoBA, descontoCE, descontoMG };
+    return {
+      ok: true, refs: resultado, prazoPagamento: prazoRaw, prazoPagamentoDias, prazoPagamentoDiasTodos,
+      descontoBA, descontoCE, descontoMG,
+      precoDuplo: _ehPrecoDuplo(nomeAba),
+      descontoRSCE: pN(dRSCE), descontoRSRS: pN(dRSRS), descontoCECE: pN(dCECE)
+    };
   } catch (e) {
     return { ok: false, erro: e.message };
   }
@@ -314,6 +344,18 @@ function salvarDescontosEstado(nomeAba, descontos, token) {
       const n = parseFloat(String(v || "").replace(",", "."));
       return isNaN(n) ? 0 : n;
     };
+
+    // Cliente "preço duplo": as variações são % sobre o PREÇO BASE e vivem em
+    // W1/X1/Y1 (colunas I=RS/CE, J=RS/RS, K=CE/CE, nessa ordem). T1/U1/V1 não são usadas.
+    if (_ehPrecoDuplo(nomeAba)) {
+      const rsce = pct(descontos.rsce);
+      const rsrs = pct(descontos.rsrs);
+      const cece = pct(descontos.cece);
+      aba.getRange("W1:Y1").setValues([[rsce !== 0 ? rsce : "", rsrs !== 0 ? rsrs : "", cece !== 0 ? cece : ""]]);
+      _log(vendedorId, "SALVAR_DESCONTOS_ESTADO", nomeAba + " -> RS/CE:" + rsce + "% RS/RS:" + rsrs + "% CE/CE:" + cece + "%");
+      return { ok: true, descontoRSCE: rsce, descontoRSRS: rsrs, descontoCECE: cece };
+    }
+
     const ba = pct(descontos.ba);
     const ce = pct(descontos.ce);
     const mg = pct(descontos.mg);
@@ -358,7 +400,7 @@ function salvarReferencia(nomeAba, dados, token, linhaEdicao, modoConflito) {
     const aba = ss.getSheetByName(nomeAba);
     if (!aba) return { ok: false, erro: "Aba do cliente não encontrada." };
 
-    const { ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase, precoRS, precoBA, precoCE, precoMG, peso } = dados;
+    const { ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase, precoRS, precoBA, precoCE, precoMG, peso, precoBase } = dados;
     const pN = v => parseFloat(String(v || "0").replace(",", ".")) || 0;
 
     if (!ref || !dataInicio) return { ok: false, erro: "Referência e data de início são obrigatórios." };
@@ -369,7 +411,10 @@ function salvarReferencia(nomeAba, dados, token, linhaEdicao, modoConflito) {
 
     if (dFim && dFim < dInicio) return { ok: false, erro: "Data de fim não pode ser anterior à data de início." };
 
-    // Verificar sobreposição de datas para a mesma variante (Referencia + MedidaBase)
+    // Verificar sobreposição de datas para a mesma variante (Referencia + MedidaBase;
+    // em clientes "preço duplo" a Descricao também compõe a variante — mesma
+    // referência com descrições diferentes são itens distintos e coexistem ativos)
+    const precoDuplo = _ehPrecoDuplo(nomeAba);
     const fmtData = (d, vazio) => d ? Utilities.formatDate(new Date(d), Session.getScriptTimeZone(), "dd/MM/yyyy") : vazio;
     const todasLinhas = aba.getDataRange().getValues();
     const conflitos = [];
@@ -378,6 +423,7 @@ function salvarReferencia(nomeAba, dados, token, linhaEdicao, modoConflito) {
       const [rRef, rDesc, , rInicio, rFim, rObs, , rMedida] = todasLinhas[i];
       if (String(rRef).toUpperCase().trim() !== String(ref).toUpperCase().trim()) continue;
       if (pN(rMedida) !== pN(medidaBase)) continue; // outra variante de tamanho — coexiste, não conflita
+      if (precoDuplo && String(rDesc || "").trim().toUpperCase() !== String(descricao || "").trim().toUpperCase()) continue; // descrição diferente — item distinto, coexiste
 
       const existInicio = rInicio ? new Date(rInicio) : null;
       const existFim = rFim ? new Date(rFim) : null;
@@ -443,7 +489,8 @@ function salvarReferencia(nomeAba, dados, token, linhaEdicao, modoConflito) {
       pN(precoCE),
       pN(precoMG),
       pN(peso),
-      precoAtivoExistente || ""
+      precoAtivoExistente || "",
+      pN(precoBase) || ""
     ];
 
     if (linhaEdicao) {
@@ -481,7 +528,7 @@ function renovarReferencia(nomeAba, linhaOrigem, dados, token) {
     if (!aba) return { ok: false, erro: "Aba do cliente não encontrada." };
 
     const pN = v => parseFloat(String(v || "0").replace(",", ".")) || 0;
-    const { preco, precoRS, precoBA, precoCE, precoMG, dataInicio, dataFim } = dados;
+    const { preco, precoRS, precoBA, precoCE, precoMG, precoBase, dataInicio, dataFim } = dados;
 
     if (!dataInicio) return { ok: false, erro: "Data de início é obrigatória." };
     if (!pN(precoRS) && !pN(precoBA) && !pN(precoCE) && !pN(precoMG))
@@ -516,6 +563,7 @@ function renovarReferencia(nomeAba, linhaOrigem, dados, token) {
       pN(precoMG),
       rowData[12] || 0,                  // peso (copiado)
       "",                                // PrecoAtivo: marcação manual não é herdada — a nova vigência já é o preço atual automático
+      pN(precoBase) || "",               // PrecoBase da nova vigência (informado no modal; não copia o da vigência antiga)
     ];
 
     aba.appendRow(novaLinha);
@@ -731,10 +779,15 @@ function enviarEmailAtualizacao(nomeAba, token) {
     // Montar linhas da tabela — apenas vigentes no email
     const vigentes = refs.filter(r => r.vigente);
     const fmtBRL = v => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    // Cliente "preço duplo": rótulos origem/destino nas colunas I/J/K; MG não é usada.
+    // O PrecoBase (coluna O) é informativo do cadastro e NÃO vai no email.
+    const duploEmail = _ehPrecoDuplo(nomeAba);
     const linhasTabela = vigentes.map(r => {
       const unidLabel = r.unidade === "pares" ? "par" : r.unidade === "pecas" ? "peça" : r.unidade === "kg" ? "kg" : "metro";
       const medLabel = r.medidaBase > 0 ? ` (${r.medidaBase}${r.unidade === "metros" ? "mm" : "cm"})` : "";
-      const estados = [["RS", r.precoRS], ["BA", r.precoBA], ["CE", r.precoCE], ["MG", r.precoMG]]
+      const estados = (duploEmail
+        ? [["RS/CE", r.precoRS], ["RS/RS", r.precoBA], ["CE/CE", r.precoCE]]
+        : [["RS", r.precoRS], ["BA", r.precoBA], ["CE", r.precoCE], ["MG", r.precoMG]])
         .filter(([, p]) => p > 0)
         .map(([uf, p]) => `<span style="background:#f5f5f5;border-radius:4px;padding:1px 6px;font-size:11px">${uf}: ${fmtBRL(p)}</span>`)
         .join(" ");
@@ -865,7 +918,11 @@ function enviarEmailReferencia(nomeAba, refDados, token) {
     const medSufixo  = unidade === "metros" ? "mm" : "cm";
     const medLabel   = medidaBase > 0 ? ` (base: ${medidaBase}${medSufixo})` : "";
 
-    const estadosCells = [["RS", precoRS], ["BA", precoBA], ["CE", precoCE], ["MG", precoMG]]
+    // Cliente "preço duplo": rótulos origem/destino (I=RS/CE, J=RS/RS, K=CE/CE);
+    // MG não é usada e o PrecoBase informativo não vai no email.
+    const estadosCells = (_ehPrecoDuplo(nomeAba)
+      ? [["RS/CE", precoRS], ["RS/RS", precoBA], ["CE/CE", precoCE]]
+      : [["RS", precoRS], ["BA", precoBA], ["CE", precoCE], ["MG", precoMG]])
       .filter(([, p]) => p > 0)
       .map(([uf, p]) => `<td style="padding:10px 14px;text-align:center;border-right:1px solid #e5e7eb">
           <div style="font-size:10px;font-weight:700;color:#888;letter-spacing:.08em;margin-bottom:4px">${uf}</div>

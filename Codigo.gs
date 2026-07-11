@@ -29,7 +29,6 @@ const SCHEMA_CLIENTE = [
   { nome: "PrecoMG",     largura: 100 },
   { nome: "Peso",        largura: 100 },
   { nome: "PrecoAtivo",  largura: 100 }, // 1 = preço ativado manualmente por admin (botão "Ativar preço"); vazio = normal
-  { nome: "PrecoBase",   largura: 100 }, // preço base informativo (clientes "preço duplo", ex. DAKOTA) — visível só na aba Cadastrar
   // → próximas colunas aqui
 ];
 
@@ -38,10 +37,11 @@ const SCHEMA_CLIENTE = [
 // Nesses clientes as colunas de preço por estado mudam de papel
 // (mesma ordem dos cabeçalhos renomeados na planilha do cliente):
 //   I (PrecoRS) = RS/CE · J (PrecoBA) = RS/RS · K (PrecoCE) = CE/CE · L (PrecoMG) = não usada
-// O admin informa um preço base (coluna O, PrecoBase — apenas informativo,
-// visível só na aba Cadastrar) e as variações % sobre esse preço base ficam
-// nas células W1/X1/Y1 (ver getReferencias/salvarDescontosEstado) — as células
-// T1/U1/V1 (variação por estado sobre RS) não são usadas nesses clientes.
+// O PREÇO BASE é o próprio RS/CE (coluna I): as variações % das outras duas
+// colunas usam o mecanismo padrão das células T1 (→ RS/RS) e U1 (→ CE/CE),
+// mudando apenas os rótulos na interface — V1 (MG) não é usada. O botão
+// "Aplicar em todos" da aba Cadastrar (aplicarVariacaoColuna) recalcula a
+// coluna inteira com o novo percentual sobre o RS/CE.
 // A regra de "preço atual" também muda: a variante é Referencia + MedidaBase
 // + Descricao — a mesma referência com descrições diferentes são itens
 // distintos e TODOS ficam ativos; com a mesma descrição vale a regra normal
@@ -249,7 +249,7 @@ function _getReferencias(nomeAba, busca, vendedorId) {
     const pN = _pN; // parser numérico robusto (aceita "R$ 0,89", "10,50", número puro — ver _pN no topo)
     const resultado = [];
     for (let i = 1; i < dados.length; i++) {
-      const [ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase, precoRS, precoBA, precoCE, precoMG, peso, precoAtivo, precoBase] = dados[i];
+      const [ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase, precoRS, precoBA, precoCE, precoMG, peso, precoAtivo] = dados[i];
       if (!ref) continue;
 
       const refStr = String(ref).toUpperCase();
@@ -283,7 +283,6 @@ function _getReferencias(nomeAba, busca, vendedorId) {
         precoMG: pN(precoMG),
         peso: pN(peso),
         precoAtivo: pN(precoAtivo) > 0,
-        precoBase: pN(precoBase),
         vigente
       });
     }
@@ -297,9 +296,10 @@ function _getReferencias(nomeAba, busca, vendedorId) {
 
     // Descontos/acréscimos por estado em % (células T1/U1/V1, fora do SCHEMA_CLIENTE)
     // Positivo = acréscimo, negativo = desconto. Zero/vazio = sem auto-preenchimento.
-    // Clientes "preço duplo" usam W1/X1/Y1: variação % sobre o PREÇO BASE para as
-    // colunas I (RS/CE), J (RS/RS) e K (CE/CE), nessa ordem.
-    const [dBA, dCE, dMG, dRSCE, dRSRS, dCECE] = aba.getRange("T1:Y1").getValues()[0];
+    // Clientes "preço duplo" usam as MESMAS células com outro papel: o preço base é
+    // o RS/CE (coluna I) e T1/U1 guardam a variação % de RS/RS (J) e CE/CE (K)
+    // sobre ele; V1 (MG) não é usada.
+    const [dBA, dCE, dMG] = aba.getRange("T1:V1").getValues()[0];
     const descontoBA = pN(dBA);
     const descontoCE = pN(dCE);
     const descontoMG = pN(dMG);
@@ -307,8 +307,7 @@ function _getReferencias(nomeAba, busca, vendedorId) {
     return {
       ok: true, refs: resultado, prazoPagamento: prazoRaw, prazoPagamentoDias, prazoPagamentoDiasTodos,
       descontoBA, descontoCE, descontoMG,
-      precoDuplo: _ehPrecoDuplo(nomeAba),
-      descontoRSCE: pN(dRSCE), descontoRSRS: pN(dRSRS), descontoCECE: pN(dCECE)
+      precoDuplo: _ehPrecoDuplo(nomeAba)
     };
   } catch (e) {
     return { ok: false, erro: e.message };
@@ -359,17 +358,8 @@ function salvarDescontosEstado(nomeAba, descontos, token) {
       return isNaN(n) ? 0 : n;
     };
 
-    // Cliente "preço duplo": as variações são % sobre o PREÇO BASE e vivem em
-    // W1/X1/Y1 (colunas I=RS/CE, J=RS/RS, K=CE/CE, nessa ordem). T1/U1/V1 não são usadas.
-    if (_ehPrecoDuplo(nomeAba)) {
-      const rsce = pct(descontos.rsce);
-      const rsrs = pct(descontos.rsrs);
-      const cece = pct(descontos.cece);
-      aba.getRange("W1:Y1").setValues([[rsce !== 0 ? rsce : "", rsrs !== 0 ? rsrs : "", cece !== 0 ? cece : ""]]);
-      _log(vendedorId, "SALVAR_DESCONTOS_ESTADO", nomeAba + " -> RS/CE:" + rsce + "% RS/RS:" + rsrs + "% CE/CE:" + cece + "%");
-      return { ok: true, descontoRSCE: rsce, descontoRSRS: rsrs, descontoCECE: cece };
-    }
-
+    // Nos clientes "preço duplo" as mesmas células valem com rótulos trocados:
+    // T1 = variação RS/RS e U1 = variação CE/CE, % sobre o preço base RS/CE (col I).
     const ba = pct(descontos.ba);
     const ce = pct(descontos.ce);
     const mg = pct(descontos.mg);
@@ -378,6 +368,58 @@ function salvarDescontosEstado(nomeAba, descontos, token) {
 
     _log(vendedorId, "SALVAR_DESCONTOS_ESTADO", nomeAba + " -> BA:" + ba + "% CE:" + ce + "% MG:" + mg + "%");
     return { ok: true, descontoBA: ba, descontoCE: ce, descontoMG: mg };
+  } catch (e) {
+    if (e.message === "SESSAO_EXPIRADA") return { ok: false, erro: "Sessão expirada. Faça login novamente.", sessaoExpirada: true };
+    return { ok: false, erro: e.message };
+  }
+}
+
+// ============================================================
+// APLICAR VARIAÇÃO EM TODA A COLUNA (clientes "preço duplo" — admin)
+// Botão "Aplicar em todos" da aba Cadastrar: recalcula o preço de UMA
+// coluna (alvo "rsrs" = J/RS/RS ou "cece" = K/CE/CE) para TODOS os itens
+// da tabela a partir do preço base RS/CE (coluna I):
+//   novo = RS/CE × (1 + percentual/100), arredondado em centavos.
+// Percentual positivo = aumento, negativo = redução. Só altera linhas que
+// têm base RS/CE > 0 E que já têm preço na coluna alvo — célula vazia
+// significa "item sem preço nessa modalidade" e permanece vazia. Também
+// grava o percentual na célula de variação (T1 para RS/RS, U1 para CE/CE),
+// para o auto-preenchimento dos próximos cadastros usar o mesmo valor.
+// ============================================================
+function aplicarVariacaoColuna(nomeAba, alvo, percentual, token) {
+  try {
+    const vendedorId = _exigirSessao(token);
+    if (!_ehAdmin(vendedorId)) return { ok: false, erro: "Apenas administradores podem recalcular a tabela." };
+    if (!_ehPrecoDuplo(nomeAba)) return { ok: false, erro: "Disponível apenas para clientes com preço origem/destino." };
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const aba = ss.getSheetByName(nomeAba);
+    if (!aba) return { ok: false, erro: "Aba do cliente não encontrada." };
+
+    const config = { rsrs: { col: 10, cel: "T1", rotulo: "RS/RS" }, cece: { col: 11, cel: "U1", rotulo: "CE/CE" } }[alvo];
+    if (!config) return { ok: false, erro: "Coluna de preço inválida." };
+
+    const pct = _pN(percentual);
+    if (!pct) return { ok: false, erro: "Informe um percentual diferente de zero." };
+
+    const dados = aba.getDataRange().getValues();
+    if (dados.length < 2) return { ok: false, erro: "A tabela deste cliente está vazia." };
+
+    const novos = [];
+    let alterados = 0;
+    for (let i = 1; i < dados.length; i++) {
+      const atual = dados[i][config.col - 1];
+      const base = _pN(dados[i][8]); // coluna I = preço base RS/CE
+      if (!dados[i][0] || base <= 0 || _pN(atual) <= 0) { novos.push([atual]); continue; } // preserva como está
+      novos.push([Math.round(base * (1 + pct / 100) * 100) / 100]);
+      alterados++;
+    }
+
+    aba.getRange(2, config.col, novos.length, 1).setValues(novos);
+    aba.getRange(config.cel).setValue(pct);
+
+    _log(vendedorId, "APLICAR_VARIACAO_COLUNA", `${nomeAba} | ${config.rotulo} ${pct}% | ${alterados} item(ns)`);
+    return { ok: true, alterados, pct, msg: `${alterados} preço(s) ${config.rotulo} recalculado(s): RS/CE ${pct > 0 ? "+" : ""}${pct}%.` };
   } catch (e) {
     if (e.message === "SESSAO_EXPIRADA") return { ok: false, erro: "Sessão expirada. Faça login novamente.", sessaoExpirada: true };
     return { ok: false, erro: e.message };
@@ -414,7 +456,7 @@ function salvarReferencia(nomeAba, dados, token, linhaEdicao, modoConflito) {
     const aba = ss.getSheetByName(nomeAba);
     if (!aba) return { ok: false, erro: "Aba do cliente não encontrada." };
 
-    const { ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase, precoRS, precoBA, precoCE, precoMG, peso, precoBase } = dados;
+    const { ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase, precoRS, precoBA, precoCE, precoMG, peso } = dados;
     const pN = _pN; // parser numérico robusto (aceita "R$ 0,89", "10,50", número puro — ver _pN no topo)
 
     if (!ref || !dataInicio) return { ok: false, erro: "Referência e data de início são obrigatórios." };
@@ -503,8 +545,7 @@ function salvarReferencia(nomeAba, dados, token, linhaEdicao, modoConflito) {
       pN(precoCE),
       pN(precoMG),
       pN(peso),
-      precoAtivoExistente || "",
-      pN(precoBase) || ""
+      precoAtivoExistente || ""
     ];
 
     if (linhaEdicao) {
@@ -542,7 +583,7 @@ function renovarReferencia(nomeAba, linhaOrigem, dados, token) {
     if (!aba) return { ok: false, erro: "Aba do cliente não encontrada." };
 
     const pN = _pN; // parser numérico robusto (aceita "R$ 0,89", "10,50", número puro — ver _pN no topo)
-    const { preco, precoRS, precoBA, precoCE, precoMG, precoBase, dataInicio, dataFim } = dados;
+    const { preco, precoRS, precoBA, precoCE, precoMG, dataInicio, dataFim } = dados;
 
     if (!dataInicio) return { ok: false, erro: "Data de início é obrigatória." };
     if (!pN(precoRS) && !pN(precoBA) && !pN(precoCE) && !pN(precoMG))
@@ -577,7 +618,6 @@ function renovarReferencia(nomeAba, linhaOrigem, dados, token) {
       pN(precoMG),
       rowData[12] || 0,                  // peso (copiado)
       "",                                // PrecoAtivo: marcação manual não é herdada — a nova vigência já é o preço atual automático
-      pN(precoBase) || "",               // PrecoBase da nova vigência (informado no modal; não copia o da vigência antiga)
     ];
 
     aba.appendRow(novaLinha);
@@ -794,7 +834,6 @@ function enviarEmailAtualizacao(nomeAba, token) {
     const vigentes = refs.filter(r => r.vigente);
     const fmtBRL = v => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
     // Cliente "preço duplo": rótulos origem/destino nas colunas I/J/K; MG não é usada.
-    // O PrecoBase (coluna O) é informativo do cadastro e NÃO vai no email.
     const duploEmail = _ehPrecoDuplo(nomeAba);
     const linhasTabela = vigentes.map(r => {
       const unidLabel = r.unidade === "pares" ? "par" : r.unidade === "pecas" ? "peça" : r.unidade === "kg" ? "kg" : "metro";
@@ -932,8 +971,7 @@ function enviarEmailReferencia(nomeAba, refDados, token) {
     const medSufixo  = unidade === "metros" ? "mm" : "cm";
     const medLabel   = medidaBase > 0 ? ` (base: ${medidaBase}${medSufixo})` : "";
 
-    // Cliente "preço duplo": rótulos origem/destino (I=RS/CE, J=RS/RS, K=CE/CE);
-    // MG não é usada e o PrecoBase informativo não vai no email.
+    // Cliente "preço duplo": rótulos origem/destino (I=RS/CE, J=RS/RS, K=CE/CE); MG não é usada.
     const estadosCells = (_ehPrecoDuplo(nomeAba)
       ? [["RS/CE", precoRS], ["RS/RS", precoBA], ["CE/CE", precoCE]]
       : [["RS", precoRS], ["BA", precoBA], ["CE", precoCE], ["MG", precoMG]])

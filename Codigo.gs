@@ -55,6 +55,20 @@ function _ehPrecoDuplo(nomeAba) {
 }
 
 // ============================================================
+// PARSER NUMÉRICO (pN) — usar em TODO valor numérico lido da planilha
+// ou de input do usuário. Aceita número puro, texto com vírgula decimal
+// ("10,50"), prefixo de moeda ("R$ 0,89" — caso real da aba DAKOTA, colada
+// como texto: o parser antigo zerava esses preços silenciosamente) e
+// separador de milhar quando há vírgula decimal ("1.234,56").
+// ============================================================
+function _pN(v) {
+  if (typeof v === "number") return isNaN(v) ? 0 : v;
+  let s = String(v == null ? "" : v).replace(/R\$/gi, "").trim();
+  if (s.indexOf(",") >= 0) s = s.replace(/\./g, "").replace(",", ".");
+  return parseFloat(s) || 0;
+}
+
+// ============================================================
 // PONTO DE ENTRADA WEB
 // ============================================================
 function doGet(e) {
@@ -232,7 +246,7 @@ function _getReferencias(nomeAba, busca, vendedorId) {
     const hoje = new Date();
     hoje.setHours(0, 0, 0, 0);
 
-    const pN = v => parseFloat(String(v || "0").replace(",", ".")) || 0;
+    const pN = _pN; // parser numérico robusto (aceita "R$ 0,89", "10,50", número puro — ver _pN no topo)
     const resultado = [];
     for (let i = 1; i < dados.length; i++) {
       const [ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase, precoRS, precoBA, precoCE, precoMG, peso, precoAtivo, precoBase] = dados[i];
@@ -401,7 +415,7 @@ function salvarReferencia(nomeAba, dados, token, linhaEdicao, modoConflito) {
     if (!aba) return { ok: false, erro: "Aba do cliente não encontrada." };
 
     const { ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase, precoRS, precoBA, precoCE, precoMG, peso, precoBase } = dados;
-    const pN = v => parseFloat(String(v || "0").replace(",", ".")) || 0;
+    const pN = _pN; // parser numérico robusto (aceita "R$ 0,89", "10,50", número puro — ver _pN no topo)
 
     if (!ref || !dataInicio) return { ok: false, erro: "Referência e data de início são obrigatórios." };
     if (unidade !== "kg" && (!medidaBase || pN(medidaBase) <= 0)) return { ok: false, erro: "Informe a medida base (valor maior que zero)." };
@@ -527,7 +541,7 @@ function renovarReferencia(nomeAba, linhaOrigem, dados, token) {
     const aba = ss.getSheetByName(nomeAba);
     if (!aba) return { ok: false, erro: "Aba do cliente não encontrada." };
 
-    const pN = v => parseFloat(String(v || "0").replace(",", ".")) || 0;
+    const pN = _pN; // parser numérico robusto (aceita "R$ 0,89", "10,50", número puro — ver _pN no topo)
     const { preco, precoRS, precoBA, precoCE, precoMG, precoBase, dataInicio, dataFim } = dados;
 
     if (!dataInicio) return { ok: false, erro: "Data de início é obrigatória." };
@@ -895,7 +909,7 @@ function enviarEmailReferencia(nomeAba, refDados, token) {
       return { ok: false, erro: "Nenhum vendedor com email cadastrado para este cliente.", semEmail };
     }
 
-    const pN = v => parseFloat(String(v || "0").replace(",", ".")) || 0;
+    const pN = _pN; // parser numérico robusto (aceita "R$ 0,89", "10,50", número puro — ver _pN no topo)
     const escH = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
     const nomeCliente = nomeAba.replace(/ CLIENTE$/i, "");
     const hoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
@@ -1041,7 +1055,7 @@ function notificarItemSemPreco(dados, token) {
     }
 
     const escH = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-    const pN = v => parseFloat(String(v || "0").replace(",", ".")) || 0;
+    const pN = _pN; // parser numérico robusto (aceita "R$ 0,89", "10,50", número puro — ver _pN no topo)
     const fmtBRL = v => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
     const nomeCliente = String(dados.cliente || "").replace(/ CLIENTE$/i, "");

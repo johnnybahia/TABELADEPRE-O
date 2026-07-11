@@ -262,18 +262,30 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
             </div>
             <button class="btn btn-ghost btn-sm" style="border-color:var(--navy);color:var(--navy)" onclick="abrirModalNotificar()">&#x1F4E7; Notificar Vendedores</button>
           </div>
-          <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2);flex-wrap:wrap">
-            <span id="cad-var-titulo">Variação por estado&nbsp;(% sobre RS):</span>
-            <span id="cad-var-lbl-1" style="font-size:11px;font-weight:600;color:var(--text1)">BA</span>
-            <input type="text" inputmode="decimal" id="cad-desconto-ba" placeholder="Ex: -3" style="width:56px;text-align:center" autocomplete="off">
-            <span>%</span>
-            <span id="cad-var-lbl-2" style="font-size:11px;font-weight:600;color:var(--text1)">CE</span>
-            <input type="text" inputmode="decimal" id="cad-desconto-ce" placeholder="Ex: -3" style="width:56px;text-align:center" autocomplete="off">
-            <span>%</span>
-            <span id="cad-var-lbl-3" style="font-size:11px;font-weight:600;color:var(--text1)">MG</span>
-            <input type="text" inputmode="decimal" id="cad-desconto-mg" placeholder="Ex: -3" style="width:56px;text-align:center" autocomplete="off">
-            <span>%</span>
-            <button class="btn btn-ghost btn-sm" onclick="salvarDescontosEstadoCad()">&#x1F4BE; Salvar variações</button>
+          <div style="display:flex;align-items:flex-end;gap:12px;font-size:13px;color:var(--text2);flex-wrap:wrap">
+            <span id="cad-var-titulo" style="padding-bottom:6px">Variação por estado&nbsp;(% sobre RS):</span>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+              <button class="btn btn-ghost btn-sm" id="cad-var-aplicar-1" style="display:none;font-size:10px;padding:2px 8px;color:var(--accent);border-color:var(--accent)" title="Recalcula o preco desta coluna em TODOS os itens da tabela: RS/CE x (1 + %/100)" onclick="aplicarVariacaoColunaCad('rsrs')">&#x1F504; Aplicar em todos</button>
+              <div style="display:flex;align-items:center;gap:6px">
+                <span id="cad-var-lbl-1" style="font-size:11px;font-weight:600;color:var(--text1)">BA</span>
+                <input type="text" inputmode="decimal" id="cad-desconto-ba" placeholder="Ex: -3" style="width:56px;text-align:center" autocomplete="off">
+                <span>%</span>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+              <button class="btn btn-ghost btn-sm" id="cad-var-aplicar-2" style="display:none;font-size:10px;padding:2px 8px;color:var(--accent);border-color:var(--accent)" title="Recalcula o preco desta coluna em TODOS os itens da tabela: RS/CE x (1 + %/100)" onclick="aplicarVariacaoColunaCad('cece')">&#x1F504; Aplicar em todos</button>
+              <div style="display:flex;align-items:center;gap:6px">
+                <span id="cad-var-lbl-2" style="font-size:11px;font-weight:600;color:var(--text1)">CE</span>
+                <input type="text" inputmode="decimal" id="cad-desconto-ce" placeholder="Ex: -3" style="width:56px;text-align:center" autocomplete="off">
+                <span>%</span>
+              </div>
+            </div>
+            <div id="cad-var-grupo-3" style="display:flex;align-items:center;gap:6px;padding-bottom:2px">
+              <span id="cad-var-lbl-3" style="font-size:11px;font-weight:600;color:var(--text1)">MG</span>
+              <input type="text" inputmode="decimal" id="cad-desconto-mg" placeholder="Ex: -3" style="width:56px;text-align:center" autocomplete="off">
+              <span>%</span>
+            </div>
+            <button class="btn btn-ghost btn-sm" style="margin-bottom:2px" onclick="salvarDescontosEstadoCad()">&#x1F4BE; Salvar variações</button>
           </div>
         </div>
         <div class="form-card">
@@ -290,13 +302,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
             <div class="field full">
               <label id="cad-lbl-precos">Precos por Estado *</label>
               <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:4px">
-                <div id="cad-preco-base-wrap" style="display:none"><label style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">BASE&nbsp;(R$)</label><input type="text" inputmode="decimal" id="cad-preco-base" placeholder="0,00" style="margin-top:4px" oninput="autoFillDuplo('cad-preco-base','cad-preco-rs','cad-preco-ba','cad-preco-ce')"></div>
                 <div><label id="cad-lbl-rs" style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">RS&nbsp;(R$)</label><input type="text" inputmode="decimal" id="cad-preco-rs" placeholder="0,00" style="margin-top:4px" oninput="autoFillEstados('cad-preco-rs','cad-preco-ba','cad-preco-ce','cad-preco-mg')"></div>
                 <div><label id="cad-lbl-ba" style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">BA&nbsp;(R$)</label><input type="text" inputmode="decimal" id="cad-preco-ba" placeholder="0,00" style="margin-top:4px"></div>
                 <div><label id="cad-lbl-ce" style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">CE&nbsp;(R$)</label><input type="text" inputmode="decimal" id="cad-preco-ce" placeholder="0,00" style="margin-top:4px"></div>
                 <div id="cad-preco-mg-wrap"><label style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">MG&nbsp;(R$)</label><input type="text" inputmode="decimal" id="cad-preco-mg" placeholder="0,00" style="margin-top:4px"></div>
               </div>
-              <div id="cad-preco-base-hint" style="display:none;font-size:11px;color:var(--text2);margin-top:4px">O preco base e apenas informativo (fica salvo no item, visivel so aqui no Cadastrar) e preenche os precos ao lado conforme as variacoes salvas acima.</div>
+              <div id="cad-preco-base-hint" style="display:none;font-size:11px;color:var(--text2);margin-top:4px">O RS/CE e o preco base: ao digita-lo, RS/RS e CE/CE sao preenchidos conforme as variacoes salvas acima.</div>
             </div>
           </div>
           <input type="hidden" id="cad-linha-edicao" value="">
@@ -394,7 +405,6 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
       <div class="field full">
         <label>Precos por Estado (opcional)</label>
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:4px">
-          <div id="atu-base-wrap" style="display:none"><label style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">BASE&nbsp;(R$)</label><input type="text" inputmode="decimal" id="atu-base" placeholder="0,00" style="margin-top:4px" oninput="autoFillDuplo('atu-base','atu-rs','atu-ba','atu-ce')"></div>
           <div><label id="atu-lbl-rs" style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">RS&nbsp;(R$)</label><input type="text" inputmode="decimal" id="atu-rs" placeholder="0,00" style="margin-top:4px" oninput="autoFillEstados('atu-rs','atu-ba','atu-ce','atu-mg')"></div>
           <div><label id="atu-lbl-ba" style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">BA&nbsp;(R$)</label><input type="text" inputmode="decimal" id="atu-ba" placeholder="0,00" style="margin-top:4px"></div>
           <div><label id="atu-lbl-ce" style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.06em">CE&nbsp;(R$)</label><input type="text" inputmode="decimal" id="atu-ce" placeholder="0,00" style="margin-top:4px"></div>
@@ -446,7 +456,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
 <div id="print-output"></div>
 
 <script>
-var S={vendedor:null,token:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],confItens:[],descontosEstado:{ba:0,ce:0,mg:0},descontosDuplo:{rsce:0,rsrs:0,cece:0},cadPrecoDuplo:false,consPrecoDuplo:false,admVendedores:[],cadConflito:null};
+var S={vendedor:null,token:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],confItens:[],descontosEstado:{ba:0,ce:0,mg:0},cadPrecoDuplo:false,consPrecoDuplo:false,admVendedores:[],cadConflito:null};
 
 function gas(fn){
   var args=Array.prototype.slice.call(arguments,1);
@@ -497,7 +507,7 @@ async function fazerLogin(){
 document.getElementById("login-senha").addEventListener("keydown",function(e){if(e.key==="Enter")fazerLogin();});
 
 function fazerLogout(){
-  S={vendedor:null,token:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],confItens:[],descontosEstado:{ba:0,ce:0,mg:0},descontosDuplo:{rsce:0,rsrs:0,cece:0},cadPrecoDuplo:false,consPrecoDuplo:false,admVendedores:[]};
+  S={vendedor:null,token:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],confItens:[],descontosEstado:{ba:0,ce:0,mg:0},cadPrecoDuplo:false,consPrecoDuplo:false,admVendedores:[]};
   document.getElementById("screen-main").classList.remove("active");
   document.getElementById("screen-login").classList.add("active");
   document.getElementById("login-id").value="";
@@ -640,9 +650,6 @@ function renderRefs(r,containerId,modoEdicao){
       :futura?"<span class=\"badge warn\">&#x1F552; Programado p/ "+escHtml(ref.dataInicio||"")+"</span>"
       :"<span class=\"badge err\">&#x2717; Fora de vigencia</span>";
     var pesoBadge=ref.peso>0?"<span class=\"badge\">&#x2696;&#xFE0F; "+escHtml(String(ref.peso))+"g</span>":"";
-    // Preco base (coluna PrecoBase) e informativo do cadastro: aparece so na lista
-    // da aba Cadastrar (admin) de clientes "preço duplo" — nunca na consulta.
-    var baseBadge=(modoEdicao&&duplo&&ref.precoBase>0)?"<span class=\"badge\">&#x1F4B0; Base: "+fmt(ref.precoBase)+"</span>":"";
     var medidaLabel=/[a-zA-Z]/.test(ref.medidaBaseLabel||"")?ref.medidaBaseLabel:(medidaBase>0?medidaBase+medSufixo:"");
     var medidaHtml=medidaLabel?"<div class=\"ref-medida\">"+escHtml(medidaLabel)+"</div>":"";
     var obsHtml=ref.obs?"<div class=\"ref-obs\">&#x1F4DD; "+escHtml(ref.obs)+"</div>":"";
@@ -660,7 +667,7 @@ function renderRefs(r,containerId,modoEdicao){
       else if(!isAuto)ativoBtn="<div style=\"margin-top:8px\"><button class=\"btn btn-ghost btn-sm\" style=\"color:var(--accent);border-color:var(--accent)\" onclick=\"togglePrecoAtivo("+parseInt(ref.linha,10)+",true,"+(modoEdicao?"true":"false")+")\">&#x1F4CC; Ativar preco</button></div>";
     }
     var cardClass=isAtual?"atual":futura?"futura":ref.vigente?"antiga":"vencida";
-    return "<div class=\"ref-card "+cardClass+"\"><div class=\"ref-card-header\"><div><div class=\"ref-code\">"+escHtml(ref.ref)+"</div>"+(ref.descricao?"<div class=\"ref-desc\">"+escHtml(ref.descricao)+"</div>":"")+medidaHtml+"</div></div>"+estadosCard+"<div class=\"ref-meta\" style=\"margin-top:8px\">"+vigBadge+"<span class=\"badge\">&#x1F4C5; De: "+escHtml(ref.dataInicio||"–")+"</span><span class=\"badge\">&#x1F4C5; Ate: "+escHtml(ref.dataFim)+"</span>"+pesoBadge+baseBadge+"</div>"+obsHtml+ativoBtn+calcHtml+acoes+"</div>";
+    return "<div class=\"ref-card "+cardClass+"\"><div class=\"ref-card-header\"><div><div class=\"ref-code\">"+escHtml(ref.ref)+"</div>"+(ref.descricao?"<div class=\"ref-desc\">"+escHtml(ref.descricao)+"</div>":"")+medidaHtml+"</div></div>"+estadosCard+"<div class=\"ref-meta\" style=\"margin-top:8px\">"+vigBadge+"<span class=\"badge\">&#x1F4C5; De: "+escHtml(ref.dataInicio||"–")+"</span><span class=\"badge\">&#x1F4C5; Ate: "+escHtml(ref.dataFim)+"</span>"+pesoBadge+"</div>"+obsHtml+ativoBtn+calcHtml+acoes+"</div>";
   }).join("");
 }
 
@@ -1712,37 +1719,34 @@ async function recarregarListaCad(aba){
   S.cadPrecoDuplo=!!(r.ok&&r.precoDuplo);
   document.getElementById("cad-busca").value="";
   document.getElementById("cad-prazo-pagamento").value=(r.ok&&r.prazoPagamentoDiasTodos&&r.prazoPagamentoDiasTodos.length)?r.prazoPagamentoDiasTodos.join("/"):"";
+  // Nos clientes "preço duplo" as mesmas celulas T1/U1 valem com rotulos trocados:
+  // T1 = variacao RS/RS, U1 = variacao CE/CE (% sobre o preco base RS/CE, col I).
   S.descontosEstado={ba:r.ok?r.descontoBA||0:0,ce:r.ok?r.descontoCE||0:0,mg:r.ok?r.descontoMG||0:0};
-  S.descontosDuplo={rsce:r.ok?r.descontoRSCE||0:0,rsrs:r.ok?r.descontoRSRS||0:0,cece:r.ok?r.descontoCECE||0:0};
-  // Nos clientes "preço duplo" os tres inputs de variacao mostram RS/CE, RS/RS e
-  // CE/CE (% sobre o preco base, celulas W1/X1/Y1); nos demais, BA/CE/MG (% sobre
-  // RS, celulas T1/U1/V1).
-  var v1=S.cadPrecoDuplo?S.descontosDuplo.rsce:S.descontosEstado.ba;
-  var v2=S.cadPrecoDuplo?S.descontosDuplo.rsrs:S.descontosEstado.ce;
-  var v3=S.cadPrecoDuplo?S.descontosDuplo.cece:S.descontosEstado.mg;
-  document.getElementById("cad-desconto-ba").value=v1!==0?v1:"";
-  document.getElementById("cad-desconto-ce").value=v2!==0?v2:"";
-  document.getElementById("cad-desconto-mg").value=v3!==0?v3:"";
+  document.getElementById("cad-desconto-ba").value=S.descontosEstado.ba!==0?S.descontosEstado.ba:"";
+  document.getElementById("cad-desconto-ce").value=S.descontosEstado.ce!==0?S.descontosEstado.ce:"";
+  document.getElementById("cad-desconto-mg").value=S.descontosEstado.mg!==0?S.descontosEstado.mg:"";
   aplicarModoPrecoCad();
   renderRefs(r,"ref-list-cad",true);
   loading(false);
 }
 // Ajusta o formulario da aba Cadastrar ao modo do cliente selecionado: no modo
-// "preço duplo" mostra o campo Preco base, esconde MG e troca os rotulos das
-// colunas de preco (RS→RS/CE, BA→RS/RS, CE→CE/CE) e das variacoes.
+// "preço duplo" esconde MG, troca os rotulos das colunas de preco (RS→RS/CE,
+// BA→RS/RS, CE→CE/CE) e das variacoes (BA→RS/RS, CE→CE/CE, sobre o preco base
+// RS/CE) e mostra os botoes "Aplicar em todos" acima de cada percentual.
 function aplicarModoPrecoCad(){
   var duplo=!!S.cadPrecoDuplo,rot=rotulosPreco(duplo);
-  document.getElementById("cad-preco-base-wrap").style.display=duplo?"":"none";
   document.getElementById("cad-preco-base-hint").style.display=duplo?"":"none";
   document.getElementById("cad-preco-mg-wrap").style.display=duplo?"none":"";
-  document.getElementById("cad-lbl-precos").textContent=duplo?"Precos Origem/Destino *":"Precos por Estado *";
+  document.getElementById("cad-lbl-precos").textContent=duplo?"Precos Origem/Destino * (RS/CE e o preco base)":"Precos por Estado *";
   document.getElementById("cad-lbl-rs").innerHTML=rot[0]+"&nbsp;(R$)";
   document.getElementById("cad-lbl-ba").innerHTML=rot[1]+"&nbsp;(R$)";
   document.getElementById("cad-lbl-ce").innerHTML=rot[2]+"&nbsp;(R$)";
-  document.getElementById("cad-var-titulo").innerHTML=duplo?"Variação sobre o preço base&nbsp;(%):":"Variação por estado&nbsp;(% sobre RS):";
-  document.getElementById("cad-var-lbl-1").textContent=duplo?rot[0]:"BA";
-  document.getElementById("cad-var-lbl-2").textContent=duplo?rot[1]:"CE";
-  document.getElementById("cad-var-lbl-3").textContent=duplo?rot[2]:"MG";
+  document.getElementById("cad-var-titulo").innerHTML=duplo?"Variação sobre o preço base RS/CE&nbsp;(%):":"Variação por estado&nbsp;(% sobre RS):";
+  document.getElementById("cad-var-lbl-1").textContent=duplo?rot[1]:"BA";
+  document.getElementById("cad-var-lbl-2").textContent=duplo?rot[2]:"CE";
+  document.getElementById("cad-var-grupo-3").style.display=duplo?"none":"flex";
+  document.getElementById("cad-var-aplicar-1").style.display=duplo?"":"none";
+  document.getElementById("cad-var-aplicar-2").style.display=duplo?"":"none";
 }
 async function salvarPrazoPagamentoCad(){
   var aba=document.getElementById("cad-cliente").value;
@@ -1761,13 +1765,9 @@ async function salvarPrazoPagamentoCad(){
 async function salvarDescontosEstadoCad(){
   var aba=document.getElementById("cad-cliente").value;
   if(!aba){toast("Selecione um cliente.","error");return;}
-  // No modo "preço duplo" os mesmos tres inputs valem RS/CE, RS/RS e CE/CE
-  // (% sobre o preco base — o backend grava em W1/X1/Y1).
-  var descontos=S.cadPrecoDuplo?{
-    rsce:document.getElementById("cad-desconto-ba").value.trim(),
-    rsrs:document.getElementById("cad-desconto-ce").value.trim(),
-    cece:document.getElementById("cad-desconto-mg").value.trim()
-  }:{
+  // No modo "preço duplo" os inputs 1 e 2 valem RS/RS (T1) e CE/CE (U1), % sobre
+  // o preco base RS/CE; o terceiro (MG/V1) fica oculto e vazio.
+  var descontos={
     ba:document.getElementById("cad-desconto-ba").value.trim(),
     ce:document.getElementById("cad-desconto-ce").value.trim(),
     mg:document.getElementById("cad-desconto-mg").value.trim()
@@ -1776,23 +1776,41 @@ async function salvarDescontosEstadoCad(){
   try{
     var r=await gas("salvarDescontosEstado",aba,descontos,S.token);
     if(!r.ok){toast(r.erro,"error");loading(false);return;}
-    if(S.cadPrecoDuplo){
-      S.descontosDuplo={rsce:r.descontoRSCE||0,rsrs:r.descontoRSRS||0,cece:r.descontoCECE||0};
-      document.getElementById("cad-desconto-ba").value=S.descontosDuplo.rsce!==0?S.descontosDuplo.rsce:"";
-      document.getElementById("cad-desconto-ce").value=S.descontosDuplo.rsrs!==0?S.descontosDuplo.rsrs:"";
-      document.getElementById("cad-desconto-mg").value=S.descontosDuplo.cece!==0?S.descontosDuplo.cece:"";
-    }else{
-      S.descontosEstado={ba:r.descontoBA||0,ce:r.descontoCE||0,mg:r.descontoMG||0};
-      document.getElementById("cad-desconto-ba").value=S.descontosEstado.ba!==0?S.descontosEstado.ba:"";
-      document.getElementById("cad-desconto-ce").value=S.descontosEstado.ce!==0?S.descontosEstado.ce:"";
-      document.getElementById("cad-desconto-mg").value=S.descontosEstado.mg!==0?S.descontosEstado.mg:"";
-    }
+    S.descontosEstado={ba:r.descontoBA||0,ce:r.descontoCE||0,mg:r.descontoMG||0};
+    document.getElementById("cad-desconto-ba").value=S.descontosEstado.ba!==0?S.descontosEstado.ba:"";
+    document.getElementById("cad-desconto-ce").value=S.descontosEstado.ce!==0?S.descontosEstado.ce:"";
+    document.getElementById("cad-desconto-mg").value=S.descontosEstado.mg!==0?S.descontosEstado.mg:"";
     toast("Variações salvas!","success");
   }catch(e){toast("Erro ao salvar variações.","error");}
   loading(false);
 }
+// Botao "Aplicar em todos" (clientes "preço duplo", admin): recalcula a coluna
+// inteira na planilha — RS/RS (alvo "rsrs") ou CE/CE (alvo "cece") — com o
+// percentual digitado no input correspondente, sobre o preco base RS/CE de cada
+// item (novo = RS/CE × (1 + %/100), arredondado em centavos). Itens sem preco na
+// coluna alvo nao sao alterados. O percentual tambem e salvo (T1/U1).
+async function aplicarVariacaoColunaCad(alvo){
+  var aba=document.getElementById("cad-cliente").value;
+  if(!aba){toast("Selecione um cliente.","error");return;}
+  var inputId=alvo==="rsrs"?"cad-desconto-ba":"cad-desconto-ce";
+  var rotulo=alvo==="rsrs"?"RS/RS":"CE/CE";
+  var pct=parseFloat(String(document.getElementById(inputId).value||"").trim().replace(",","."))||0;
+  if(!pct){toast("Informe o percentual de "+rotulo+" antes de aplicar.","error");return;}
+  if(!confirm("Recalcular o preco "+rotulo+" de TODOS os itens da tabela?\n\nNovo "+rotulo+" = preco base RS/CE "+(pct>0?"+":"")+pct+"% (arredondado em centavos).\nItens sem preco "+rotulo+" cadastrado nao sao alterados."))return;
+  loading(true,"Recalculando precos "+rotulo+"...");
+  try{
+    var r=await gas("aplicarVariacaoColuna",aba,alvo,pct,S.token);
+    if(!r.ok){toast(r.erro,"error");loading(false);return;}
+    toast(r.msg,"success");
+    await recarregarListaCad(aba);
+  }catch(e){toast("Erro ao recalcular precos.","error");}
+  loading(false);
+}
+// Auto-preenchimento ao digitar o primeiro preco: nos clientes normais, RS
+// preenche BA/CE/MG (T1/U1/V1); nos clientes "preço duplo" o mesmo campo e o
+// preco base RS/CE e preenche RS/RS (T1) e CE/CE (U1) — o input de MG esta
+// oculto e V1 vazia, entao nada e escrito nele.
 function autoFillEstados(rsId,baId,ceId,mgId){
-  if(S.cadPrecoDuplo)return; // cliente "preço duplo": o auto-preenchimento parte do preco base (autoFillDuplo), nao do RS
   var rs=parseFloat(String(document.getElementById(rsId).value||"").trim().replace(",","."))||0;
   var d=S.descontosEstado;
   var fmtDec=function(v){return v.toFixed(2).replace(".",",");};
@@ -1806,22 +1824,10 @@ function autoFillEstados(rsId,baId,ceId,mgId){
   if(d.ce!==0)document.getElementById(ceId).value=fmtDec(rs*(1+d.ce/100));
   if(d.mg!==0)document.getElementById(mgId).value=fmtDec(rs*(1+d.mg/100));
 }
-// Cliente "preço duplo": ao digitar o PRECO BASE, aplica as variacoes salvas
-// (W1/X1/Y1) nos tres precos origem/destino — RS/CE, RS/RS e CE/CE, nessa ordem.
-// Apagar o preco base limpa os campos auto-preenchidos.
-function autoFillDuplo(baseId,rsceId,rsrsId,ceceId){
-  var base=parseFloat(String(document.getElementById(baseId).value||"").trim().replace(",","."))||0;
-  var d=S.descontosDuplo||{rsce:0,rsrs:0,cece:0};
-  var fmtDec=function(v){return v.toFixed(2).replace(".",",");};
-  [[rsceId,d.rsce],[rsrsId,d.rsrs],[ceceId,d.cece]].forEach(function(a){
-    if(a[1]===0)return;
-    document.getElementById(a[0]).value=base?fmtDec(base*(1+a[1]/100)):"";
-  });
-}
 async function salvarRef(){
   var aba=document.getElementById("cad-cliente").value;
   if(!aba){toast("Selecione um cliente.","error");return;}
-  var dados={ref:document.getElementById("cad-ref").value.trim(),descricao:document.getElementById("cad-desc").value.trim(),preco:0,dataInicio:document.getElementById("cad-inicio").value,dataFim:document.getElementById("cad-fim").value,obs:document.getElementById("cad-obs").value.trim(),unidade:document.getElementById("cad-unidade").value,medidaBase:document.getElementById("cad-medida-base").value,precoRS:document.getElementById("cad-preco-rs").value,precoBA:document.getElementById("cad-preco-ba").value,precoCE:document.getElementById("cad-preco-ce").value,precoMG:document.getElementById("cad-preco-mg").value,peso:document.getElementById("cad-peso").value,precoBase:document.getElementById("cad-preco-base").value};
+  var dados={ref:document.getElementById("cad-ref").value.trim(),descricao:document.getElementById("cad-desc").value.trim(),preco:0,dataInicio:document.getElementById("cad-inicio").value,dataFim:document.getElementById("cad-fim").value,obs:document.getElementById("cad-obs").value.trim(),unidade:document.getElementById("cad-unidade").value,medidaBase:document.getElementById("cad-medida-base").value,precoRS:document.getElementById("cad-preco-rs").value,precoBA:document.getElementById("cad-preco-ba").value,precoCE:document.getElementById("cad-preco-ce").value,precoMG:document.getElementById("cad-preco-mg").value,peso:document.getElementById("cad-peso").value};
   if(!dados.ref||!dados.dataInicio){toast("Preencha os campos obrigatorios (*).","error");return;}
   if(!dados.medidaBase||parseFloat(dados.medidaBase)<=0){toast("Informe a medida base (largura ou tamanho).","error");return;}
   var linhaEdicao=document.getElementById("cad-linha-edicao").value;
@@ -1940,7 +1946,6 @@ function editarRef(ref){
   document.getElementById("cad-preco-ba").value=ref.precoBA||"";
   document.getElementById("cad-preco-ce").value=ref.precoCE||"";
   document.getElementById("cad-preco-mg").value=ref.precoMG||"";
-  document.getElementById("cad-preco-base").value=ref.precoBase||"";
   document.getElementById("cad-peso").value=ref.peso||"";
   atualizarCamposMedida();
   var toISO=function(s){if(!s||s==="Sem vencimento")return "";var p=s.split("/");return p[2]&&p[1]&&p[0]?p[2]+"-"+p[1]+"-"+p[0]:"";};
@@ -1949,7 +1954,7 @@ function editarRef(ref){
   document.getElementById("cad-form-area").scrollIntoView({behavior:"smooth"});
 }
 function limparFormCad(){
-  ["cad-ref","cad-desc","cad-inicio","cad-fim","cad-obs","cad-medida-base","cad-preco-rs","cad-preco-ba","cad-preco-ce","cad-preco-mg","cad-preco-base","cad-peso"].forEach(function(id){document.getElementById(id).value="";});
+  ["cad-ref","cad-desc","cad-inicio","cad-fim","cad-obs","cad-medida-base","cad-preco-rs","cad-preco-ba","cad-preco-ce","cad-preco-mg","cad-peso"].forEach(function(id){document.getElementById(id).value="";});
   document.getElementById("cad-linha-edicao").value="";
   document.getElementById("cad-unidade").value="metros";
   document.getElementById("cad-form-title").textContent="Nova Referencia";
@@ -1989,8 +1994,6 @@ function verHistorico(refCode){
     var vigTxt=r.vigente?"&#x2713; Vigente":"Vencido";
     var rotH=rotulosPreco(!!S.cadPrecoDuplo);
     var paresH=[[rotH[0],r.precoRS],[rotH[1],r.precoBA],[rotH[2],r.precoCE],[rotH[3],r.precoMG]];
-    // No modo "preço duplo" mostra tambem o preco base informativo (o historico so e visivel na aba Cadastrar)
-    if(S.cadPrecoDuplo&&r.precoBase>0)paresH.push(["Base",r.precoBase]);
     var estadoTags=paresH
       .filter(function(e){return e[0]&&e[1]>0;})
       .map(function(e){return "<span style=\"font-size:11px\"><b>"+e[0]+":</b> "+fmt(e[1])+"</span>";})
@@ -2016,11 +2019,10 @@ function fecharModalHistorico(){document.getElementById("modal-historico").class
 function abrirModalAtualizar(ref){
   S.refParaAtualizar=ref;
   document.getElementById("modal-atualizar-ref").textContent=ref.ref+(ref.descricao?" — "+ref.descricao:"");
-  ["atu-inicio","atu-fim","atu-rs","atu-ba","atu-ce","atu-mg","atu-base"].forEach(function(id){document.getElementById(id).value="";});
+  ["atu-inicio","atu-fim","atu-rs","atu-ba","atu-ce","atu-mg"].forEach(function(id){document.getElementById(id).value="";});
   // Modal usado so na aba Cadastrar → o modo do cliente e S.cadPrecoDuplo:
-  // mostra o campo Preco base, esconde MG e aplica os rotulos origem/destino.
+  // esconde MG e aplica os rotulos origem/destino (RS/CE e o preco base).
   var duplo=!!S.cadPrecoDuplo,rot=rotulosPreco(duplo);
-  document.getElementById("atu-base-wrap").style.display=duplo?"":"none";
   document.getElementById("atu-mg-wrap").style.display=duplo?"none":"";
   document.getElementById("atu-lbl-rs").innerHTML=rot[0]+"&nbsp;(R$)";
   document.getElementById("atu-lbl-ba").innerHTML=rot[1]+"&nbsp;(R$)";
@@ -2043,7 +2045,7 @@ async function salvarAtualizarPreco(){
   var mg=document.getElementById("atu-mg").value;
   if(!pF(rs)&&!pF(ba)&&!pF(ce)&&!pF(mg)){toast("Informe pelo menos um preco por estado.","error");return;}
   var aba=document.getElementById("cad-cliente").value;
-  var dados={preco:0,precoRS:rs,precoBA:ba,precoCE:ce,precoMG:mg,precoBase:document.getElementById("atu-base").value,dataInicio:inicio,dataFim:document.getElementById("atu-fim").value};
+  var dados={preco:0,precoRS:rs,precoBA:ba,precoCE:ce,precoMG:mg,dataInicio:inicio,dataFim:document.getElementById("atu-fim").value};
   fecharModalAtualizar();
   loading(true,"Atualizando...");
   try{

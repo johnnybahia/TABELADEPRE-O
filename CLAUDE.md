@@ -103,7 +103,7 @@ Configurados na lista `CLIENTES_PRECO_DUPLO` em `Codigo.gs` (nome do cliente sem
 - **Botão "🔄 Aplicar em todos"** (um acima de cada percentual, visível só no modo duplo): recalcula a coluna inteira na planilha via `aplicarVariacaoColuna(nomeAba, alvo, percentual, token)` (admin; alvo `"rsrs"` = coluna J, `"cece"` = coluna K): para cada linha com base RS/CE > 0 **e que já tem preço na coluna alvo**, grava `novo = RS/CE × (1 + pct/100)` arredondado em centavos (célula vazia = item sem preço nessa modalidade, permanece vazia); o percentual também é salvo em T1/U1. Serve para reajustes para cima ou para baixo (pct negativo). Log: `APLICAR_VARIACAO_COLUNA`. O frontend pede `confirm` antes (`aplicarVariacaoColunaCad`).
 - **Regra de "preço atual" por descrição**: a variante passa a ser `Referencia + MedidaBase + Descricao` (`refVarianteKey(x, duplo)` no `Index.html`). A mesma referência com **descrições diferentes** são itens distintos — **todos ficam ativos** (cada um com seu próprio preço atual); com a **mesma descrição** vale a regra normal (só a linha vigente de DataInicio mais recente). O botão "📌 Ativar preco"/ativação manual continua funcionando normalmente.
 - **Conflito de vigência no cadastro**: `salvarReferencia` só considera conflito quando `Referencia + MedidaBase + Descricao` coincidem (descrição comparada com trim+uppercase) — cadastrar a mesma referência com descrição diferente salva direto, sem modal, e as duas linhas coexistem ativas.
-- A conferência de PDF (aba "Conferir") **não** tem formato DAKOTA calibrado ainda — nada foi alterado nesse fluxo.
+- A conferência (aba "Conferir") **já suporta DAKOTA** — arquivos-texto `.dkn`/`.dke`/`.htm`, detecção automática da modalidade RS/RS·RS/CE·CE/CE por CNPJ e o fluxo de "ensinar associação". Ver a seção **"Aba 'Conferir' — formato DAKOTA (arquivos-texto)"** abaixo.
 
 ### Regra de "Preço atual" e ativação manual (coluna PrecoAtivo)
 
@@ -159,6 +159,15 @@ A célula **S1** de cada aba de cliente armazena o prazo de pagamento no formato
   - DILLY: tabela "Previsão" com colunas "Dias Parcela" / "Valor Parcela" na última página de cada OC — pagamento sempre em 2 parcelas iguais (50%/50% do total), tipicamente 60 e 90 dias. `confParseCampos` localiza a linha `Dias Parcela`, lê cada linha seguinte que casa `^(\d{2,3})\s*R\$` até a linha `Total`, e monta `prazoPagamento` como `"60/90"` (com fallback para o caso em que cabeçalho e valores caem na mesma linha reconstruída).
   - Em ambos os casos `c.prazoPagamento` é uma string que pode conter um ou mais números separados por `/`.
 - `confRenderResultados` compara a lista de dias extraída do PDF (`campos.prazoPagamento.split("/")`) com a lista cadastrada (`item.prazoCadastradoTodos`, vindo de `prazoPagamentoDiasTodos`): listas iguais (mesmo tamanho e mesma ordem) → badge "confere"; tamanhos/valores diferentes → "divergente" (mostra ambas as listas, ex: `pedido 60/90 dias × cadastro 90 dias` — sinaliza cadastro legado ainda não migrado para o formato parcelado); só um dos dois lados tem dado → aviso de "sem cadastro" ou "não encontrado no pedido".
+
+### Células AC1 (apelidos de conferência) e AD1 (itens ignorados) — metadados, fora do SCHEMA_CLIENTE
+
+O fluxo de "ensinar associação" da aba Conferir (ver seção DAKOTA abaixo) persiste em **duas células de metadados** por aba de cliente, escolhidas **bem longe** das colunas de custo legadas N/O/P (que ainda têm dados em DASS/RAMARIM/DAKOTA) e das células S1/T1/U1/V1 — evitando qualquer colisão/sobrescrita:
+
+- **AC1 — apelidos aprendidos**: mapa `CODIGO=apelido` com entradas separadas por `|` (ex.: `M1294=LS11628|M13499=cad.bicolor`). `getReferencias` lê AC1, monta `aliasMap[codigo] → [apelidos]` e anexa `aliasesConf` (string `|`-separada) a **todas as vigências** daquele código. `confValidar` transforma cada apelido num candidato-alias (mesmo mecanismo do `ant.` legado). Escrita: `salvarAliasConf(nomeAba, linhaAlvo, alias, token)` (admin) lê o código da linha escolhida e faz append em AC1.
+- **AD1 — itens fora da tabela**: tokens de descrição separados por `|`. `getReferencias` retorna `ignoradosConf`; `confValidar` marca como status **`IGNORADO`** (neutro, não sinaliza) qualquer bloco não-casado cujo texto normalizado contenha um token. Escrita: `salvarIgnoradoConf(nomeAba, chave, token)` (admin).
+
+Ambas são criadas sob demanda (`setValue`) — **não** exigem `migrarSchema()`.
 
 ---
 
@@ -300,6 +309,33 @@ O parsing foi calibrado com as OCs da DASS, da RAMARIM e da DILLY (PDFs de exemp
   - **Marca** (`MORMAII`/`SKECHERS`, do cabeçalho) também aparece na Descricao das linhas da tabela (`...preto/cores Mormaii`) — disponível para desambiguar quando código + espessura empatarem (uso futuro).
   - **Prazo**: o pagamento DILLY é em 2 parcelas iguais (50%/50% do total), tabela "Previsão" → "Dias Parcela"/"Valor Parcela" na última página, tipicamente `60`/`90 dias` — modelo diferente do "N dias" único de DASS/RAMARIM. Extraído por `confParseCampos` como `prazoPagamento="60/90"` e comparado em `confRenderResultados` contra `prazoPagamentoDiasTodos` cadastrado na célula S1 (ver seção "Célula S1" acima). `Situação` pode ser `Aberta` ou `Recebida` (não afeta o parser).
   - Outras observações: cor codificada (`BRANCO 102` / `PRETO 100` — 100/102 são cor, não tamanho); `Situação` pode ser `Aberta` ou `Recebida`; pagamento em parcelas (60/90 dias) — modelo diferente do "N dias" de DASS/RAMARIM, tratar prazo depois.
+
+### Aba "Conferir" — formato DAKOTA (arquivos-texto, **não** PDF)
+
+A Dakota manda os pedidos como **arquivos-texto**, não PDF. A aba Conferir aceita esses arquivos direto no `<input>`/drop-zone (`accept` inclui `.dkn,.dke,.htm,.html,.txt`). `confArquivosSelecionados` ramifica por tipo: PDF segue o caminho pdf.js; os demais são lidos com `file.text()` e roteados para os leitores DAKOTA. `confExecutarAnalise` guarda `item.blocos`/`item.formato` e chama `confValidar` com `opts` (ver abaixo). PDFs de exemplo/uso na raiz: `.dkn`/`.dke` (JHONY 1-10, oc26xx/oc260x CEARA) e `.htm` (`oc86488ddkn.htm`, `oc87333ddkn.htm`).
+
+**Dois subformatos** (`item.formato`):
+- **`DAKOTA_FIXO`** (`.dkn`/`.dke`) — largura fixa, **uma linha = um item**. `confDakotaLerFixo` filtra as linhas de item (contêm `Arquivo XML` + `(PR|MT)\d{17}R$`); a própria linha crua é o "bloco" (a descrição `ATACADOR/FITA … <código> …` está nela, então `confRefRegex` casa direto). `confParseItemBlocoDakotaFixo` extrai: unidade `PR`/`MT`, preço (`\d{17}` após a unidade, **÷100** = centavos implícitos), qtd (`\d{9}` antes, ÷1000), tamanho `NNcm` e largura `mm` (ignorando a ponteira `PONT.20MM`).
+- **`DAKOTA_HTM`** (`.htm`) — "Ordem de Compra" em HTML. `confDakotaLerHtm` extrai cabeçalho do texto sem tags e os itens percorrendo `<tr>` com 7 células (a **descrição** é a célula com `font size=1`; qtd/uni/prc são as 3 células seguintes). Números do htm usam **ponto decimal** (`0.67`) → `confPUS` (não `pBR`, que trata `.` como milhar). Cada item vira um bloco `"<descrição>  ###U:<uni> ###P:<preço> ###Q:<qtd>"`; `confParseItemBlocoDakotaHtm` lê os marcadores `###` e a descrição (onde `confRefRegex` casa). Ao exibir "Ver trecho do pedido"/descrição do card, os marcadores `###…` são removidos.
+
+**Modalidade origem→destino (RS/RS · RS/CE · CE/CE) por CNPJ** — o ponto central deste cliente:
+- **Fornecedor Marfim** (origem): `93825230000170` = **RS** · `19542918000190` = **CE** (`CONF_DAKOTA_MARFIM`).
+- **Comprador Dakota** (destino): CNPJ começa com `07414643` = **RS** · `00465813` (Dakota Nordeste, Russas/Maranguape) = **CE** (`confDakotaDestino`).
+- `confDakotaModalidade(origem,destino)`: CE→CE=`CE/CE` · RS→RS=`RS/RS` · RS→CE=`RS/CE`. **CE→RS não ocorre** (Marfim-CE só vende p/ CE).
+- Como a DAKOTA é **preço duplo**, as colunas I/J/K já são RS/CE·RS/RS·CE/CE. `confDakotaModalUf` mapeia a modalidade para o **código de coluna** usado por `confValidar` (`precoRS`/`precoBA`/`precoCE`): **RS/CE→`RS`** · **RS/RS→`BA`** · **CE/CE→`CE`**. No fixo os CNPJs saem das posições da linha; no htm, do bloco fornecedor + município do comprador. O seletor do card mostra a **modalidade** (valores = códigos de coluna), permitindo corrigir manualmente.
+
+**`confValidar` ganhou um 6º parâmetro `opts`** (retrocompatível — DASS/RAMARIM/DILLY chamam sem ele):
+- **`opts.arred`** — arredondamento do proporcional em centavos. A Dakota usa **bancário/round-half-even** (`confArredCentBankers`): `0,825→0,82` mas `0,5695→0,57`. Sem isso o round-half-up padrão geraria falso "divergente" nos meios-centavos.
+- **`opts.ignorados`** — lista de AD1 (itens fora da tabela → status `IGNORADO`).
+- **Filtro por tipo de unidade**: quando o item traz `unit` (`PR`/`MT` — só formatos Dakota), `confValidar` prefere as linhas do **mesmo tipo** (PR→PAR/cm, MT→METRO/direto) antes de `confEscolherVigencia`. Corrige o caso `M22063` (linha PAR e linha METRO de mesma `DataInicio` — o desempate por data cairia na errada). DASS/RAMARIM/DILLY não setam `unit` → filtro inócuo.
+- **Preço atual**: `confExecutarAnalise` chama a Dakota com `emissao=""` → `confEscolherVigencia` usa a data de hoje = **vigência mais recente** (decisão do usuário: conferir contra o preço atual, não o vigente na data do pedido).
+
+**Fluxo "ensinar associação"** (item não identificado) — **à parte** da "Comunicar a direção" (que pede cadastro de item/preço e continua igual):
+- **Admin (`*`)**: botão **"🎓 Identificar / ensinar"** abre painel inline (`confEnsinarPanel`) — escolhe a referência da tabela (lista de `item.refsCadastro`, guardada na análise), edita o **apelido sugerido** (`confAliasSugerido` limpa categoria/tamanho/cor) e salva (`confSalvarAlias` → `salvarAliasConf` grava `CODIGO=apelido` em **AC1**). Botão **"Não está na lista de preços"** → `confMarcarIgnorado` → `salvarIgnoradoConf` grava em **AD1** (status `IGNORADO`). Após salvar, re-roda `confExecutarAnalise` (sem cache) e o item já casa.
+- **Vendedor (não-admin)**: botão **"📤 Enviar item para análise"** → `confEnviarAnalise` → backend `enviarItemAnalise` manda email aos admins **com o arquivo do pedido anexado** (`dados.mime` correto por extensão — `confMimeArquivo`) para o admin abrir, testar e ensinar.
+- Novo status **`IGNORADO`** em `CONF_STATUS` (peso 6, neutro) e no resumo.
+
+**Validação (harness):** `amostras/harness.js` reproduz as funções puras e `amostras/verifica_index.js` carrega o `<script>` real do `Index.html` num sandbox e roda ambos contra os 23 arquivos → **60 OK · 57 DIVERGENTE · 6 NÃO_CADASTRADO · 1 SEM_PREÇO** (as divergências são reais/reajuste: M13499 1,27×1,26; M22063 reajustado em 08/07; MER cobrado na coluna RS/RS; M16214 120cm preto/cinza; LS16410 c/ desconto). Ensinar `LS11628→M1294` + ignorar `FITA REFORCO FR` zera os 6 não-cadastrados (3→OK, 3→IGNORADO). Rodar: `node amostras/verifica_index.js` (precisa dos 23 arquivos e da CSV DAKOTA no lugar).
 
 ---
 

@@ -227,13 +227,13 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
 
     <!-- CONFERIR PEDIDO PDF -->
     <div class="panel" id="panel-conferir">
-      <p class="section-title">Conferir Pedido (PDF)</p>
+      <p class="section-title">Conferir Pedido</p>
       <div class="form-card">
-        <input type="file" id="conf-file" accept="application/pdf,.pdf" multiple style="display:none">
+        <input type="file" id="conf-file" accept="application/pdf,.pdf,.dkn,.dke,.htm,.html,.txt" multiple style="display:none">
         <div class="conf-drop" id="conf-drop">
           <div class="cd-icon">&#x1F4C4;</div>
-          <div><strong>Toque para escolher um ou mais PDFs de pedido</strong></div>
-          <div class="cd-sub">Pode selecionar varios arquivos de uma vez — cada PDF e identificado e conferido separadamente, em seu proprio bloco de resultado</div>
+          <div><strong>Toque para escolher um ou mais arquivos de pedido</strong></div>
+          <div class="cd-sub">Aceita PDF (DASS/RAMARIM/DILLY) e os arquivos-texto da Dakota (.dkn/.dke/.htm). Pode selecionar varios de uma vez — cada arquivo e identificado e conferido separadamente, em seu proprio bloco de resultado</div>
         </div>
       </div>
       <div class="conf-batch-bar" id="conf-batch-bar">
@@ -1102,6 +1102,91 @@ function confParseItemBloco(bloco){
   return {seq:seq,preco:preco,cm:cm,mm:mm,qtd:qtd};
 }
 
+// ============================================================
+// FORMATO DAKOTA (arquivos-texto .dkn/.dke de largura fixa e .htm)
+// Cliente "preço duplo": a MODALIDADE origem→destino (RS/RS, RS/CE, CE/CE) é
+// detectada pelos CNPJs (fornecedor Marfim + comprador Dakota) e decide a
+// coluna de preço (RS/CE=PrecoRS · RS/RS=PrecoBA · CE/CE=PrecoCE). A Dakota
+// arredonda o proporcional em centavos pelo modo BANCÁRIO (round-half-even).
+// Conferência sempre contra o PREÇO ATUAL da tabela (emissao vazia em
+// confExecutarAnalise → confEscolherVigencia usa a data de hoje).
+// ============================================================
+function confArredCentBankers(v){var c=v*100;var f=Math.floor(c);var d=c-f;if(Math.abs(d-0.5)<1e-9){return ((f%2===0)?f:f+1)/100;}return Math.round(c)/100;}
+var CONF_DAKOTA_MARFIM={"93825230000170":"RS","19542918000190":"CE"}; // CNPJ Marfim (fornecedor) → filial de origem
+function confDakotaOrigem(cnpj){return CONF_DAKOTA_MARFIM[cnpj]||"";}
+function confDakotaDestino(cnpjComprador){return /^07414643/.test(cnpjComprador)?"RS":/^00465813/.test(cnpjComprador)?"CE":"";} // 07414643=Dakota RS · 00465813=Dakota Nordeste (CE)
+function confDakotaModalidade(o,d){if(o==="CE")return "CE/CE";if(o==="RS"&&d==="RS")return "RS/RS";if(o==="RS"&&d==="CE")return "RS/CE";return "";}
+function confDakotaModalUf(m){return {"RS/CE":"RS","RS/RS":"BA","CE/CE":"CE"}[m]||"RS";} // coluna de preço (papel "preço duplo")
+function confDakotaEhFixo(nome,texto){return /\.(dkn|dke)$/i.test(nome)||(/Arquivo XML/i.test(texto)&&/(PR|MT)\s\d{17}R\$/.test(texto));}
+function confDakotaEhHtm(nome,texto){return /\.html?$/i.test(nome)||/<html|ORDEM DE COMPRA/i.test(texto);}
+function confDakotaEhTexto(nome,texto){return confDakotaEhFixo(nome,texto)||confDakotaEhHtm(nome,texto);}
+function confPUS(s){var n=parseFloat(String(s==null?"":s).replace(/[^0-9.]/g,""));return isNaN(n)?0:n;} // htm usa ponto como decimal ("0.67")
+function confStripTags(h){return String(h).replace(/<[^>]+>/g," ").replace(/&nbsp;/gi," ").replace(/\s+/g," ").trim();}
+
+// Lê um arquivo .dkn/.dke (largura fixa): cada linha válida = um item; extrai
+// modalidade/emissao/prazo do cabeçalho da 1ª linha (todas as linhas do mesmo
+// arquivo compartilham comprador+fornecedor). Retorna {campos, linhas, blocos}.
+function confDakotaLerFixo(texto){
+  var linhas=texto.split(/\r?\n/).map(function(l){return l.replace(/\t/g," ").replace(/\s+$/,"");}).filter(function(l){return /Arquivo XML/i.test(l)&&/(PR|MT)\s\d{17}R\$/.test(l);});
+  var first=linhas[0]||"";
+  var buyer=first.slice(0,14);var ms=first.match(/(\d{14})Arquivo XML/);var sup=ms?ms[1]:"";
+  var modal=confDakotaModalidade(confDakotaOrigem(sup),confDakotaDestino(buyer));
+  var c={ordem:"",emissao:"",marca:"",uf:confDakotaModalUf(modal),modalidade:modal,prazoPagamento:""};
+  var me=first.match(/\s(\d{8})V\d/);if(me)c.emissao=me[1].slice(6,8)+"/"+me[1].slice(4,6)+"/"+me[1].slice(0,4);
+  var mp=first.match(/R\$\s*0*(\d{1,3})/);if(mp)c.prazoPagamento=String(parseInt(mp[1],10));
+  return {campos:c,linhas:linhas,blocos:linhas};
+}
+// Parser de um item de largura fixa. A própria linha crua é o "bloco" — a
+// descrição (ATACADOR/FITA...) está nela, então confRefRegex casa a referência
+// diretamente. unit (PR/MT) permite a confValidar escolher a linha do mesmo tipo.
+function confParseItemBlocoDakotaFixo(linha){
+  var mu=linha.match(/(\d{9})(PR|MT)\s(\d{17})R\$/);if(!mu)return null;
+  var qtd=parseInt(mu[1],10)/1000,unit=mu[2],preco=parseInt(mu[3],10)/100;
+  if(!(preco>0))return null;
+  var desc="";var md=linha.match(/N\s{2,}(.+?)\s*\d{14}Arquivo/i);if(md)desc=md[1].trim();
+  var cm=0,mcm=desc.match(/(\d{2,3})\s*CM/i);if(mcm)cm=parseInt(mcm[1],10);
+  var mm=null,re=/(\d+(?:[.,]\d+)?)\s*MM/gi,g;while((g=re.exec(desc))){if(/PONT/i.test(desc.slice(Math.max(0,g.index-6),g.index)))continue;mm=pBR(g[1]);break;} // ignora ponteira "PONT.20MM"
+  return {seq:null,preco:preco,cm:cm,mm:mm,qtd:qtd,unit:unit};
+}
+// Lê um arquivo .htm (Ordem de Compra HTML). Cabeçalho: nº OC, emissão, prazo,
+// CNPJ Marfim (origem) e município do comprador (destino) → modalidade. Itens:
+// cada <tr> com 7 células (a descrição é a célula com font size=1); o bloco de
+// cada item é a descrição + marcadores ###U/###P/###Q para o parser.
+function confDakotaLerHtm(texto){
+  var plano=confStripTags(texto);
+  var c={ordem:"",emissao:"",marca:"",uf:"",modalidade:"",prazoPagamento:""};
+  var m;
+  m=plano.match(/Numero\s*:\s*([0-9A-Za-z]+)/i);if(m)c.ordem=m[1];
+  m=plano.match(/Emissao\s*:\s*(\d{2}\/\d{2}\/\d{2,4})/i);if(m)c.emissao=m[1];
+  m=plano.match(/Prazo\s+Pag\s*:\s*(\d+)/i);if(m)c.prazoPagamento=m[1];
+  var sup="";(plano.match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/g)||[]).forEach(function(x){var d=x.replace(/\D/g,"");if(CONF_DAKOTA_MARFIM[d])sup=d;});
+  var destino="";m=plano.match(/Municipio\s*:\s*[^-]*-\s*(RS|CE|BA|MG)\b/i);if(m)destino=(m[1].toUpperCase()==="RS")?"RS":"CE";
+  c.modalidade=confDakotaModalidade(confDakotaOrigem(sup),destino);
+  c.uf=confDakotaModalUf(c.modalidade);
+  var blocos=[],trRe=/<tr[^>]*>([\s\S]*?)<\/tr>/gi,tr;
+  while((tr=trRe.exec(texto))){
+    var tds=[],tdRe=/<td[^>]*>([\s\S]*?)<\/td>/gi,td;
+    while((td=tdRe.exec(tr[1])))tds.push({raw:td[0],txt:confStripTags(td[1])});
+    if(tds.length<7)continue;
+    var di=-1;for(var i=0;i<tds.length;i++){if(/size=["']?1["']?/i.test(tds[i].raw)){di=i;break;}}
+    if(di<0)continue;
+    var desc=tds[di].txt;if(!desc||!/[A-Z]{3}/i.test(desc))continue;
+    var uni=(tds[di+2]?tds[di+2].txt:"").toUpperCase().replace(/[^A-Z]/g,""),prc=confPUS(tds[di+3]?tds[di+3].txt:""),qtd=confPUS(tds[di+1]?tds[di+1].txt:"");
+    if(!(prc>0))continue;
+    blocos.push(desc+"  ###U:"+uni+" ###P:"+prc+" ###Q:"+qtd);
+  }
+  return {campos:c,linhas:blocos,blocos:blocos};
+}
+function confParseItemBlocoDakotaHtm(bloco){
+  var mp=bloco.match(/###P:([\d.]+)/),mu=bloco.match(/###U:([A-Z]*)/i),mq=bloco.match(/###Q:([\d.]+)/);
+  var preco=mp?parseFloat(mp[1]):0;if(!(preco>0))return null;
+  var unit=mu?mu[1].toUpperCase():"";
+  var desc=bloco.replace(/\s*###.*/,"");
+  var cm=0,mcm=desc.match(/(\d{2,3})\s*CM/i);if(mcm)cm=parseInt(mcm[1],10);
+  var mm=null,mmm=desc.match(/(\d+(?:[.,]\d+)?)\s*MM/i);if(mmm)mm=pBR(mmm[1]);
+  return {seq:null,preco:preco,cm:cm,mm:mm,qtd:mq?parseFloat(mq[1]):0,unit:/^P/.test(unit)?"PR":"MT"};
+}
+
 // Escolhe a linha da tabela cuja vigencia cobre a data de referencia;
 // se nenhuma cobre, retorna a mais atual e marca como vencida.
 // Quando ha mais de uma linha vigente para a mesma referencia/goma —
@@ -1133,7 +1218,7 @@ function confEscolherVigencia(rows,emissao,medidaPdf){
 // pares/pecas; preco direto para metros). Retorna null se a linha nao tiver
 // preco para a UF/base ou faltar a medida necessaria. Usado para montar as
 // "opcoes" quando ha mais de uma linha vigente candidata (confEscolherVigencia.pool).
-function confPrecoEsperado(row,uf,item){
+function confPrecoEsperado(row,uf,item,arred){
   var precoTab=row["preco"+uf]>0?row["preco"+uf]:(row.preco>0?row.preco:0);
   if(!precoTab)return null;
   var baseLabel=String(row.medidaBaseLabel||"");
@@ -1141,7 +1226,8 @@ function confPrecoEsperado(row,uf,item){
   if(usaCm){
     var medida=item.cm||0;
     if(!medida||!(row.medidaBase>0))return null;
-    return {esperado:(medida/row.medidaBase)*precoTab,medidaLabel:medida+"cm"};
+    var e=(medida/row.medidaBase)*precoTab;
+    return {esperado:arred?arred(e):e,medidaLabel:medida+"cm"};
   }
   return {esperado:precoTab,medidaLabel:unidadeKg(row.unidade)?"por kg":(row.medidaBase>0?(row.medidaBase+"mm · por metro"):"por metro")};
 }
@@ -1160,8 +1246,14 @@ function confMedidaPdf(bloco,rxBase){
   return toks[0].mm;
 }
 
-function confValidar(blocos,refs,uf,emissaoStr,parseFn){
+function confValidar(blocos,refs,uf,emissaoStr,parseFn,opts){
   parseFn=parseFn||confParseItemBloco;
+  opts=opts||{};
+  // arred: arredondamento do proporcional em centavos (Dakota usa bancário);
+  // ignorados: tokens (normalizados) de itens que o admin marcou como fora da
+  // tabela de preco deste cliente — deixam de ser sinalizados como divergencia.
+  var arred=opts.arred||null;
+  var ignorados=(opts.ignorados||[]).map(normTxt).filter(function(s){return s.length>=2;});
   // agrupa o cadastro por codigo-base + atributo goma (variantes com e sem
   // goma do mesmo codigo sao candidatas distintas)
   var mapa={};
@@ -1186,11 +1278,16 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn){
   // para as mesmas rows, permitindo que PDFs com o codigo antigo sejam casados.
   Object.keys(mapa).forEach(function(k){
     var entry=mapa[k];
+    var tokens=[];
     var mParen=entry.nome.match(/\(([^)]+)\)/);
-    if(!mParen)return;
-    var antigos=mParen[1].match(/\bant\.?\s*([A-Z][A-Z0-9]{1,}(?:[.\/_\-][A-Z0-9]+)*)/gi)||[];
-    antigos.forEach(function(a){
-      var aliasCode=a.replace(/^ant\.?\s*/i,"").trim();
+    if(mParen){
+      (mParen[1].match(/\bant\.?\s*([A-Z][A-Z0-9]{1,}(?:[.\/_\-][A-Z0-9]+)*)/gi)||[]).forEach(function(a){tokens.push(a.replace(/^ant\.?\s*/i,"").trim());});
+    }
+    // Apelidos aprendidos pelo admin na aba Conferir (celula AC1, via getReferencias.
+    // aliasesConf): texto/codigo do pedido que passa a casar com esta referencia.
+    // Mesmo mecanismo do "ant." legado, agora persistido e editavel pela interface.
+    entry.rows.forEach(function(r){String(r.aliasesConf||"").split("|").forEach(function(a){a=a.trim();if(a)tokens.push(a);});});
+    tokens.forEach(function(aliasCode){
       var an=normTxt(aliasCode);
       if(an.length<3)return;
       var ak=an+"|"+(entry.goma?1:0);
@@ -1233,6 +1330,14 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn){
     var hit=hits[0]||null;
     var res={seq:item.seq,bloco:bloco,precoPdf:item.preco,qtd:item.qtd,medida:0,medidaLabel:"",refNome:hit?hit.nome:"",descricao:"",unidade:"",vigencia:"",esperado:null,status:"",motivo:""};
     if(!hit){
+      // Item que o admin marcou como fora da tabela deste cliente (salvarIgnoradoConf):
+      // deixa de sinalizar — status neutro IGNORADO.
+      var nbIgn=normTxt(bloco);
+      if(ignorados.length&&ignorados.some(function(ig){return nbIgn.indexOf(ig)>=0;})){
+        res.status="IGNORADO";
+        res.motivo="Item marcado como fora da tabela de preco deste cliente.";
+        out.push(res);return;
+      }
       res.status="NAO_CADASTRADO";
       // Distingue dois casos para deixar claro no card POR QUE nao casou:
       // (1) a referencia-BASE existe na tabela, mas a variante de medida (mm) do
@@ -1257,7 +1362,17 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn){
       out.push(res);return;
     }
     var medidaPdf=item.cm||item.mm||0;
-    var esc=confEscolherVigencia(hit.rows,emissao,medidaPdf);
+    // Quando o pedido informa a unidade (PR/MT — formatos Dakota), prefere as
+    // linhas do MESMO tipo (PR→PAR/cm · MT→METRO/direto). Sem isso, um codigo com
+    // linha PAR e linha METRO de mesma DataInicio (ex.: M22063) poderia cair na
+    // METRO por desempate de data. DASS/RAMARIM/DILLY nao setam item.unit → filtro ignorado.
+    var rowsTipo=hit.rows;
+    if(item.unit){
+      var querCm=(item.unit==="PR");
+      var fTipo=hit.rows.filter(function(r){var bl=String(r.medidaBaseLabel||"");var rc=/CM/i.test(bl)?true:/MM/i.test(bl)?false:!unidadeDireta(r.unidade||"metros");return rc===querCm;});
+      if(fTipo.length)rowsTipo=fTipo;
+    }
+    var esc=confEscolherVigencia(rowsTipo,emissao,medidaPdf);
     var row=esc.row;
     res.refNome=row.ref||res.refNome;
     res.descricao=row.descricao||"";
@@ -1271,7 +1386,7 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn){
       // provavel atualizacao que nao preencheu a vigencia nova (preco ficou em
       // branco ou foi digitado na coluna errada da planilha) — e avisa o
       // usuario informando as duas vigencias envolvidas
-      var comPreco=hit.rows.filter(function(r){return r!==row&&((r["preco"+uf]>0)||(r.preco>0));});
+      var comPreco=rowsTipo.filter(function(r){return r!==row&&((r["preco"+uf]>0)||(r.preco>0));});
       if(comPreco.length){
         // prefere alternativas com a mesma MedidaBase da linha escolhida —
         // evita misturar o preco de uma variante de tamanho diferente
@@ -1307,7 +1422,8 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn){
         res.motivo="Referencia sem medida base cadastrada na tabela.";
         out.push(res);return;
       }
-      res.esperado=(res.medida/row.medidaBase)*precoTab;
+      var espCalc=(res.medida/row.medidaBase)*precoTab;
+      res.esperado=arred?arred(espCalc):espCalc;
     }else if(unidadeKg(res.unidade)){
       // kg: preco unico por quilo, sem medida.
       res.medida=0;
@@ -1327,7 +1443,7 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn){
     var opcoes=[],melhor=null;
     if(esc.pool.length>1){
       esc.pool.forEach(function(r){
-        var calc=confPrecoEsperado(r,uf,item);
+        var calc=confPrecoEsperado(r,uf,item,arred);
         if(!calc)return;
         if(opcoes.some(function(o){return confPrecoConfere(o.esperado,calc.esperado);}))return;
         opcoes.push({ref:r.ref||"",descricao:r.descricao||"",esperado:calc.esperado,medidaLabel:calc.medidaLabel,vigencia:(r.dataInicio||"–")+" → "+(r.dataFim||"Sem vencimento"),match:confPrecoConfere(item.preco,calc.esperado)});
@@ -1375,7 +1491,8 @@ var CONF_STATUS={
   SEM_PRECO:{label:"⚠ Sem preco UF",cls:"warn",peso:2},
   SEM_MEDIDA:{label:"⚠ Medida nao identificada",cls:"warn",peso:3},
   NAO_CADASTRADO:{label:"? Nao cadastrado",cls:"",peso:4},
-  OK:{label:"✓ OK",cls:"ok",peso:5}
+  OK:{label:"✓ OK",cls:"ok",peso:5},
+  IGNORADO:{label:"— Fora da tabela",cls:"",peso:6}
 };
 
 var confSeqId=0;
@@ -1385,27 +1502,39 @@ var confSeqId=0;
 // de cada PDF e totalmente separada das demais.
 async function confArquivosSelecionados(files){
   var arquivos=Array.prototype.filter.call(files,function(f){
-    if(!/\.pdf$/i.test(f.name)&&f.type!=="application/pdf"){toast("Ignorado (nao e PDF): "+f.name,"error");return false;}
-    return true;
+    if(/\.pdf$/i.test(f.name)||f.type==="application/pdf")return true;
+    if(/\.(dkn|dke|htm|html|txt)$/i.test(f.name))return true; // formatos-texto (Dakota)
+    toast("Ignorado (formato nao suportado): "+f.name,"error");return false;
   });
   if(!arquivos.length)return;
-  loading(true,"Lendo PDF...");
+  loading(true,"Lendo arquivo...");
   try{
-    await ensurePdfJs();
+    var precisaPdf=Array.prototype.some.call(arquivos,function(f){return /\.pdf$/i.test(f.name)||f.type==="application/pdf";});
+    if(precisaPdf)await ensurePdfJs();
     var rc=await gas("getClientes",S.token);
     var clientes=(rc.ok&&rc.clientes)?rc.clientes:[];
     var novos=[];
     for(var i=0;i<arquivos.length;i++){
       var file=arquivos[i];
-      loading(true,"Lendo PDF "+(i+1)+" de "+arquivos.length+": "+file.name);
-      var item={id:++confSeqId,arquivo:file.name,file:file,linhas:[],campos:null,clientesDisponiveis:clientes,cliente:"",uf:"RS",resultados:null,prazoCadastradoTodos:[],erro:""};
+      loading(true,"Lendo arquivo "+(i+1)+" de "+arquivos.length+": "+file.name);
+      var item={id:++confSeqId,arquivo:file.name,file:file,linhas:[],blocos:null,campos:null,formato:"",clientesDisponiveis:clientes,cliente:"",uf:"RS",resultados:null,prazoCadastradoTodos:[],erro:""};
       try{
-        var buf=await file.arrayBuffer();
-        item.linhas=await confExtrairLinhas(buf);
-        if(!item.linhas.length){
-          item.erro="Nao foi possivel extrair texto deste PDF (pode ser digitalizado/imagem).";
+        var ehPdf=/\.pdf$/i.test(file.name)||file.type==="application/pdf";
+        if(ehPdf){
+          var buf=await file.arrayBuffer();
+          item.linhas=await confExtrairLinhas(buf);
+          if(!item.linhas.length)item.erro="Nao foi possivel extrair texto deste PDF (pode ser digitalizado/imagem).";
+          else item.campos=confParseCampos(item.linhas);
         }else{
-          item.campos=confParseCampos(item.linhas);
+          // Arquivos-texto Dakota: .dkn/.dke (largura fixa) ou .htm (Ordem de Compra HTML)
+          var texto=await file.text();
+          var leitura=null;
+          if(confDakotaEhFixo(file.name,texto)){leitura=confDakotaLerFixo(texto);item.formato="DAKOTA_FIXO";}
+          else if(confDakotaEhHtm(file.name,texto)){leitura=confDakotaLerHtm(texto);item.formato="DAKOTA_HTM";}
+          if(!leitura||!leitura.blocos.length)item.erro="Nao foi possivel ler itens deste arquivo (formato nao reconhecido).";
+          else{item.linhas=leitura.linhas;item.blocos=leitura.blocos;item.campos=leitura.campos;}
+        }
+        if(item.campos){
           if(item.campos.uf)item.uf=item.campos.uf;
           var textoNorm=normTxt(item.linhas.join(" "));
           var detectado="",melhor=0;
@@ -1413,10 +1542,14 @@ async function confArquivosSelecionados(files){
             var base=normTxt(c.replace(/ CLIENTE$/i,""));
             if(base.length>=3&&textoNorm.indexOf(base)>=0&&base.length>melhor){melhor=base.length;detectado=c;}
           });
+          // Arquivos Dakota são sempre do cliente DAKOTA (CNPJs identificam) — se a
+          // deteccao por texto nao pegou (htm nao repete "DAKOTA" nas linhas de item),
+          // seleciona a aba DAKOTA diretamente.
+          if(!detectado&&item.formato)detectado=clientes.filter(function(c){return /DAKOTA/i.test(c);})[0]||"";
           item.cliente=detectado;
         }
       }catch(e){
-        item.erro="Erro ao ler o PDF: "+((e&&e.message)?e.message:e);
+        item.erro="Erro ao ler o arquivo: "+((e&&e.message)?e.message:e);
       }
       S.confItens.push(item);
       novos.push(item);
@@ -1451,18 +1584,27 @@ async function confExecutarAnalise(item,aba,uf,cache){
     r=await gas("getReferencias",aba,"",S.token);
   }
   if(!r.ok){item.erroAnalise=r.erro;return;}
-  // Seleciona extrator + parser conforme o formato detectado (DILLY, RAMARIM ou
-  // DASS). Cada formato tem seu proprio par extrator/parseFn; confValidar e
-  // comum aos tres.
+  item.refsCadastro=r.refs;        // guardado para o fluxo de "Identificar / ensinar" (admin)
+  item.precoDuplo=!!r.precoDuplo;
+  // Seleciona extrator + parser conforme o formato. Dakota (arquivos-texto) tem os
+  // blocos ja extraidos na leitura, arredondamento bancario, conferencia contra o
+  // PRECO ATUAL (emissao vazia) e a lista de itens ignorados; DILLY/RAMARIM/DASS
+  // seguem o fluxo por PDF. confValidar e comum a todos.
   var blocos,parseFn;
-  if(confIsDilly(item.linhas)){
-    blocos=confExtrairBlocosDilly(item.linhas);parseFn=confParseItemBlocoDilly;
-  }else if(confIsRamarim(item.linhas)){
-    blocos=confExtrairBlocosRamarim(item.linhas);parseFn=confParseItemBlocoRamarim;
+  if(item.formato==="DAKOTA_FIXO"||item.formato==="DAKOTA_HTM"){
+    blocos=item.blocos||[];
+    parseFn=(item.formato==="DAKOTA_HTM")?confParseItemBlocoDakotaHtm:confParseItemBlocoDakotaFixo;
+    item.resultados=confValidar(blocos,r.refs,uf,"",parseFn,{arred:confArredCentBankers,ignorados:r.ignoradosConf||[]});
   }else{
-    blocos=confExtrairBlocos(item.linhas);parseFn=null;
+    if(confIsDilly(item.linhas)){
+      blocos=confExtrairBlocosDilly(item.linhas);parseFn=confParseItemBlocoDilly;
+    }else if(confIsRamarim(item.linhas)){
+      blocos=confExtrairBlocosRamarim(item.linhas);parseFn=confParseItemBlocoRamarim;
+    }else{
+      blocos=confExtrairBlocos(item.linhas);parseFn=null;
+    }
+    item.resultados=confValidar(blocos,r.refs,uf,item.campos.emissao,parseFn);
   }
-  item.resultados=confValidar(blocos,r.refs,uf,item.campos.emissao,parseFn);
   item.prazoCadastradoTodos=r.prazoPagamentoDiasTodos||[];
   item.erroAnalise="";
 }
@@ -1500,7 +1642,7 @@ function confRenderTudo(){
   var bar=document.getElementById("conf-batch-bar");
   if(S.confItens.length){
     bar.style.display="flex";
-    document.getElementById("conf-batch-info").textContent=S.confItens.length+" PDF(s) carregado(s) — cada um e conferido separadamente";
+    document.getElementById("conf-batch-info").textContent=S.confItens.length+" arquivo(s) carregado(s) — cada um e conferido separadamente";
   }else{
     bar.style.display="none";
   }
@@ -1512,35 +1654,48 @@ function confRenderTudo(){
 // (se ja analisado). Cada bloco e completamente independente dos demais.
 function confRenderItem(item,idx){
   var campos=item.campos||{};
+  var ehDakota=/^DAKOTA_/.test(item.formato||"");
   var metaParts=[];
   if(campos.ordem)metaParts.push("OC: <strong>"+escHtml(campos.ordem)+"</strong>");
   if(campos.marca)metaParts.push("Marca: <strong>"+escHtml(campos.marca)+"</strong>");
   if(campos.emissao)metaParts.push("Emissao: <strong>"+escHtml(campos.emissao)+"</strong>");
+  if(ehDakota&&campos.modalidade)metaParts.push("Modalidade: <strong>"+escHtml(campos.modalidade)+"</strong>");
   var meta=metaParts.length?("<div class=\"conf-pdf-meta\">"+metaParts.join(" &nbsp;&bull;&nbsp; ")+"</div>"):"";
   var corpo;
   if(item.erro){
     corpo="<div class=\"ref-obs\" style=\"border-left-color:var(--danger)\">"+escHtml(item.erro)+"</div>";
   }else{
-    var ufs=["RS","BA","CE","MG"];
     var selCli="<select id=\"conf-cliente-"+item.id+"\"><option value=\"\">Selecione o cliente...</option>"
       +(item.clientesDisponiveis||[]).map(function(c){return "<option value=\""+escHtml(c)+"\""+(c===item.cliente?" selected":"")+">"+escHtml(c.replace(/ CLIENTE$/i,""))+"</option>";}).join("")
       +"</select>";
-    var selUf="<select id=\"conf-uf-"+item.id+"\">"
-      +ufs.map(function(u){return "<option value=\""+u+"\""+(u===item.uf?" selected":"")+">"+u+"</option>";}).join("")
-      +"</select>";
+    // Dakota (preco duplo): o seletor mostra a MODALIDADE origem/destino, cujos
+    // valores sao os codigos de coluna (RS/CE→RS · RS/RS→BA · CE/CE→CE). Assim
+    // confAnalisarItem le o mesmo id e passa a coluna certa a confValidar.
+    var selUf;
+    if(ehDakota){
+      var mods=[["RS/CE","RS"],["RS/RS","BA"],["CE/CE","CE"]];
+      selUf="<select id=\"conf-uf-"+item.id+"\">"
+        +mods.map(function(m){return "<option value=\""+m[1]+"\""+(m[1]===item.uf?" selected":"")+">"+m[0]+"</option>";}).join("")
+        +"</select>";
+    }else{
+      var ufs=["RS","BA","CE","MG"];
+      selUf="<select id=\"conf-uf-"+item.id+"\">"
+        +ufs.map(function(u){return "<option value=\""+u+"\""+(u===item.uf?" selected":"")+">"+u+"</option>";}).join("")
+        +"</select>";
+    }
     var avisos="";
     if(!item.cliente)avisos+="<div class=\"ref-obs\" style=\"border-left-color:var(--danger)\">Cliente nao identificado automaticamente — selecione acima e clique em Conferir Precos.</div>";
     if(!campos.emissao)avisos+="<div class=\"ref-obs\">Data de emissao nao localizada — vigencia sera checada pela data de hoje.</div>";
     corpo="<div class=\"form-grid\">"
       +"<div class=\"field\" style=\"margin-bottom:0\"><label>Cliente</label>"+selCli+"</div>"
-      +"<div class=\"field\" style=\"margin-bottom:0\"><label>Tabela de preco (UF)</label>"+selUf+"</div>"
+      +"<div class=\"field\" style=\"margin-bottom:0\"><label>"+(ehDakota?"Modalidade (origem &rarr; destino)":"Tabela de preco (UF)")+"</label>"+selUf+"</div>"
       +"</div>"
       +avisos
       +"<div class=\"form-actions\" style=\"margin-top:12px\"><button class=\"btn btn-success btn-sm\" style=\"background:var(--navy)\" onclick=\"confAnalisarItem("+item.id+")\">&#x1F50D; Conferir Precos</button></div>"
       +confRenderResultados(item);
   }
   return "<div class=\"conf-pdf-block\" id=\"conf-pdf-"+item.id+"\">"
-    +"<div class=\"conf-pdf-head\"><div><div class=\"conf-pdf-name\">&#x1F4C4; PDF "+(idx+1)+": "+escHtml(item.arquivo)+"</div>"+meta+"</div>"
+    +"<div class=\"conf-pdf-head\"><div><div class=\"conf-pdf-name\">&#x1F4C4; Arquivo "+(idx+1)+": "+escHtml(item.arquivo)+"</div>"+meta+"</div>"
     +"<button class=\"btn btn-ghost btn-sm\" onclick=\"confRemoverItem("+item.id+")\" title=\"Remover este PDF da lista\">&#x2715; Remover</button>"
     +"</div>"
     +"<div class=\"conf-pdf-body\">"+corpo+"</div>"
@@ -1567,7 +1722,7 @@ function confRenderResultados(item){
   var cont={};
   res.forEach(function(r){cont[r.status]=(cont[r.status]||0)+1;});
   var campos=item.campos||{};
-  var resumo=["DIVERGENTE","VENCIDO","SEM_PRECO","SEM_MEDIDA","NAO_CADASTRADO","OK"].filter(function(s){return cont[s];}).map(function(s){
+  var resumo=["DIVERGENTE","VENCIDO","SEM_PRECO","SEM_MEDIDA","NAO_CADASTRADO","IGNORADO","OK"].filter(function(s){return cont[s];}).map(function(s){
     return "<span class=\"badge "+CONF_STATUS[s].cls+"\" style=\"font-size:12px;padding:4px 12px\">"+CONF_STATUS[s].label+": "+cont[s]+"</span>";
   }).join(" ");
   var vigenciaAnteriorCount=res.filter(function(r){return r.vigenciaAnterior;}).length;
@@ -1599,7 +1754,9 @@ function confRenderResultados(item){
     var r=g.base,st=CONF_STATUS[r.status];
     var titulo=r.refNome?escHtml(r.refNome):"Item sem cadastro";
     if(!r.refNome){
-      var linhaItem=r.bloco.split("\n").filter(function(l){return /\d{2}\/\d{2}\/\d{4}/.test(l);})[0]||r.bloco.split("\n")[0]||"";
+      var b=String(r.bloco).replace(/\s*###.*/,"");        // remove marcadores dos itens htm Dakota
+      var mDesc=b.match(/N\s{2,}(.+?)\s*\d{14}Arquivo/i);   // fixo Dakota: extrai so a descricao
+      var linhaItem=mDesc?mDesc[1].trim():(b.split("\n").filter(function(l){return /\d{2}\/\d{2}\/\d{4}/.test(l);})[0]||b.split("\n")[0]||b);
       r.descricao=linhaItem.length>90?linhaItem.slice(0,90)+"…":linhaItem;
     }
     var precoHtml="<div class=\"ref-price\"><div class=\"ref-price-val\">"+fmt(r.precoPdf)+"</div><div class=\"ref-price-label\">no pedido</div>"
@@ -1620,9 +1777,25 @@ function confRenderResultados(item){
           +(o.match?" <strong style=\"color:var(--success)\">&#x2713; confere com o pedido ("+fmt(r.precoPdf)+")</strong>":"")
           +"</li>";
       }).join("")+"</ul></div>"):"";
-    var notificarHtml=(r.status==="NAO_CADASTRADO")?(r.notificado
-      ?"<div class=\"ref-obs\" style=\"border-left-color:var(--success)\">&#x2713; Direcao notificada sobre este item.</div>"
-      :"<div style=\"margin-top:8px\"><button class=\"btn btn-warn btn-sm\" onclick=\"confNotificarSemPreco("+item.id+","+item.resultados.indexOf(r)+")\">&#x1F4E7; Comunicar a direcao</button></div>"):"";
+    // Acoes para item nao identificado: admin ENSINA a associacao (painel inline
+    // -> alias no cadastro); vendedor ENVIA para analise (email + arquivo ao admin).
+    // A "Comunicar a direcao" (item/preco nao cadastrado) segue igual, a parte.
+    var ridx=item.resultados.indexOf(r);
+    var isAdmin=!!(S.vendedor&&S.vendedor.clientes&&S.vendedor.clientes.indexOf("*")>=0);
+    var notificarHtml="";
+    if(r.status==="NAO_CADASTRADO"){
+      var avisos2=(r.notificado?"<div class=\"ref-obs\" style=\"border-left-color:var(--success)\">&#x2713; Direcao notificada sobre este item.</div>":"")
+        +(r.enviadoAnalise?"<div class=\"ref-obs\" style=\"border-left-color:var(--success)\">&#x2713; Item enviado para analise do administrador.</div>":"");
+      var botoes="<div style=\"margin-top:8px;display:flex;gap:8px;flex-wrap:wrap\">";
+      if(isAdmin){
+        botoes+="<button class=\"btn btn-sm\" style=\"background:var(--navy)\" onclick=\"confEnsinarAbrir("+item.id+","+ridx+")\">&#x1F393; Identificar / ensinar</button>";
+      }else if(!r.enviadoAnalise){
+        botoes+="<button class=\"btn btn-sm\" style=\"background:var(--navy)\" onclick=\"confEnviarAnalise("+item.id+","+ridx+")\">&#x1F4E4; Enviar item para analise</button>";
+      }
+      if(!r.notificado)botoes+="<button class=\"btn btn-warn btn-sm\" onclick=\"confNotificarSemPreco("+item.id+","+ridx+")\">&#x1F4E7; Comunicar a direcao</button>";
+      botoes+="</div>";
+      notificarHtml=avisos2+botoes+(isAdmin?confEnsinarPanel(item,r,ridx):"");
+    }
     return "<div class=\"ref-card"+(r.status==="DIVERGENTE"?" conf-bad":"")+"\">"
       +"<div class=\"ref-card-header\"><div><div class=\"ref-code\">"+titulo+"</div>"
       +(r.descricao?"<div class=\"ref-desc\">"+escHtml(r.descricao)+"</div>":"")
@@ -1632,7 +1805,7 @@ function confRenderResultados(item){
       +(r.motivo?"<div class=\"ref-obs\">"+escHtml(r.motivo)+"</div>":"")
       +opcoesHtml
       +notificarHtml
-      +"<details style=\"margin-top:8px\"><summary style=\"cursor:pointer;font-size:12px;color:var(--text2)\">Ver trecho do PDF"+(seqsTxt?" ("+escHtml(seqsTxt)+")":"")+"</summary><div class=\"conf-line\">"+escHtml(r.bloco)+"</div></details>"
+      +"<details style=\"margin-top:8px\"><summary style=\"cursor:pointer;font-size:12px;color:var(--text2)\">Ver trecho do pedido"+(seqsTxt?" ("+escHtml(seqsTxt)+")":"")+"</summary><div class=\"conf-line\">"+escHtml(String(r.bloco).replace(/\s*###.*/,""))+"</div></details>"
       +"</div>";
   }).join("");
   return head+"<div class=\"ref-list\" style=\"margin-top:12px\">"+cards+"</div>";
@@ -1684,6 +1857,98 @@ async function confNotificarSemPreco(id,ridx){
     toast(re.ok?re.msg:re.erro,re.ok?"success":"error");
     if(re.ok){r.notificado=true;confRenderTudo();}
   }catch(ex){toast("Erro ao notificar a direcao.","error");}
+  loading(false);
+}
+
+// ============================================================
+// CONFERIR — IDENTIFICAR / ENSINAR ASSOCIACAO (admin) + ENVIAR P/ ANALISE (vendedor)
+// ============================================================
+function confMimeArquivo(nome){if(/\.pdf$/i.test(nome))return "application/pdf";if(/\.html?$/i.test(nome))return "text/html";return "text/plain";}
+// Sugere um apelido estavel a partir do texto do pedido: remove categoria,
+// tamanho, ponteira e marcadores. O admin ajusta antes de salvar — o apelido
+// deve valer para todas as cores/variantes, entao sem cor/tamanho especificos.
+function confAliasSugerido(bloco){
+  var s=String(bloco||"").replace(/\s*###.*/,"").toUpperCase();
+  s=s.replace(/\b(ATACADOR|FITA|ELASTICO|ELST|CADARCO|CAD)\b/g," ");
+  s=s.replace(/\b\d{2,3}\s*CM\b/g," ");
+  s=s.replace(/\+?\s*PONT\.?\s*\d+\s*MM/gi," ");
+  s=s.replace(/\s+/g," ").trim();
+  return s.slice(0,40).trim();
+}
+// Painel inline de "Identificar / ensinar" (admin), oculto ate o clique.
+function confEnsinarPanel(item,r,ridx){
+  var vistos={},opts="";
+  (item.refsCadastro||[]).slice().sort(function(a,b){return String(a.ref).localeCompare(String(b.ref));}).forEach(function(rr){
+    if(vistos[rr.ref])return;vistos[rr.ref]=1;
+    var lbl=rr.ref+(rr.descricao?" — "+rr.descricao:"");
+    opts+="<option value=\""+rr.linha+"\">"+escHtml(lbl.length>70?lbl.slice(0,70)+"…":lbl)+"</option>";
+  });
+  var pid="conf-ens-"+item.id+"-"+ridx;
+  return "<div id=\""+pid+"\" class=\"ref-obs\" style=\"display:none;border-left-color:var(--navy);margin-top:8px\">"
+    +"<strong>Identificar este item</strong>"
+    +"<div style=\"font-size:12px;color:var(--text2);margin:4px 0 8px\">Vincule o texto do pedido a uma referencia da tabela. O apelido passa a casar automaticamente nas proximas conferencias deste cliente.</div>"
+    +"<div class=\"field\"><label>Referencia da tabela</label><select id=\""+pid+"-ref\"><option value=\"\">Selecione a referencia...</option>"+opts+"</select></div>"
+    +"<div class=\"field\"><label>Apelido (trecho estavel do pedido — sem cor/tamanho)</label><input type=\"text\" id=\""+pid+"-alias\" value=\""+escHtml(confAliasSugerido(r.bloco))+"\"></div>"
+    +"<div style=\"display:flex;gap:8px;flex-wrap:wrap\">"
+    +"<button class=\"btn btn-success btn-sm\" onclick=\"confSalvarAlias("+item.id+","+ridx+")\">Salvar apelido</button>"
+    +"<button class=\"btn btn-warn btn-sm\" onclick=\"confMarcarIgnorado("+item.id+","+ridx+")\">Nao esta na lista de precos</button>"
+    +"<button class=\"btn btn-ghost btn-sm\" onclick=\"confEnsinarFechar("+item.id+","+ridx+")\">Cancelar</button>"
+    +"</div></div>";
+}
+function confEnsinarAbrir(id,ridx){var el=document.getElementById("conf-ens-"+id+"-"+ridx);if(el)el.style.display=(el.style.display==="none"?"block":"none");}
+function confEnsinarFechar(id,ridx){var el=document.getElementById("conf-ens-"+id+"-"+ridx);if(el)el.style.display="none";}
+
+async function confSalvarAlias(id,ridx){
+  var item=S.confItens.filter(function(it){return it.id===id;})[0];if(!item)return;
+  var pid="conf-ens-"+id+"-"+ridx;
+  var refSel=document.getElementById(pid+"-ref"),aliasEl=document.getElementById(pid+"-alias");
+  if(!refSel||!aliasEl)return;
+  var linha=refSel.value,alias=(aliasEl.value||"").trim();
+  if(!linha){toast("Selecione a referencia da tabela.","error");return;}
+  if(normTxt(alias).length<3){toast("Apelido muito curto (min. 3 letras/numeros).","error");return;}
+  loading(true,"Salvando apelido...");
+  try{
+    var re=await gas("salvarAliasConf",item.cliente,parseInt(linha,10),alias,S.token);
+    if(!re.ok){toast(re.erro||"Erro ao salvar.","error");loading(false);return;}
+    toast("Apelido salvo. Reconferindo...","success");
+    await confExecutarAnalise(item,item.cliente,item.uf); // reaplica ja com o alias novo
+  }catch(e){toast("Erro ao salvar apelido.","error");}
+  loading(false);confRenderTudo();
+}
+async function confMarcarIgnorado(id,ridx){
+  var item=S.confItens.filter(function(it){return it.id===id;})[0];if(!item||!item.resultados)return;
+  var r=item.resultados[ridx];if(!r)return;
+  var aliasEl=document.getElementById("conf-ens-"+id+"-"+ridx+"-alias");
+  var chave=(aliasEl&&aliasEl.value.trim())||confAliasSugerido(r.bloco);
+  if(normTxt(chave).length<3){toast("Trecho muito curto para marcar como fora da tabela.","error");return;}
+  if(!confirm("Marcar itens com \""+chave+"\" como FORA da tabela de preco deste cliente? Eles deixarao de ser sinalizados na conferencia."))return;
+  loading(true,"Salvando...");
+  try{
+    var re=await gas("salvarIgnoradoConf",item.cliente,chave,S.token);
+    if(!re.ok){toast(re.erro||"Erro ao salvar.","error");loading(false);return;}
+    toast("Item marcado como fora da tabela. Reconferindo...","success");
+    await confExecutarAnalise(item,item.cliente,item.uf);
+  }catch(e){toast("Erro ao salvar.","error");}
+  loading(false);confRenderTudo();
+}
+// Vendedor: envia o item nao identificado + o arquivo do pedido para o admin
+// testar e ensinar o sistema (fluxo a parte da "Comunicar a direcao").
+async function confEnviarAnalise(id,ridx){
+  var item=S.confItens.filter(function(it){return it.id===id;})[0];if(!item||!item.resultados)return;
+  var r=item.resultados[ridx];if(!r)return;
+  if(!confirm("Enviar este item nao identificado (com o arquivo do pedido) para o administrador analisar e ensinar o sistema?"))return;
+  var campos=item.campos||{};
+  var payload={cliente:item.cliente||"",uf:item.uf||"",modalidade:campos.modalidade||"",arquivo:item.arquivo||"",ordem:campos.ordem||"",marca:campos.marca||"",emissao:campos.emissao||"",trecho:(r.bloco||"").replace(/\s*###.*/,"")};
+  loading(true,"Enviando para analise...");
+  try{
+    if(item.file){
+      if(item.file.size<=CONF_LIMITE_PDF_ANEXO){try{payload.pdfBase64=await fileParaBase64(item.file);payload.mime=confMimeArquivo(item.arquivo);}catch(e){}}
+      else payload.pdfOmitido="tamanho";
+    }
+    var re=await gas("enviarItemAnalise",payload,S.token);
+    toast(re.ok?re.msg:re.erro,re.ok?"success":"error");
+    if(re.ok){r.enviadoAnalise=true;confRenderTudo();}
+  }catch(e){toast("Erro ao enviar para analise.","error");}
   loading(false);
 }
 

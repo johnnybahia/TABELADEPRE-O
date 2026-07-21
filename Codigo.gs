@@ -247,6 +247,20 @@ function _getReferencias(nomeAba, busca, vendedorId) {
     hoje.setHours(0, 0, 0, 0);
 
     const pN = _pN; // parser numérico robusto (aceita "R$ 0,89", "10,50", número puro — ver _pN no topo)
+
+    // Apelidos de conferência aprendidos pelo admin (célula AC1, fora do
+    // SCHEMA_CLIENTE — evita colidir com as colunas de custo legadas N/O/P).
+    // Formato: entradas "CODIGO=apelido" separadas por "|"; anexados por código
+    // da Referencia a cada linha (todas as vigências do mesmo código recebem).
+    const aliasMap = {};
+    String(aba.getRange("AC1").getValue() || "").split("|").forEach(par => {
+      const ig = String(par).indexOf("=");
+      if (ig < 1) return;
+      const cod = par.slice(0, ig).trim().toUpperCase();
+      const ali = par.slice(ig + 1).trim();
+      if (cod && ali) (aliasMap[cod] = aliasMap[cod] || []).push(ali);
+    });
+
     const resultado = [];
     for (let i = 1; i < dados.length; i++) {
       const [ref, descricao, preco, dataInicio, dataFim, obs, unidade, medidaBase, precoRS, precoBA, precoCE, precoMG, peso, precoAtivo] = dados[i];
@@ -283,9 +297,16 @@ function _getReferencias(nomeAba, busca, vendedorId) {
         precoMG: pN(precoMG),
         peso: pN(peso),
         precoAtivo: pN(precoAtivo) > 0,
+        aliasesConf: (aliasMap[String(ref).trim().toUpperCase()] || []).join("|"), // apelidos aprendidos (aba Conferir), anexados por código
         vigente
       });
     }
+
+    // Itens marcados como "não está na tabela de preço" na conferência (célula AD1,
+    // fora do SCHEMA_CLIENTE): tokens de descrição separados por "|". A aba Conferir
+    // deixa de sinalizar itens que o admin confirmou não pertencerem a esta tabela.
+    const ignoradosConf = String(aba.getRange("AD1").getValue() || "")
+      .split("|").map(s => s.trim()).filter(Boolean);
 
     // Prazo de pagamento do cliente (célula S1, fora do SCHEMA_CLIENTE).
     // Formato simples "90 dias" (DASS/RAMARIM) ou parcelado "60/90 dias"
@@ -306,7 +327,7 @@ function _getReferencias(nomeAba, busca, vendedorId) {
 
     return {
       ok: true, refs: resultado, prazoPagamento: prazoRaw, prazoPagamentoDias, prazoPagamentoDiasTodos,
-      descontoBA, descontoCE, descontoMG,
+      descontoBA, descontoCE, descontoMG, ignoradosConf,
       precoDuplo: _ehPrecoDuplo(nomeAba)
     };
   } catch (e) {
@@ -659,6 +680,162 @@ function setPrecoAtivo(nomeAba, linhaAlvo, ativo, token) {
     const ref = aba.getRange(linha, 1).getValue();
     _log(vendedorId, ativo ? "ATIVAR_PRECO" : "DESATIVAR_PRECO", `${nomeAba} | ${ref} | L${linha}`);
     return { ok: true };
+  } catch (e) {
+    if (e.message === "SESSAO_EXPIRADA") return { ok: false, erro: "Sessão expirada. Faça login novamente.", sessaoExpirada: true };
+    return { ok: false, erro: e.message };
+  }
+}
+
+// ============================================================
+// CONFERÊNCIA: ENSINAR ASSOCIAÇÃO DE ITEM (admin)
+// Grava um "apelido" na célula AC1 (mapa "CODIGO=apelido", fora do SCHEMA_CLIENTE):
+// um texto/código que aparece no pedido do cliente e passa a casar com a
+// referência escolhida na aba "Conferir" (mesmo mecanismo dos aliases "ant."
+// legados). Só admin (coluna D = "*") pode ensinar, para não poluir o cadastro.
+// ============================================================
+function salvarAliasConf(nomeAba, linhaAlvo, alias, token) {
+  try {
+    const vendedorId = _exigirSessao(token);
+    if (!_ehAdmin(vendedorId)) return { ok: false, erro: "Apenas administradores podem ensinar itens." };
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const aba = ss.getSheetByName(nomeAba);
+    if (!aba) return { ok: false, erro: "Aba do cliente não encontrada." };
+
+    const linha = Number(linhaAlvo);
+    if (!linha || linha < 2 || linha > aba.getLastRow()) return { ok: false, erro: "Linha inválida." };
+    const refCode = String(aba.getRange(linha, 1).getValue() || "").trim();
+    if (!refCode) return { ok: false, erro: "Referência inválida." };
+
+    const novo = String(alias || "").replace(/[|=]/g, " ").replace(/\s+/g, " ").trim();
+    if (novo.length < 2) return { ok: false, erro: "Apelido muito curto." };
+
+    // Apelidos ficam na célula AC1 (fora do SCHEMA_CLIENTE — evita as colunas de
+    // custo legadas N/O/P), como entradas "CODIGO=apelido" separadas por "|".
+    const cel = aba.getRange("AC1");
+    const atuais = String(cel.getValue() || "").split("|").map(s => s.trim()).filter(Boolean);
+    const entrada = refCode.toUpperCase() + "=" + novo;
+    const jaExiste = atuais.some(a => a.toUpperCase() === entrada.toUpperCase());
+    if (!jaExiste) atuais.push(entrada);
+    cel.setValue(atuais.join("|"));
+
+    _log(vendedorId, "ENSINAR_ALIAS", `${nomeAba} | ${refCode} | "${novo}"`);
+    return { ok: true };
+  } catch (e) {
+    if (e.message === "SESSAO_EXPIRADA") return { ok: false, erro: "Sessão expirada. Faça login novamente.", sessaoExpirada: true };
+    return { ok: false, erro: e.message };
+  }
+}
+
+// Marca um item como "não pertence a esta tabela de preço" (célula AD1, fora do
+// SCHEMA_CLIENTE): a aba Conferir deixa de sinalizar itens cujo texto do pedido
+// casa com um desses tokens. Só admin.
+function salvarIgnoradoConf(nomeAba, chave, token) {
+  try {
+    const vendedorId = _exigirSessao(token);
+    if (!_ehAdmin(vendedorId)) return { ok: false, erro: "Apenas administradores podem marcar itens fora da tabela." };
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const aba = ss.getSheetByName(nomeAba);
+    if (!aba) return { ok: false, erro: "Aba do cliente não encontrada." };
+
+    const nova = String(chave || "").replace(/\|/g, " ").replace(/\s+/g, " ").trim();
+    if (nova.length < 2) return { ok: false, erro: "Descrição muito curta." };
+
+    // Itens ignorados ficam na célula AD1 (fora do SCHEMA_CLIENTE), separados por "|".
+    const cel = aba.getRange("AD1");
+    const atuais = String(cel.getValue() || "").split("|").map(s => s.trim()).filter(Boolean);
+    const jaExiste = atuais.some(a => a.toUpperCase() === nova.toUpperCase());
+    if (!jaExiste) atuais.push(nova);
+    cel.setValue(atuais.join("|"));
+
+    _log(vendedorId, "IGNORAR_CONF", `${nomeAba} | "${nova}"`);
+    return { ok: true, ignorados: atuais };
+  } catch (e) {
+    if (e.message === "SESSAO_EXPIRADA") return { ok: false, erro: "Sessão expirada. Faça login novamente.", sessaoExpirada: true };
+    return { ok: false, erro: e.message };
+  }
+}
+
+// ============================================================
+// CONFERÊNCIA: ENVIAR ITEM NÃO IDENTIFICADO PARA ANÁLISE
+// Fluxo à parte da "Comunicar a direção" (que pede cadastro de item/preço):
+// aqui o vendedor manda o item + o arquivo do pedido para que um admin (*)
+// abra, teste e ENSINE o sistema a associar aquele item. Anexa o arquivo
+// original (PDF ou texto .dkn/.dke/.htm — usa dados.mime).
+// ============================================================
+function enviarItemAnalise(dados, token) {
+  try {
+    const vendedorId = _exigirSessao(token);
+    if (!_validarAcesso(vendedorId, dados.cliente)) return { ok: false, erro: "Acesso não autorizado." };
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const abaV = ss.getSheetByName(ABA_VENDEDORES);
+    if (!abaV) return { ok: false, erro: "Aba VENDEDORES não encontrada." };
+
+    const dadosV = abaV.getDataRange().getValues();
+    let remetenteNome = "Vendedor", remetenteEmail = "";
+    const admins = [];
+    for (let i = 1; i < dadosV.length; i++) {
+      if (!dadosV[i][0]) continue;
+      const id = String(dadosV[i][0]).trim();
+      const nome = String(dadosV[i][1] || "");
+      const email = String(dadosV[i][4] || "").trim();
+      const clientes = String(dadosV[i][3] || "").split("|").map(c => c.trim());
+      if (id === String(vendedorId).trim()) { remetenteNome = nome || remetenteNome; remetenteEmail = email; }
+      if (clientes.includes("*") && email && email.includes("@")) admins.push({ nome, email });
+    }
+    if (admins.length === 0) return { ok: false, erro: "Nenhum administrador com email cadastrado." };
+
+    const escH = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const nomeCliente = String(dados.cliente || "").replace(/ CLIENTE$/i, "");
+    const arquivo = escH(String(dados.arquivo || ""));
+    const ordem = escH(String(dados.ordem || ""));
+    const emissao = escH(String(dados.emissao || ""));
+    const modalidade = escH(String(dados.modalidade || dados.uf || ""));
+    const trecho = escH(String(dados.trecho || "")).replace(/\n/g, "<br>");
+    const hoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
+
+    const attachments = [];
+    let notaAnexo = "";
+    if (dados.pdfBase64) {
+      try {
+        const mime = String(dados.mime || "application/pdf");
+        const blob = Utilities.newBlob(Utilities.base64Decode(dados.pdfBase64), mime, dados.arquivo || "pedido");
+        attachments.push(blob);
+        notaAnexo = `<div style="font-size:12px;color:#555;margin-top:14px">&#x1F4CE; Arquivo do pedido em anexo (${arquivo}) — abra na aba "Conferir" para testar e ensinar a associação.</div>`;
+      } catch (e) { notaAnexo = ""; }
+    } else if (dados.pdfOmitido) {
+      notaAnexo = `<div style="font-size:12px;color:#a00;margin-top:14px">&#x26A0; Arquivo não anexado (${dados.pdfOmitido === "tamanho" ? "arquivo muito grande" : "indisponível"}). Peça o arquivo ao vendedor.</div>`;
+    }
+
+    const html =
+      `<div style="font-family:Arial,sans-serif;max-width:640px;color:#222">
+        <h2 style="color:#0d6efd;margin:0 0 4px">&#x1F393; Item não identificado — para análise/ensino</h2>
+        <div style="font-size:13px;color:#555;margin-bottom:14px">Cliente <b>${escH(nomeCliente)}</b> &middot; enviado por <b>${escH(remetenteNome)}</b> em ${hoje}</div>
+        <p style="font-size:14px">O sistema não conseguiu associar este item do pedido a nenhuma referência da tabela. Abra o arquivo em anexo na aba <b>Conferir</b>, teste e use <b>Identificar / ensinar</b> para vincular o apelido à referência correta (ou marque como fora da tabela).</p>
+        <table style="border-collapse:collapse;font-size:14px;margin-top:8px">
+          <tr><td style="padding:4px 10px;color:#555">Arquivo</td><td style="padding:4px 10px"><b>${arquivo}</b></td></tr>
+          <tr><td style="padding:4px 10px;color:#555">OC / Emissão</td><td style="padding:4px 10px">${ordem || "—"} &middot; ${emissao || "—"}</td></tr>
+          <tr><td style="padding:4px 10px;color:#555">Modalidade</td><td style="padding:4px 10px">${modalidade || "—"}</td></tr>
+        </table>
+        <div style="margin-top:12px;font-size:13px;color:#555">Trecho do pedido:</div>
+        <div style="font-family:monospace;font-size:12px;background:#f5f5f5;padding:10px;border-radius:6px;white-space:pre-wrap">${trecho}</div>
+        ${notaAnexo}
+      </div>`;
+
+    const destinatarios = admins.map(a => a.email).join(",");
+    const opcoesEmail = {
+      to: destinatarios,
+      subject: `[Marfim] Item não identificado para análise — ${nomeCliente}${ordem ? " (OC " + ordem + ")" : ""}`,
+      htmlBody: html
+    };
+    if (remetenteEmail && remetenteEmail.includes("@")) opcoesEmail.replyTo = remetenteEmail;
+    if (attachments.length) opcoesEmail.attachments = attachments;
+    MailApp.sendEmail(opcoesEmail);
+
+    _log(vendedorId, "ENVIAR_ANALISE", `${dados.cliente} | ${dados.arquivo} | OC ${dados.ordem || "-"} -> ${destinatarios}`);
+    return { ok: true, msg: `Item enviado para análise (${admins.length} administrador(es)).${remetenteEmail ? "" : " Atenção: seu cadastro não tem email — a resposta não poderá vir direto para você."}` };
   } catch (e) {
     if (e.message === "SESSAO_EXPIRADA") return { ok: false, erro: "Sessão expirada. Faça login novamente.", sessaoExpirada: true };
     return { ok: false, erro: e.message };

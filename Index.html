@@ -860,12 +860,14 @@ function cadExtrairMmTexto(txt){
 // antes de REF evita falso positivo em palavras que so terminam em "ref",
 // ex.: "PREF1234" nao deve casar codigo "1234") e que rejeita digito logo
 // apos (assim M2173 casa com "M2173.114" / "M2173 BRANCO" mas nao com
-// "M21730"). Separadores espaco/ponto/barra/hifen sao tolerados dentro do
-// codigo ("MR110022" casa com "MR 110022"; "MFGP/T2" casa com "MFGPT2").
+// "M21730"). Separadores espaco/ponto/barra/hifen/parenteses sao tolerados
+// dentro do codigo ("MR110022" casa com "MR 110022"; "MFGP/T2" casa com
+// "MFGPT2"; apelidos ensinados como "LS 11628 PRETO (7MM)" casam com o
+// pedido mesmo com o parentese entre "PRETO" e "7MM").
 function confRefRegex(base){
   var n=normTxt(base);
   if(n.length<3)return null;
-  return new RegExp("(?:^|[^A-Z0-9]|\\bREF)"+n.split("").join("[\\s./\\-]*")+"(?![0-9])","i");
+  return new RegExp("(?:^|[^A-Z0-9]|\\bREF)"+n.split("").join("[\\s./\\-()]*")+"(?![0-9])","i");
 }
 
 // Detecta se o conjunto de linhas extraidas pertence a uma OC da RAMARIM
@@ -1133,7 +1135,11 @@ function confDakotaLerFixo(texto){
   var modal=confDakotaModalidade(confDakotaOrigem(sup),confDakotaDestino(buyer));
   var c={ordem:"",emissao:"",marca:"",uf:confDakotaModalUf(modal),modalidade:modal,prazoPagamento:""};
   var me=first.match(/\s(\d{8})V\d/);if(me)c.emissao=me[1].slice(6,8)+"/"+me[1].slice(4,6)+"/"+me[1].slice(0,4);
-  var mp=first.match(/R\$\s*0*(\d{1,3})/);if(mp)c.prazoPagamento=String(parseInt(mp[1],10));
+  // Prazo: campo de largura FIXA de 3 digitos logo apos "R$" (ex.: "063" = 63 dias),
+  // seguido de zeros de preenchimento sem significado ("063000000000000N"). Captura
+  // exatamente os 3 digitos -- um "\d{1,3}" guloso após consumir zeros à esquenda
+  // pegaria "630" em vez de "63" (bug corrigido).
+  var mp=first.match(/R\$\s*(\d{3})/);if(mp)c.prazoPagamento=String(parseInt(mp[1],10));
   return {campos:c,linhas:linhas,blocos:linhas};
 }
 // Parser de um item de largura fixa. A própria linha crua é o "bloco" — a
@@ -1754,9 +1760,10 @@ function confRenderResultados(item){
     var r=g.base,st=CONF_STATUS[r.status];
     var titulo=r.refNome?escHtml(r.refNome):"Item sem cadastro";
     if(!r.refNome){
-      var b=String(r.bloco).replace(/\s*###.*/,"");        // remove marcadores dos itens htm Dakota
-      var mDesc=b.match(/N\s{2,}(.+?)\s*\d{14}Arquivo/i);   // fixo Dakota: extrai so a descricao
-      var linhaItem=mDesc?mDesc[1].trim():(b.split("\n").filter(function(l){return /\d{2}\/\d{2}\/\d{4}/.test(l);})[0]||b.split("\n")[0]||b);
+      var linhaItem=confDescBloco(r.bloco);
+      if(linhaItem.indexOf("\n")>=0){ // bloco multi-linha (DASS/RAMARIM/DILLY): prioriza a linha com data
+        linhaItem=linhaItem.split("\n").filter(function(l){return /\d{2}\/\d{2}\/\d{4}/.test(l);})[0]||linhaItem.split("\n")[0]||linhaItem;
+      }
       r.descricao=linhaItem.length>90?linhaItem.slice(0,90)+"…":linhaItem;
     }
     var precoHtml="<div class=\"ref-price\"><div class=\"ref-price-val\">"+fmt(r.precoPdf)+"</div><div class=\"ref-price-label\">no pedido</div>"
@@ -1805,7 +1812,7 @@ function confRenderResultados(item){
       +(r.motivo?"<div class=\"ref-obs\">"+escHtml(r.motivo)+"</div>":"")
       +opcoesHtml
       +notificarHtml
-      +"<details style=\"margin-top:8px\"><summary style=\"cursor:pointer;font-size:12px;color:var(--text2)\">Ver trecho do pedido"+(seqsTxt?" ("+escHtml(seqsTxt)+")":"")+"</summary><div class=\"conf-line\">"+escHtml(String(r.bloco).replace(/\s*###.*/,""))+"</div></details>"
+      +"<details style=\"margin-top:8px\"><summary style=\"cursor:pointer;font-size:12px;color:var(--text2)\">Ver trecho do pedido"+(seqsTxt?" ("+escHtml(seqsTxt)+")":"")+"</summary><div class=\"conf-line\">"+escHtml(confDescBloco(r.bloco))+"</div></details>"
       +"</div>";
   }).join("");
   return head+"<div class=\"ref-list\" style=\"margin-top:12px\">"+cards+"</div>";
@@ -1864,11 +1871,23 @@ async function confNotificarSemPreco(id,ridx){
 // CONFERIR — IDENTIFICAR / ENSINAR ASSOCIACAO (admin) + ENVIAR P/ ANALISE (vendedor)
 // ============================================================
 function confMimeArquivo(nome){if(/\.pdf$/i.test(nome))return "application/pdf";if(/\.html?$/i.test(nome))return "text/html";return "text/plain";}
+// Extrai a descricao legivel de um bloco de item, para exibicao ("Ver trecho
+// do pedido") e sugestao de apelido. O formato Dakota largura fixa (.dkn/.dke)
+// embute a descricao no meio de uma linha de ~377 posicoes (CNPJs, datas,
+// quantidades...) — sem isso, mostrar/usar o bloco cru exibe so os digitos
+// irrelevantes do inicio da linha. Os demais formatos (DASS/RAMARIM/DILLY, e o
+// htm Dakota apos remover os marcadores ###) ja trazem blocos legiveis; a
+// regex nao casa e o bloco volta inalterado.
+function confDescBloco(bloco){
+  var s=String(bloco||"").replace(/\s*###.*/,"");
+  var m=s.match(/N\s{2,}(.+?)\s*\d{14}Arquivo/i);
+  return m?m[1].trim():s;
+}
 // Sugere um apelido estavel a partir do texto do pedido: remove categoria,
 // tamanho, ponteira e marcadores. O admin ajusta antes de salvar — o apelido
 // deve valer para todas as cores/variantes, entao sem cor/tamanho especificos.
 function confAliasSugerido(bloco){
-  var s=String(bloco||"").replace(/\s*###.*/,"").toUpperCase();
+  var s=confDescBloco(bloco).toUpperCase();
   s=s.replace(/\b(ATACADOR|FITA|ELASTICO|ELST|CADARCO|CAD)\b/g," ");
   s=s.replace(/\b\d{2,3}\s*CM\b/g," ");
   s=s.replace(/\+?\s*PONT\.?\s*\d+\s*MM/gi," ");

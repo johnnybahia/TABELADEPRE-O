@@ -1,7 +1,7 @@
 "use strict";
 // Carrega o <script> real do Index.html num sandbox com stubs de DOM e roda as
 // funções portadas (confValidar + funções DAKOTA) contra os 23 arquivos, para
-// confirmar que batem com o harness (60 OK / 57 DIV / 6 NC / 1 SP).
+// confirmar que batem com o harness (52 OK / 65 DIV / 6 NC / 1 SP).
 const fs = require("fs");
 const vm = require("vm");
 const path = require("path");
@@ -34,7 +34,7 @@ try { vm.runInContext(code, sandbox, { timeout: 5000 }); }
 catch (e) { console.error("Erro ao avaliar script:", e.message); process.exit(1); }
 
 const F = sandbox; // funções ficam no escopo global do sandbox
-["confValidar","confDakotaLerFixo","confDakotaLerHtm","confParseItemBlocoDakotaFixo","confParseItemBlocoDakotaHtm","confDakotaEhFixo","confDakotaEhHtm","confArredCentBankers"].forEach(fn=>{
+["confValidar","confDakotaLerFixo","confDakotaLerHtm","confParseItemBlocoDakotaFixo","confParseItemBlocoDakotaHtm","confDakotaEhFixo","confDakotaEhHtm","confArredCentPadrao"].forEach(fn=>{
   if(typeof F[fn]!=="function"){console.error("Função ausente no sandbox:",fn);process.exit(1);}
 });
 
@@ -54,13 +54,13 @@ for(const f of files){
   else if(F.confDakotaEhHtm(f,texto)){leitura=F.confDakotaLerHtm(texto);parseFn=F.confParseItemBlocoDakotaHtm;}
   else{console.log("?? não detectado:",f);continue;}
   modCnt[leitura.campos.modalidade]=(modCnt[leitura.campos.modalidade]||0)+1;
-  const out=F.confValidar(leitura.blocos,refs,leitura.campos.uf,"",parseFn,{arred:F.confArredCentBankers,ignorados:[]});
+  const out=F.confValidar(leitura.blocos,refs,leitura.campos.uf,"",parseFn,{arred:F.confArredCentPadrao,ignorados:[]});
   out.forEach(r=>{tot++;cnt[r.status]=(cnt[r.status]||0)+1;});
 }
 console.log("(Index.html real) Arquivos:",files.length,"| Itens:",tot);
 console.log("Modalidades:",JSON.stringify(modCnt));
 console.log("Status:",JSON.stringify(cnt));
-const esperado={OK:60,DIVERGENTE:57,NAO_CADASTRADO:6,SEM_PRECO:1,SEM_MEDIDA:0,VENCIDO:0,IGNORADO:0};
+const esperado={OK:52,DIVERGENTE:65,NAO_CADASTRADO:6,SEM_PRECO:1,SEM_MEDIDA:0,VENCIDO:0,IGNORADO:0};
 const ok=Object.keys(esperado).every(k=>cnt[k]===esperado[k]);
 console.log(ok?"\n✅ BATE com o harness (código real do Index.html confere)":"\n❌ DIVERGE do harness — revisar portabilidade");
 
@@ -76,8 +76,8 @@ let ensinarOk=false;
     if(F.confDakotaEhFixo(f,texto)){leitura=F.confDakotaLerFixo(texto);parseFn=F.confParseItemBlocoDakotaFixo;}
     else if(F.confDakotaEhHtm(f,texto)){leitura=F.confDakotaLerHtm(texto);parseFn=F.confParseItemBlocoDakotaHtm;}
     else continue;
-    const antes=F.confValidar(leitura.blocos,refs.map(r=>({...r,aliasesConf:""})),leitura.campos.uf,"",parseFn,{arred:F.confArredCentBankers,ignorados:[]});
-    const depois=F.confValidar(leitura.blocos,refs2,leitura.campos.uf,"",parseFn,{arred:F.confArredCentBankers,ignorados:ign});
+    const antes=F.confValidar(leitura.blocos,refs.map(r=>({...r,aliasesConf:""})),leitura.campos.uf,"",parseFn,{arred:F.confArredCentPadrao,ignorados:[]});
+    const depois=F.confValidar(leitura.blocos,refs2,leitura.campos.uf,"",parseFn,{arred:F.confArredCentPadrao,ignorados:ign});
     antes.forEach((r,i)=>{if(r.status==="NAO_CADASTRADO"){antesNC++;if(depois[i].status==="OK")viraramOK++;if(depois[i].status==="IGNORADO")viraramIgn++;}});
   }
   console.log("\n[Ensinar] NAO_CADASTRADO antes:",antesNC,"| viraram OK (alias):",viraramOK,"| viraram IGNORADO:",viraramIgn);

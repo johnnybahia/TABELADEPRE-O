@@ -20,8 +20,8 @@ function confEscolherVigencia(rows,emissao,medidaPdf){var ref=emissao||new Date(
 function confPrecoEsperado(row,uf,item,arred){var precoTab=row["preco"+uf]>0?row["preco"+uf]:(row.preco>0?row.preco:0);if(!precoTab)return null;var baseLabel=String(row.medidaBaseLabel||"");var usaCm=/CM/i.test(baseLabel)?true:/MM/i.test(baseLabel)?false:!unidadeDireta(row.unidade||"metros");if(usaCm){var medida=item.cm||0;if(!medida||!(row.medidaBase>0))return null;var e=(medida/row.medidaBase)*precoTab;return {esperado:arred?arred(e):e,medidaLabel:medida+"cm"};}return {esperado:precoTab,medidaLabel:unidadeKg(row.unidade)?"por kg":(row.medidaBase>0?(row.medidaBase+"mm · por metro"):"por metro")};}
 function confMedidaPdf(bloco,rxBase){var m=rxBase?rxBase.exec(bloco):null,pos=m?m.index:0;var toks=[],re=/(\d+(?:[.,]\d+)?)\s*MM\b/gi,t;while((t=re.exec(bloco)))toks.push({mm:t[0].replace(/\s+/g,"").toUpperCase(),idx:t.index});if(!toks.length)return "";toks.sort(function(a,b){return Math.abs(a.idx-pos)-Math.abs(b.idx-pos);});return toks[0].mm;}
 
-// ---------- NOVO: arredondamento bancário (round-half-even) p/ DAKOTA ----------
-function confArredCentBankers(v){var c=v*100;var f=Math.floor(c);var d=c-f;if(Math.abs(d-0.5)<1e-9){return ((f%2===0)?f:f+1)/100;}return Math.round(c)/100;}
+// ---------- arredondamento padrao (3a casa 0-4 mantem, 5-9 sobe) p/ DAKOTA ----------
+function confArredCentPadrao(v){return Math.round(v*100+1e-9)/100;}
 
 // ---------- NOVO: modalidade DAKOTA por CNPJ ----------
 var CONF_DAKOTA_MARFIM={"93825230000170":"RS","19542918000190":"CE"};
@@ -195,7 +195,7 @@ for(const f of files){
   modCnt[campos.modalidade]=(modCnt[campos.modalidade]||0)+1;
   // Dakota confere contra o PREÇO ATUAL (decisão do usuário): emissao vazia →
   // confEscolherVigencia usa a data de hoje = vigência mais recente.
-  const out=confValidar(leitura.blocos,refs,campos.uf,"",parseFn,{arred:confArredCentBankers});
+  const out=confValidar(leitura.blocos,refs,campos.uf,"",parseFn,{arred:confArredCentPadrao});
   out.forEach(r=>{tot++;cnt[r.status]=(cnt[r.status]||0)+1;if(r.status==="DIVERGENTE"||r.status==="NAO_CADASTRADO"||r.status==="SEM_PRECO")detalheDiv.push(f+" | "+campos.modalidade+" | "+r.status+" | "+(r.refNome||"?")+" | ped="+(r.precoPdf||0).toFixed(2)+" esp="+(r.esperado==null?"—":r.esperado.toFixed(2))+" | "+r.bloco.replace(/###.*/,"").slice(0,40));});
 }
 console.log("Arquivos:",files.length,"| Itens:",tot);
@@ -216,8 +216,8 @@ for(const f of files){
   if(confDakotaEhFixo(f,texto)){leitura=confDakotaLerFixo(texto);parseFn=confParseItemBlocoDakotaFixo;}
   else if(confDakotaEhHtm(f,texto)){leitura=confDakotaLerHtm(texto);parseFn=confParseItemBlocoDakotaHtm;}
   else continue;
-  const semEns=confValidar(leitura.blocos,refs.map(r=>({...r,aliasesConf:""})),leitura.campos.uf,"",parseFn,{arred:confArredCentBankers,ignorados:[]});
-  const comEns=confValidar(leitura.blocos,refs,leitura.campos.uf,"",parseFn,{arred:confArredCentBankers,ignorados:ign});
+  const semEns=confValidar(leitura.blocos,refs.map(r=>({...r,aliasesConf:""})),leitura.campos.uf,"",parseFn,{arred:confArredCentPadrao,ignorados:[]});
+  const comEns=confValidar(leitura.blocos,refs,leitura.campos.uf,"",parseFn,{arred:confArredCentPadrao,ignorados:ign});
   semEns.forEach(r=>{if(r.status==="NAO_CADASTRADO")antesNC++;});
   comEns.forEach((r,i)=>{
     if(r.status==="NAO_CADASTRADO")depoisNC++;

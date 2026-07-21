@@ -1109,11 +1109,13 @@ function confParseItemBloco(bloco){
 // Cliente "preço duplo": a MODALIDADE origem→destino (RS/RS, RS/CE, CE/CE) é
 // detectada pelos CNPJs (fornecedor Marfim + comprador Dakota) e decide a
 // coluna de preço (RS/CE=PrecoRS · RS/RS=PrecoBA · CE/CE=PrecoCE). A Dakota
-// arredonda o proporcional em centavos pelo modo BANCÁRIO (round-half-even).
+// arredonda o proporcional em centavos pela regra PADRÃO (3ª casa 0-4 mantém,
+// 5-9 sobe — mesma regra de confCentavos, usada na comparação para todos os
+// clientes; o +1e-9 evita erro de ponto flutuante, ex.: 0,985 não virar 97,999...).
 // Conferência sempre contra o PREÇO ATUAL da tabela (emissao vazia em
 // confExecutarAnalise → confEscolherVigencia usa a data de hoje).
 // ============================================================
-function confArredCentBankers(v){var c=v*100;var f=Math.floor(c);var d=c-f;if(Math.abs(d-0.5)<1e-9){return ((f%2===0)?f:f+1)/100;}return Math.round(c)/100;}
+function confArredCentPadrao(v){return Math.round(v*100+1e-9)/100;}
 var CONF_DAKOTA_MARFIM={"93825230000170":"RS","19542918000190":"CE"}; // CNPJ Marfim (fornecedor) → filial de origem
 function confDakotaOrigem(cnpj){return CONF_DAKOTA_MARFIM[cnpj]||"";}
 function confDakotaDestino(cnpjComprador){return /^07414643/.test(cnpjComprador)?"RS":/^00465813/.test(cnpjComprador)?"CE":"";} // 07414643=Dakota RS · 00465813=Dakota Nordeste (CE)
@@ -1255,7 +1257,7 @@ function confMedidaPdf(bloco,rxBase){
 function confValidar(blocos,refs,uf,emissaoStr,parseFn,opts){
   parseFn=parseFn||confParseItemBloco;
   opts=opts||{};
-  // arred: arredondamento do proporcional em centavos (Dakota usa bancário);
+  // arred: arredondamento do proporcional em centavos (Dakota usa a regra padrão);
   // ignorados: tokens (normalizados) de itens que o admin marcou como fora da
   // tabela de preco deste cliente — deixam de ser sinalizados como divergencia.
   var arred=opts.arred||null;
@@ -1593,14 +1595,14 @@ async function confExecutarAnalise(item,aba,uf,cache){
   item.refsCadastro=r.refs;        // guardado para o fluxo de "Identificar / ensinar" (admin)
   item.precoDuplo=!!r.precoDuplo;
   // Seleciona extrator + parser conforme o formato. Dakota (arquivos-texto) tem os
-  // blocos ja extraidos na leitura, arredondamento bancario, conferencia contra o
+  // blocos ja extraidos na leitura, arredondamento padrao, conferencia contra o
   // PRECO ATUAL (emissao vazia) e a lista de itens ignorados; DILLY/RAMARIM/DASS
   // seguem o fluxo por PDF. confValidar e comum a todos.
   var blocos,parseFn;
   if(item.formato==="DAKOTA_FIXO"||item.formato==="DAKOTA_HTM"){
     blocos=item.blocos||[];
     parseFn=(item.formato==="DAKOTA_HTM")?confParseItemBlocoDakotaHtm:confParseItemBlocoDakotaFixo;
-    item.resultados=confValidar(blocos,r.refs,uf,"",parseFn,{arred:confArredCentBankers,ignorados:r.ignoradosConf||[]});
+    item.resultados=confValidar(blocos,r.refs,uf,"",parseFn,{arred:confArredCentPadrao,ignorados:r.ignoradosConf||[]});
   }else{
     if(confIsDilly(item.linhas)){
       blocos=confExtrairBlocosDilly(item.linhas);parseFn=confParseItemBlocoDilly;

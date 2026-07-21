@@ -15,7 +15,7 @@ function confPrecoConfere(a,b){return confCentavos(a)===confCentavos(b);}
 function confTemGoma(txt){var t=String(txt||"").toUpperCase();if(/(?:\bSEM\s+|\bS\s*\/\s*)(?:GOMA|ENGOMAD|GOMAD)/.test(t))return false;return /\b(?:GOMA|GOMAD[OA]|ENGOMAD[OA]?|EGOMAD[OA]?|ENGO)\b/.test(t);}
 function confBaseRef(ref){var s=String(ref||"");var p=s.indexOf("(");if(p>0)s=s.slice(0,p);return s.replace(/\b(?:C\s*\/\s*GOMA|COM\s+GOMA|SEM\s+GOMA|S\s*\/\s*GOMA|ENGOMAD[OA]?|EGOMAD[OA]?|GOMAD[OA]|GOMA|ENGO)\b/gi," ").replace(/\s+/g," ").trim();}
 function extrairVarianteMm(base){var m=String(base||"").match(/^(.+?)\s+(\d+(?:[.,]\d+)?\s*MM)\s*$/i);if(!m||normTxt(m[1]).length<3)return null;return {codigoBase:m[1].trim(),mm:m[2].replace(/\s+/g,"").toUpperCase()};}
-function confRefRegex(base){var n=normTxt(base);if(n.length<3)return null;return new RegExp("(?:^|[^A-Z0-9]|\\bREF)"+n.split("").join("[\\s./\\-]*")+"(?![0-9])","i");}
+function confRefRegex(base){var n=normTxt(base);if(n.length<3)return null;return new RegExp("(?:^|[^A-Z0-9]|\\bREF)"+n.split("").join("[\\s./\\-()]*")+"(?![0-9])","i");}
 function confEscolherVigencia(rows,emissao,medidaPdf){var ref=emissao||new Date();var cobrem=rows.filter(function(r){var ini=dataBR(r.dataInicio),fim=dataBR(r.dataFim);return (!ini||ref>=ini)&&(!fim||ref<=fim);});var pool=cobrem.length?cobrem:rows;var vencido=!cobrem.length;if(medidaPdf>0&&pool.length>1){var match=pool.filter(function(r){return Math.abs((r.medidaBase||0)-medidaPdf)<0.01;});if(match.length)pool=match;}var ord=function(a,b){return (dataBR(b.dataInicio)||0)-(dataBR(a.dataInicio)||0);};pool=pool.slice().sort(ord);return {row:pool[0],vencido:vencido,pool:pool};}
 function confPrecoEsperado(row,uf,item,arred){var precoTab=row["preco"+uf]>0?row["preco"+uf]:(row.preco>0?row.preco:0);if(!precoTab)return null;var baseLabel=String(row.medidaBaseLabel||"");var usaCm=/CM/i.test(baseLabel)?true:/MM/i.test(baseLabel)?false:!unidadeDireta(row.unidade||"metros");if(usaCm){var medida=item.cm||0;if(!medida||!(row.medidaBase>0))return null;var e=(medida/row.medidaBase)*precoTab;return {esperado:arred?arred(e):e,medidaLabel:medida+"cm"};}return {esperado:precoTab,medidaLabel:unidadeKg(row.unidade)?"por kg":(row.medidaBase>0?(row.medidaBase+"mm · por metro"):"por metro")};}
 function confMedidaPdf(bloco,rxBase){var m=rxBase?rxBase.exec(bloco):null,pos=m?m.index:0;var toks=[],re=/(\d+(?:[.,]\d+)?)\s*MM\b/gi,t;while((t=re.exec(bloco)))toks.push({mm:t[0].replace(/\s+/g,"").toUpperCase(),idx:t.index});if(!toks.length)return "";toks.sort(function(a,b){return Math.abs(a.idx-pos)-Math.abs(b.idx-pos);});return toks[0].mm;}
@@ -42,7 +42,7 @@ function confDakotaLerFixo(texto){
   var modal=confDakotaModalidade(origem,destino);
   var c={ordem:"",emissao:"",marca:"",uf:confDakotaModalUf(modal),modalidade:modal,prazoPagamento:""};
   var me=first.match(/\s(\d{8})V\d/);if(me)c.emissao=me[1].slice(6,8)+"/"+me[1].slice(4,6)+"/"+me[1].slice(0,4);
-  var mp=first.match(/R\$\s*0*(\d{1,3})/);if(mp)c.prazoPagamento=String(parseInt(mp[1],10));
+  var mp=first.match(/R\$\s*(\d{3})/);if(mp)c.prazoPagamento=String(parseInt(mp[1],10)); // campo fixo de 3 digitos
   return {campos:c,linhas:linhas,blocos:linhas};
 }
 function confParseItemBlocoDakotaFixo(linha){

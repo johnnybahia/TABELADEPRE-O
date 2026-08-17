@@ -969,6 +969,27 @@ function confParseCampos(linhas){
       }
       if(diasParcela.length)c.prazoPagamento=diasParcela.join("/");
     }
+  }else if(confIsAnigerPdf(linhas)){
+    // Formato ANIGER/MELBROS (PDF do ERP do cliente). O topo traz, na mesma
+    // linha, o CNPJ do comprador e o numero da OC ("94.316.999/0009-83 20109721").
+    var cnpjComp="";
+    m=all.match(/^\s*(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})\s+(\d{4,})\s*$/m);
+    if(m){cnpjComp=m[1].replace(/\D/g,"");c.ordem=m[2];}
+    if(!c.ordem){m=all.match(/Ordem\s+de\s+compra[\s\S]{0,120}?(\d{6,})/i);if(m)c.ordem=m[1];}
+    m=all.match(/Emiss\S*\s*:\s*(\d{2}\/\d{2}\/\d{4})/i);if(m)c.emissao=m[1];
+    m=all.match(/Cond\.?\s*pagto\s*:\s*(\d+)\s*DD/i);if(m)c.prazoPagamento=m[1];
+    // "Fabrica: 1051 - Nike NE - Producao Aniger" → marca "Nike NE"
+    m=all.match(/F\S*brica\s*:\s*\d+\s*-\s*([^\n\-]+)/i);if(m)c.marca=m[1].trim();
+    // Origem: CNPJ da filial Marfim fornecedora (bloco do fornecedor).
+    var supA="";(all.match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/g)||[]).forEach(function(x){var d=x.replace(/\D/g,"");if(CONF_MARFIM_CNPJ[d])supA=d;});
+    // Destino: comprador do topo; o CEP do bloco dele (antes do "CNPJ:" do
+    // fornecedor) serve de reserva para uma filial ainda nao mapeada.
+    var cepComp="",mcep=all.split(/CNPJ\s*:/i)[0].match(/CEP\s*:?\s*([\d.\-]+)/i);if(mcep)cepComp=mcep[1];
+    c.modalidade=confModalidadeDuplo(confOrigemMarfim(supA),confAnigerDestino(cnpjComp,cepComp));
+    c.uf=confModalUf(c.modalidade);
+    // O cliente sai do CNPJ do comprador, nao do texto: a razao social da
+    // ANIGER e da MELBROS aparece nas condicoes gerais dos pedidos das duas.
+    var compA=confAnigerComprador(cnpjComp);if(compA)c.clienteHint=compA.cliente;
   }else{
     // Formato DASS (blocos de texto)
     m=all.match(/Data da emiss\S{0,4}\s*:?\s*(\d{2}\/\d{2}\/\d{4})/i);if(m)c.emissao=m[1];
@@ -1116,7 +1137,11 @@ function confParseItemBloco(bloco){
 // confExecutarAnalise → confEscolherVigencia usa a data de hoje).
 // ============================================================
 function confArredCentPadrao(v){return Math.round(v*100+1e-9)/100;}
-var CONF_MARFIM_CNPJ={"93825230000170":"RS","19542918000190":"CE"}; // CNPJ Marfim (fornecedor) → filial de origem. Compartilhado por todos os clientes de preço duplo (DAKOTA, ANIGER): é o CNPJ da própria Marfim.
+// CNPJ Marfim (fornecedor) → filial de origem. Compartilhado por todos os
+// clientes de preço duplo (DAKOTA, ANIGER/MELBROS): é o CNPJ da própria Marfim.
+// A Marfim tem mais de uma razão social no RS — 93825230000170 (pedidos DAKOTA)
+// e 12954695000120 ("Marfim Textil RS Ltda", pedidos ANIGER/MELBROS).
+var CONF_MARFIM_CNPJ={"93825230000170":"RS","12954695000120":"RS","19542918000190":"CE"};
 function confOrigemMarfim(cnpj){return CONF_MARFIM_CNPJ[cnpj]||"";}
 function confDakotaDestino(cnpjComprador){return /^07414643/.test(cnpjComprador)?"RS":/^00465813/.test(cnpjComprador)?"CE":"";} // 07414643=Dakota RS · 00465813=Dakota Nordeste (CE)
 function confModalidadeDuplo(o,d){if(o==="CE")return "CE/CE";if(o==="RS"&&d==="RS")return "RS/RS";if(o==="RS"&&d==="CE")return "RS/CE";return "";}
@@ -1217,8 +1242,25 @@ function confParseItemBlocoDakotaHtm(bloco){
 // Cliente "preco duplo" como a Dakota: a modalidade origem→destino sai dos
 // CNPJs (fornecedor Marfim + comprador Aniger) e decide a coluna de preco.
 // ============================================================
-var CONF_ANIGER_COMPRADOR={"94316999000983":"CE"}; // CNPJ Aniger (comprador) → filial de destino
-function confAnigerDestino(cnpj){return CONF_ANIGER_COMPRADOR[cnpj]||"";}
+// CNPJ do comprador (raiz de 8 digitos) → filial de DESTINO + aba do cliente.
+// O grupo compra com duas razoes sociais na mesma ordem de compra: ANIGER
+// (Quixeramobim/CE) e MELBROS (Campo Bom/RS). Sao o MESMO cliente comercial —
+// as duas usam a tabela de precos da aba ANIGER; o que muda entre elas e so o
+// destino (CE ou RS), que define a modalidade junto com a filial Marfim de
+// origem. O CNPJ do topo do pedido e quem decide as duas coisas: o texto de
+// condicoes gerais cita as duas razoes sociais nos pedidos das duas, entao
+// procurar o nome no texto escolheria a aba errada.
+var CONF_ANIGER_COMPRADOR={"94316999":{uf:"CE",cliente:"ANIGER"},"11366487":{uf:"RS",cliente:"ANIGER"}};
+function confAnigerComprador(cnpj){return CONF_ANIGER_COMPRADOR[String(cnpj||"").replace(/\D/g,"").slice(0,8)]||null;}
+function confAnigerDestino(cnpj,cep){
+  var e=confAnigerComprador(cnpj);if(e)return e.uf;
+  // Filial ainda nao mapeada: deduz pelo CEP do bloco do comprador — os dois
+  // polos atendidos sao RS (CEP 9xxxx) e CE (CEP 60000-63999).
+  var c=String(cep||"").replace(/\D/g,"");
+  if(/^9\d/.test(c))return "RS";
+  if(/^6[0-3]/.test(c))return "CE";
+  return "";
+}
 function confAnigerEhLinhaItem(l){return /\d{9}[A-Z]{1,2}\s{1,2}\d{17}R\$/.test(l)&&/OCgerada\s+a\s+partir\s+da\s+OC/i.test(l);}
 function confAnigerEhEdi(nome,texto){return /\.edi$/i.test(nome)||confAnigerEhLinhaItem(String(texto||"").split(/\r?\n/)[0]||"");}
 
@@ -1231,8 +1273,9 @@ function confAnigerLerEdi(texto){
   var buyer=first.slice(0,14);
   // No fim da linha vem <CNPJ fornecedor (14)><codigo do item (13)>"OCgerada..."
   var msup=first.match(/\s(\d{14})\d+OCgerada/i);var sup=msup?msup[1]:"";
+  var comp=confAnigerComprador(buyer);
   var modal=confModalidadeDuplo(confOrigemMarfim(sup),confAnigerDestino(buyer));
-  var c={ordem:"",emissao:"",marca:"",uf:confModalUf(modal),modalidade:modal,prazoPagamento:"",clienteHint:"ANIGER"};
+  var c={ordem:"",emissao:"",marca:"",uf:confModalUf(modal),modalidade:modal,prazoPagamento:"",clienteHint:comp?comp.cliente:"ANIGER"};
   var mo=first.match(/OCgerada\s+a\s+partir\s+da\s+OC\s*(\d+)/i);
   c.ordem=mo?mo[1]:first.slice(14,22).trim();
   var me=first.match(/\s(\d{8})V\d/);if(me)c.emissao=me[1].slice(6,8)+"/"+me[1].slice(4,6)+"/"+me[1].slice(0,4);
@@ -1262,6 +1305,56 @@ function confAnigerBlocoDaLinha(linha){
   var ident=cod?(" COD "+cod+(cod.length===11?(" PROD "+cod.slice(0,6)):"")):"";
   return (descCurta||"ITEM")+ident+"  ###U:"+(/^M/i.test(mu[2])?"MT":"PR")+" ###P:"+preco+" ###Q:"+qtd;
 }
+// ── ANIGER/MELBROS em PDF (mesmo ERP; formato preferido pelo cliente) ──────
+// Bem mais completo que o .edi: alem do codigo interno traz o TAMANHO (cm), a
+// ESPESSURA (mm) e, na coluna "Modelo", a propria referencia Marfim (M2173,
+// M41552, MR140.019) — entao o casamento normal por referencia funciona, sem
+// depender de ensinar apelido. Estrutura de um item (3 linhas tipicas):
+//   29079122563 ATACADOR POLIE REC 1.532,0000PR R$ 0,8900 0 0 1.363,48 25/11/2025
+//   MR140.019 CHATO 6MM 100CM
+//   PHANTOM 5820
+// (linha-ancora com codigo/qtd/preco/entrega + modelo/medidas + cor/programa).
+// O bloco de cada item junta as 3, para a confRefRegex casar tanto a referencia
+// Marfim quanto os apelidos aprendidos, e o rxMm discriminar 6MM x 8MM.
+function confIsAnigerPdf(linhas){
+  var all=linhas.join(" ");
+  return /Material\s+Descri\S*\s+Modelo\s+Programa/i.test(all)&&/Cond\.?\s*pagto\s*:/i.test(all);
+}
+// Linha-ancora de item: codigo do material + quantidade/unidade + preco.
+function confAnigerPdfEhLinhaItem(l){
+  return /^\d{8,14}\s+\S/.test(l)&&/[\d.]+,\d{3,4}\s*(PR|PC|MT|M|KG)\b/i.test(l)&&/R\$\s*[\d.]+,\d+/.test(l);
+}
+function confExtrairBlocosAnigerPdf(linhas){
+  var blocos=[],buf=null,naTabela=false;
+  linhas.forEach(function(l){
+    if(/Material\s+Descri\S*\s+Modelo/i.test(l)){naTabela=true;return;} // cabecalho da tabela (repete a cada pagina)
+    if(!naTabela)return;
+    // Fim da tabela de itens: linha de totais, lista de programas ou o rodape
+    // de condicoes gerais (texto fixo que nao pertence a nenhum item).
+    if(/^\d+\s+Ite(m|ns)\s+Totais/i.test(l)||/^Programas\s*:/i.test(l)||/CONDI\S*ES\s+GERAIS/i.test(l)){
+      if(buf){blocos.push(buf.join("\n"));buf=null;}
+      naTabela=false;return;
+    }
+    if(confAnigerPdfEhLinhaItem(l)){
+      if(buf)blocos.push(buf.join("\n"));
+      buf=[l];
+    }else if(buf)buf.push(l);
+  });
+  if(buf)blocos.push(buf.join("\n"));
+  return blocos;
+}
+function confParseItemBlocoAnigerPdf(bloco){
+  var mp=bloco.match(/R\$\s*([\d.]+,\d{2,4})/);if(!mp)return null;
+  var preco=pBR(mp[1]);if(!(preco>0))return null;
+  // Quantidade + unidade: "1.532,0000PR" (colada) ou "90,0000 PR".
+  var mq=bloco.match(/([\d.]+,\d{3,4})\s*(PR|PC|MT|M|KG)\b/i);
+  var un=mq?mq[2].toUpperCase():"";
+  var cm=0,mcm=bloco.match(/(\d{2,3})\s*CM\b/i);if(mcm)cm=parseInt(mcm[1],10);
+  var mm=null,re=/(\d+(?:[.,]\d+)?)\s*MM/gi,g;
+  while((g=re.exec(bloco))){if(/PONT/i.test(bloco.slice(Math.max(0,g.index-6),g.index)))continue;mm=pBR(g[1]);break;} // ignora ponteira "PONT.20MM"
+  return {seq:null,preco:preco,cm:cm,mm:mm,qtd:mq?pBR(mq[1]):0,unit:(un==="PR"||un==="PC")?"PR":(un?"MT":"")};
+}
+
 function confParseItemBlocoAnigerEdi(bloco){
   var mp=bloco.match(/###P:([\d.]+)/),mu=bloco.match(/###U:([A-Z]*)/i),mq=bloco.match(/###Q:([\d.]+)/);
   var preco=mp?parseFloat(mp[1]):0;if(!(preco>0))return null;
@@ -1597,7 +1690,7 @@ var confSeqId=0;
 async function confArquivosSelecionados(files){
   var arquivos=Array.prototype.filter.call(files,function(f){
     if(/\.pdf$/i.test(f.name)||f.type==="application/pdf")return true;
-    if(/\.(dkn|dke|htm|html|txt)$/i.test(f.name))return true; // formatos-texto (Dakota)
+    if(/\.(dkn|dke|edi|htm|html|txt)$/i.test(f.name))return true; // formatos-texto (Dakota .dkn/.dke/.htm · Aniger .edi)
     toast("Ignorado (formato nao suportado): "+f.name,"error");return false;
   });
   if(!arquivos.length)return;
@@ -1618,7 +1711,12 @@ async function confArquivosSelecionados(files){
           var buf=await file.arrayBuffer();
           item.linhas=await confExtrairLinhas(buf);
           if(!item.linhas.length)item.erro="Nao foi possivel extrair texto deste PDF (pode ser digitalizado/imagem).";
-          else item.campos=confParseCampos(item.linhas);
+          else{
+            item.campos=confParseCampos(item.linhas);
+            // Marca o PDF do ERP da ANIGER/MELBROS: cliente de preco duplo, o
+            // card mostra a MODALIDADE origem→destino no lugar da UF.
+            if(confIsAnigerPdf(item.linhas))item.formato="ANIGER_PDF";
+          }
         }else{
           // Arquivos-texto: Dakota .dkn/.dke (largura fixa) e .htm (Ordem de
           // Compra HTML); Aniger .edi (largura fixa, outro layout da mesma familia).
@@ -1632,20 +1730,22 @@ async function confArquivosSelecionados(files){
         }
         if(item.campos){
           if(item.campos.uf)item.uf=item.campos.uf;
-          var textoNorm=normTxt(item.linhas.join(" "));
-          var detectado="",melhor=0;
-          clientes.forEach(function(c){
-            var base=normTxt(c.replace(/ CLIENTE$/i,""));
-            if(base.length>=3&&textoNorm.indexOf(base)>=0&&base.length>melhor){melhor=base.length;detectado=c;}
-          });
-          // Os formatos de arquivo-texto sao exclusivos de um cliente (os CNPJs
-          // do arquivo identificam), mas nem sempre repetem o nome dele no texto
-          // (o htm da Dakota nao repete; o .edi da Aniger nao traz o nome em
-          // lugar nenhum). Nesses casos o leitor informa o cliente em
-          // campos.clienteHint e a aba correspondente e selecionada direto.
-          if(!detectado&&item.campos.clienteHint){
+          // Quando o leitor identifica o cliente pelo CNPJ do pedido
+          // (campos.clienteHint), essa informacao VENCE a busca por nome no
+          // texto: o pedido da MELBROS cita a ANIGER nas condicoes gerais (e
+          // vice-versa), e a busca textual escolheria a aba errada. Se a aba
+          // do cliente apontado nao existir, o card fica sem cliente para o
+          // usuario escolher — melhor que conferir contra a tabela de outro.
+          var detectado="";
+          if(item.campos.clienteHint){
             var dica=normTxt(item.campos.clienteHint);
             detectado=clientes.filter(function(c){return normTxt(c).indexOf(dica)>=0;})[0]||"";
+          }else{
+            var textoNorm=normTxt(item.linhas.join(" ")),melhor=0;
+            clientes.forEach(function(c){
+              var base=normTxt(c.replace(/ CLIENTE$/i,""));
+              if(base.length>=3&&textoNorm.indexOf(base)>=0&&base.length>melhor){melhor=base.length;detectado=c;}
+            });
           }
           item.cliente=detectado;
         }
@@ -1698,15 +1798,21 @@ async function confExecutarAnalise(item,aba,uf,cache){
            :(item.formato==="ANIGER_EDI")?confParseItemBlocoAnigerEdi
            :confParseItemBlocoDakotaFixo;
     item.resultados=confValidar(blocos,r.refs,uf,"",parseFn,{arred:confArredCentPadrao,ignorados:r.ignoradosConf||[]});
+  }else if(confIsRamarim(item.linhas)){
+    // A ordem dos testes de formato tem que ser a MESMA de confParseCampos
+    // (RAMARIM → DILLY → ANIGER/MELBROS → DASS): se divergir, um PDF que
+    // casasse com dois detectores teria o cabecalho lido por um formato e os
+    // itens por outro.
+    item.resultados=confValidar(confExtrairBlocosRamarim(item.linhas),r.refs,uf,item.campos.emissao,confParseItemBlocoRamarim);
+  }else if(confIsDilly(item.linhas)){
+    item.resultados=confValidar(confExtrairBlocosDilly(item.linhas),r.refs,uf,item.campos.emissao,confParseItemBlocoDilly);
+  }else if(confIsAnigerPdf(item.linhas)){
+    // ANIGER/MELBROS em PDF: cliente de preco duplo, mesma regra da Dakota —
+    // arredondamento padrao, lista de ignorados e conferencia contra o PRECO
+    // ATUAL (emissao vazia), nao contra a vigencia da data do pedido.
+    item.resultados=confValidar(confExtrairBlocosAnigerPdf(item.linhas),r.refs,uf,"",confParseItemBlocoAnigerPdf,{arred:confArredCentPadrao,ignorados:r.ignoradosConf||[]});
   }else{
-    if(confIsDilly(item.linhas)){
-      blocos=confExtrairBlocosDilly(item.linhas);parseFn=confParseItemBlocoDilly;
-    }else if(confIsRamarim(item.linhas)){
-      blocos=confExtrairBlocosRamarim(item.linhas);parseFn=confParseItemBlocoRamarim;
-    }else{
-      blocos=confExtrairBlocos(item.linhas);parseFn=null;
-    }
-    item.resultados=confValidar(blocos,r.refs,uf,item.campos.emissao,parseFn);
+    item.resultados=confValidar(confExtrairBlocos(item.linhas),r.refs,uf,item.campos.emissao,null); // DASS (default)
   }
   item.prazoCadastradoTodos=r.prazoPagamentoDiasTodos||[];
   item.erroAnalise="";
@@ -1993,6 +2099,11 @@ function confAliasSugerido(bloco){
   // completo se aquela cor tiver preco proprio na tabela.
   var mProd=String(bloco||"").match(/\bPROD\s+(\d+)/i);
   if(mProd)return mProd[1];
+  // Mesmo cliente em PDF: a linha-ancora comeca pelo codigo do material
+  // (11 digitos = 6 de produto + 5 de cor). Sugere so o produto, como no .edi —
+  // sem isso a sugestao viria com quantidade, preco e data no meio.
+  var mMat=String(bloco||"").match(/^\s*(\d{11})\s/);
+  if(mMat)return mMat[1].slice(0,6);
   var s=confDescBloco(bloco).toUpperCase();
   s=s.replace(/\b(ATACADOR|FITA|ELASTICO|ELST|CADARCO|CAD)\b/g," ");
   s=s.replace(/\b\d{2,3}\s*CM\b/g," ");

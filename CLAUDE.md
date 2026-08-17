@@ -68,6 +68,20 @@ O usuário deve abrir o Apps Script e executar uma destas funções:
 
 Ambas são **idempotentes** — podem ser executadas múltiplas vezes sem risco de perda de dados.
 
+### Configurar um cliente novo com o mesmo sistema de preço de outro
+
+`copiarConfigCliente(nomeAbaOrigem, nomeAbaDestino)` (rodar pelo editor do Apps Script, sem token) copia de uma aba de cliente para outra os metadados que definem **como o preço é calculado** — e **nada de preços/itens**:
+
+- **S1** — prazo de pagamento (`"90 dias"`, `"60/90 dias"`)
+- **T1/U1/V1** — variação % de BA / CE / MG sobre o preço RS
+- aplica os cabeçalhos faltantes do `SCHEMA_CLIENTE` na aba de destino (via `_aplicarSchemaAba`, o mesmo helper usado por `migrarSchema()`) e o formato `dd/MM/yyyy` em DataInicio/DataFim — útil quando a aba foi criada à mão, e não pelo formulário "Novo Cliente"
+
+Recusa copiar entre modelos de preço diferentes (cliente comum × cliente "preço duplo"), porque T1/U1/V1 têm papéis distintos nos dois. Idempotente; log `COPIAR_CONFIG_CLIENTE`.
+
+Atalho pronto: **`configurarAnigerComoDass()`** — configura `ANIGER CLIENTE` a partir de `DASS CLIENTE` (preço base RS, BA = RS − 3%, CE = RS − 3%, MG sem variação, prazo 90 dias).
+
+Nada além disso é necessário no código para um cliente novo: `getClientes` descobre automaticamente qualquer aba terminada em ` CLIENTE`, e o sistema de preço por estado é o comportamento padrão (só clientes de `CLIENTES_PRECO_DUPLO` fogem dele). Falta apenas dar acesso ao vendedor na coluna D da aba `VENDEDORES` (ou `*` para admins).
+
 ---
 
 ## Schema atual das abas de cliente

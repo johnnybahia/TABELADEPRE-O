@@ -1540,28 +1540,7 @@ function migrarSchema() {
 
   for (const aba of abasCliente) {
     try {
-      // Lê exatamente N colunas por posição (N = tamanho do schema).
-      // Usar posição em vez de busca por nome evita que colunas de dados sem
-      // cabeçalho (criadas por salvarReferencia antes da migração) sejam
-      // detectadas como "ausentes" e adicionadas nas colunas erradas.
-      const cabecalho = aba.getRange(1, 1, 1, SCHEMA_CLIENTE.length).getValues()[0]
-                           .map(v => String(v).trim());
-
-      const colsAdicionadas = [];
-      for (let i = 0; i < SCHEMA_CLIENTE.length; i++) {
-        const colDef = SCHEMA_CLIENTE[i];
-        const colNum = i + 1;
-        if (cabecalho[i].toUpperCase() === colDef.nome.toUpperCase()) continue;
-        if (cabecalho[i] !== "") continue; // posição ocupada por coluna desconhecida — não sobrescreve
-        aba.getRange(1, colNum)
-           .setValue(colDef.nome)
-           .setFontWeight("bold")
-           .setBackground("#0d0f14")
-           .setFontColor("#e8a020");
-        aba.setColumnWidth(colNum, colDef.largura);
-        colsAdicionadas.push(colDef.nome);
-      }
-
+      const colsAdicionadas = _aplicarSchemaAba(aba);
       if (colsAdicionadas.length > 0) {
         adicionadas.push(`${aba.getName()}: +${colsAdicionadas.join(", ")}`);
       }
@@ -1571,6 +1550,114 @@ function migrarSchema() {
   }
 
   return { adicionadas, erros };
+}
+
+// Aplica os cabeçalhos ausentes do SCHEMA_CLIENTE em UMA aba de cliente.
+// Retorna os nomes das colunas adicionadas. Idempotente e não destrutivo.
+function _aplicarSchemaAba(aba) {
+  // Lê exatamente N colunas por posição (N = tamanho do schema).
+  // Usar posição em vez de busca por nome evita que colunas de dados sem
+  // cabeçalho (criadas por salvarReferencia antes da migração) sejam
+  // detectadas como "ausentes" e adicionadas nas colunas erradas.
+  const cabecalho = aba.getRange(1, 1, 1, SCHEMA_CLIENTE.length).getValues()[0]
+                       .map(v => String(v).trim());
+
+  const colsAdicionadas = [];
+  for (let i = 0; i < SCHEMA_CLIENTE.length; i++) {
+    const colDef = SCHEMA_CLIENTE[i];
+    const colNum = i + 1;
+    if (cabecalho[i].toUpperCase() === colDef.nome.toUpperCase()) continue;
+    if (cabecalho[i] !== "") continue; // posição ocupada por coluna desconhecida — não sobrescreve
+    aba.getRange(1, colNum)
+       .setValue(colDef.nome)
+       .setFontWeight("bold")
+       .setBackground("#0d0f14")
+       .setFontColor("#e8a020");
+    aba.setColumnWidth(colNum, colDef.largura);
+    colsAdicionadas.push(colDef.nome);
+  }
+
+  return colsAdicionadas;
+}
+
+// ============================================================
+// COPIAR A CONFIGURAÇÃO DE PREÇO DE UM CLIENTE PARA OUTRO
+// Copia os metadados que ficam FORA do SCHEMA_CLIENTE e definem como os
+// preços do cliente são calculados/exibidos:
+//   S1      = prazo de pagamento ("90 dias", "60/90 dias")
+//   T1/U1/V1 = variação % de BA / CE / MG sobre o preço RS (auto-preenchimento
+//              dos campos de preço por estado no cadastro)
+// Também garante os cabeçalhos do schema e o formato de data das colunas
+// DataInicio/DataFim na aba de destino (útil quando a aba foi criada à mão,
+// e não pelo formulário "Novo Cliente").
+//
+// NÃO copia preços nem itens — só a configuração. Idempotente: pode rodar
+// quantas vezes quiser. Rodar pelo editor do Apps Script (sem token).
+// Uso: copiarConfigCliente("DASS CLIENTE", "ANIGER CLIENTE")
+// ============================================================
+function copiarConfigCliente(nomeAbaOrigem, nomeAbaDestino) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // getSheetByName é case-sensitive no GAS — varrer as abas para casar sem
+  // depender de maiúsculas/minúsculas exatas do nome digitado.
+  const acharAba = nome => {
+    const alvo = String(nome || "").trim().toUpperCase();
+    return ss.getSheets().filter(s => s.getName().trim().toUpperCase() === alvo)[0] || null;
+  };
+
+  const origem = acharAba(nomeAbaOrigem);
+  if (!origem) return { ok: false, erro: `Aba de origem "${nomeAbaOrigem}" não encontrada.` };
+  const destino = acharAba(nomeAbaDestino);
+  if (!destino) return { ok: false, erro: `Aba de destino "${nomeAbaDestino}" não encontrada.` };
+  if (origem.getName() === destino.getName()) return { ok: false, erro: "Origem e destino são a mesma aba." };
+  if (!destino.getName().toUpperCase().endsWith(SUFIXO_CLIENTE.toUpperCase())) {
+    return { ok: false, erro: `A aba de destino precisa terminar com "${SUFIXO_CLIENTE}".` };
+  }
+  if (_ehPrecoDuplo(origem.getName()) !== _ehPrecoDuplo(destino.getName())) {
+    // T1/U1/V1 têm papéis diferentes nos clientes "preço duplo" (RS/RS e CE/CE
+    // sobre o RS/CE) — copiar entre modelos diferentes gravaria variação errada.
+    return { ok: false, erro: "Origem e destino usam modelos de preço diferentes (preço duplo × por estado). Configure manualmente." };
+  }
+
+  const colsAdicionadas = _aplicarSchemaAba(destino);
+
+  // Formato de data em DataInicio/DataFim (mesmo padrão de criarCliente).
+  const linhasFormato = destino.getMaxRows() - 1; // nunca além do limite da aba
+  if (linhasFormato > 0) destino.getRange(2, 4, linhasFormato, 2).setNumberFormat("dd/MM/yyyy");
+
+  const prazo = origem.getRange("S1").getValue();
+  const variacoes = origem.getRange("T1:V1").getValues()[0];
+
+  destino.getRange("S1").setValue(prazo);
+  destino.getRange("T1:V1").setValues([variacoes]);
+
+  const pN = _pN;
+  const resumo = {
+    ok: true,
+    origem: origem.getName(),
+    destino: destino.getName(),
+    prazoPagamento: String(prazo || ""),
+    descontoBA: pN(variacoes[0]),
+    descontoCE: pN(variacoes[1]),
+    descontoMG: pN(variacoes[2]),
+    colunasAdicionadas: colsAdicionadas
+  };
+
+  _log("SISTEMA", "COPIAR_CONFIG_CLIENTE",
+       `${resumo.origem} -> ${resumo.destino} | prazo: ${resumo.prazoPagamento || "(vazio)"} | ` +
+       `BA: ${resumo.descontoBA}% CE: ${resumo.descontoCE}% MG: ${resumo.descontoMG}%` +
+       (colsAdicionadas.length ? ` | +${colsAdicionadas.join(", ")}` : ""));
+
+  return resumo;
+}
+
+// Atalho de um clique (rodar pelo editor do Apps Script): configura a aba
+// ANIGER CLIENTE com o mesmo sistema de preço da DASS — preço base RS e
+// variação % para BA/CE/MG copiada da aba DASS CLIENTE.
+function configurarAnigerComoDass() {
+  const r = copiarConfigCliente("DASS CLIENTE", "ANIGER CLIENTE");
+  Logger.log(JSON.stringify(r));
+  return r;
 }
 
 // ============================================================

@@ -200,6 +200,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
       <button class="tab-btn" id="tab-admin" onclick="trocarTab('admin')" style="display:none">Admin</button>
     </div>
     <div class="topbar-right">
+      <!-- Versao publicada: serve para conferir, olhando a tela, se o Apps Script
+           esta servindo o codigo atual (salvar o arquivo NAO atualiza a
+           implantacao — e preciso publicar uma versao nova). Atualizar a
+           constante APP_VERSAO a cada alteracao relevante do Index.html. -->
+      <span class="topbar-user" id="topbar-versao" style="opacity:.55;font-size:11px" title="Versao do sistema publicada"></span>
       <span class="topbar-user" id="topbar-nome"></span>
       <button class="btn-sair" onclick="fazerLogout()">Sair</button>
     </div>
@@ -495,6 +500,7 @@ async function fazerLogin(){
     S.vendedor=r.vendedor;
     S.token=r.token;
     document.getElementById("topbar-nome").textContent=r.vendedor.nome;
+    document.getElementById("topbar-versao").textContent="v"+APP_VERSAO;
     document.getElementById("screen-login").classList.remove("active");
     document.getElementById("screen-main").classList.add("active");
     document.getElementById("login-erro").textContent="";
@@ -778,6 +784,12 @@ function montarPrint(lista,cliente,modo,refFiltro){
 // cada item do pedido contra a tabela de precos cadastrada.
 // Formula: esperado = (medida do pedido / MedidaBase) x preco UF.
 // ============================================================
+// Versao do Index.html publicada — aparece na barra superior. Se a tela
+// mostrar uma versao antiga, o Apps Script ainda esta servindo codigo
+// velho: salvar o arquivo no editor NAO atualiza a implantacao, e preciso
+// publicar (Implantar > Gerenciar implantacoes > editar > Nova versao).
+var APP_VERSAO="2026.08.17";
+
 var PDFJS_BASE="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
 // Precos em reais com 2 casas (centavos). A comparacao de conferencia arredonda
 // os dois lados para centavos — inclusive um eventual 3o decimal vindo do PDF

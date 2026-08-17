@@ -24,11 +24,11 @@ function confMedidaPdf(bloco,rxBase){var m=rxBase?rxBase.exec(bloco):null,pos=m?
 function confArredCentPadrao(v){return Math.round(v*100+1e-9)/100;}
 
 // ---------- NOVO: modalidade DAKOTA por CNPJ ----------
-var CONF_DAKOTA_MARFIM={"93825230000170":"RS","19542918000190":"CE"};
-function confDakotaOrigem(c){return CONF_DAKOTA_MARFIM[c]||"";}
+var CONF_MARFIM_CNPJ={"93825230000170":"RS","19542918000190":"CE"};
+function confOrigemMarfim(c){return CONF_MARFIM_CNPJ[c]||"";}
 function confDakotaDestino(c){return /^07414643/.test(c)?"RS":/^00465813/.test(c)?"CE":"";}
-function confDakotaModalidade(o,d){if(o==="CE")return "CE/CE";if(o==="RS"&&d==="RS")return "RS/RS";if(o==="RS"&&d==="CE")return "RS/CE";return "";}
-function confDakotaModalUf(m){return {"RS/CE":"RS","RS/RS":"BA","CE/CE":"CE"}[m]||"RS";}
+function confModalidadeDuplo(o,d){if(o==="CE")return "CE/CE";if(o==="RS"&&d==="RS")return "RS/RS";if(o==="RS"&&d==="CE")return "RS/CE";return "";}
+function confModalUf(m){return {"RS/CE":"RS","RS/RS":"BA","CE/CE":"CE"}[m]||"RS";}
 
 // ---------- NOVO: leitura de arquivo DAKOTA ----------
 function confDakotaEhFixo(nome,texto){return /\.(dkn|dke)$/i.test(nome)||(/Arquivo XML/i.test(texto)&&/(PR|MT)\s\d{17}R\$/.test(texto));}
@@ -38,9 +38,9 @@ function confDakotaLerFixo(texto){
   var linhas=texto.split(/\r?\n/).map(function(l){return l.replace(/\t/g," ").replace(/\s+$/,"");}).filter(function(l){return /Arquivo XML/i.test(l)&&/(PR|MT)\s\d{17}R\$/.test(l);});
   var first=linhas[0]||"";
   var buyer=first.slice(0,14);var ms=first.match(/(\d{14})Arquivo XML/);var sup=ms?ms[1]:"";
-  var origem=confDakotaOrigem(sup),destino=confDakotaDestino(buyer);
-  var modal=confDakotaModalidade(origem,destino);
-  var c={ordem:"",emissao:"",marca:"",uf:confDakotaModalUf(modal),modalidade:modal,prazoPagamento:""};
+  var origem=confOrigemMarfim(sup),destino=confDakotaDestino(buyer);
+  var modal=confModalidadeDuplo(origem,destino);
+  var c={ordem:"",emissao:"",marca:"",uf:confModalUf(modal),modalidade:modal,prazoPagamento:""};
   var me=first.match(/\s(\d{8})V\d/);if(me)c.emissao=me[1].slice(6,8)+"/"+me[1].slice(4,6)+"/"+me[1].slice(0,4);
   var mp=first.match(/R\$\s*(\d{3})/);if(mp)c.prazoPagamento=String(parseInt(mp[1],10)); // campo fixo de 3 digitos
   return {campos:c,linhas:linhas,blocos:linhas};
@@ -66,12 +66,12 @@ function confDakotaLerHtm(texto){
   m=plano.match(/Prazo\s+Pag\s*:\s*(\d+)/i);if(m)c.prazoPagamento=m[1];
   // fornecedor Marfim (origem) por CNPJ
   var sup="";var mc=plano.match(/(\d{2})\.(\d{3})\.(\d{3})\/(\d{4})-(\d{2})/g)||[];
-  mc.forEach(function(x){var d=x.replace(/\D/g,"");if(CONF_DAKOTA_MARFIM[d])sup=d;});
-  var origem=confDakotaOrigem(sup);
+  mc.forEach(function(x){var d=x.replace(/\D/g,"");if(CONF_MARFIM_CNPJ[d])sup=d;});
+  var origem=confOrigemMarfim(sup);
   // comprador município (destino): primeiro "Municipio : <cidade> - <UF>"
   var destino="";m=plano.match(/Municipio\s*:\s*[^-]*-\s*(RS|CE|BA|MG)\b/i);if(m){destino=m[1].toUpperCase()==="RS"?"RS":"CE";}
-  c.modalidade=confDakotaModalidade(origem,destino);
-  c.uf=confDakotaModalUf(c.modalidade);
+  c.modalidade=confModalidadeDuplo(origem,destino);
+  c.uf=confModalUf(c.modalidade);
   // itens: linhas <tr> com 7 células; desc é a célula com font size=1
   var blocos=[],trRe=/<tr[^>]*>([\s\S]*?)<\/tr>/gi,tr;
   while((tr=trRe.exec(texto))){

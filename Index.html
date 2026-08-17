@@ -1798,25 +1798,21 @@ async function confExecutarAnalise(item,aba,uf,cache){
            :(item.formato==="ANIGER_EDI")?confParseItemBlocoAnigerEdi
            :confParseItemBlocoDakotaFixo;
     item.resultados=confValidar(blocos,r.refs,uf,"",parseFn,{arred:confArredCentPadrao,ignorados:r.ignoradosConf||[]});
+  }else if(confIsRamarim(item.linhas)){
+    // A ordem dos testes de formato tem que ser a MESMA de confParseCampos
+    // (RAMARIM → DILLY → ANIGER/MELBROS → DASS): se divergir, um PDF que
+    // casasse com dois detectores teria o cabecalho lido por um formato e os
+    // itens por outro.
+    item.resultados=confValidar(confExtrairBlocosRamarim(item.linhas),r.refs,uf,item.campos.emissao,confParseItemBlocoRamarim);
+  }else if(confIsDilly(item.linhas)){
+    item.resultados=confValidar(confExtrairBlocosDilly(item.linhas),r.refs,uf,item.campos.emissao,confParseItemBlocoDilly);
+  }else if(confIsAnigerPdf(item.linhas)){
+    // ANIGER/MELBROS em PDF: cliente de preco duplo, mesma regra da Dakota —
+    // arredondamento padrao, lista de ignorados e conferencia contra o PRECO
+    // ATUAL (emissao vazia), nao contra a vigencia da data do pedido.
+    item.resultados=confValidar(confExtrairBlocosAnigerPdf(item.linhas),r.refs,uf,"",confParseItemBlocoAnigerPdf,{arred:confArredCentPadrao,ignorados:r.ignoradosConf||[]});
   }else{
-    if(confIsAnigerPdf(item.linhas)){
-      // ANIGER/MELBROS em PDF: cliente de preco duplo, mesma regra da Dakota —
-      // arredondamento padrao, lista de ignorados e conferencia contra o PRECO
-      // ATUAL (emissao vazia), nao contra a vigencia da data do pedido.
-      blocos=confExtrairBlocosAnigerPdf(item.linhas);
-      item.resultados=confValidar(blocos,r.refs,uf,"",confParseItemBlocoAnigerPdf,{arred:confArredCentPadrao,ignorados:r.ignoradosConf||[]});
-      item.prazoCadastradoTodos=r.prazoPagamentoDiasTodos||[];
-      item.erroAnalise="";
-      return;
-    }
-    if(confIsDilly(item.linhas)){
-      blocos=confExtrairBlocosDilly(item.linhas);parseFn=confParseItemBlocoDilly;
-    }else if(confIsRamarim(item.linhas)){
-      blocos=confExtrairBlocosRamarim(item.linhas);parseFn=confParseItemBlocoRamarim;
-    }else{
-      blocos=confExtrairBlocos(item.linhas);parseFn=null;
-    }
-    item.resultados=confValidar(blocos,r.refs,uf,item.campos.emissao,parseFn);
+    item.resultados=confValidar(confExtrairBlocos(item.linhas),r.refs,uf,item.campos.emissao,null); // DASS (default)
   }
   item.prazoCadastradoTodos=r.prazoPagamentoDiasTodos||[];
   item.erroAnalise="";
@@ -2103,6 +2099,11 @@ function confAliasSugerido(bloco){
   // completo se aquela cor tiver preco proprio na tabela.
   var mProd=String(bloco||"").match(/\bPROD\s+(\d+)/i);
   if(mProd)return mProd[1];
+  // Mesmo cliente em PDF: a linha-ancora comeca pelo codigo do material
+  // (11 digitos = 6 de produto + 5 de cor). Sugere so o produto, como no .edi —
+  // sem isso a sugestao viria com quantidade, preco e data no meio.
+  var mMat=String(bloco||"").match(/^\s*(\d{11})\s/);
+  if(mMat)return mMat[1].slice(0,6);
   var s=confDescBloco(bloco).toUpperCase();
   s=s.replace(/\b(ATACADOR|FITA|ELASTICO|ELST|CADARCO|CAD)\b/g," ");
   s=s.replace(/\b\d{2,3}\s*CM\b/g," ");

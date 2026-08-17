@@ -73,14 +73,15 @@ Ambas são **idempotentes** — podem ser executadas múltiplas vezes sem risco 
 `copiarConfigCliente(nomeAbaOrigem, nomeAbaDestino)` (rodar pelo editor do Apps Script, sem token) copia de uma aba de cliente para outra os metadados que definem **como o preço é calculado** — e **nada de preços/itens**:
 
 - **S1** — prazo de pagamento (`"90 dias"`, `"60/90 dias"`)
-- **T1/U1/V1** — variação % de BA / CE / MG sobre o preço RS
+- **T1/U1/V1** — variação % de BA / CE / MG sobre o preço RS (nos clientes "preço duplo": RS/RS e CE/CE sobre o preço base RS/CE)
 - aplica os cabeçalhos faltantes do `SCHEMA_CLIENTE` na aba de destino (via `_aplicarSchemaAba`, o mesmo helper usado por `migrarSchema()`) e o formato `dd/MM/yyyy` em DataInicio/DataFim — útil quando a aba foi criada à mão, e não pelo formulário "Novo Cliente"
+- replica os rótulos das colunas de preço **I–L** (ex.: `PrecoRS/CE`, `PrecoRS/RS`, `PrecoCE/CE` nos clientes "preço duplo"), preservando rótulo já personalizado no destino. O texto do cabeçalho é apenas visual — o código lê por posição
 
 Recusa copiar entre modelos de preço diferentes (cliente comum × cliente "preço duplo"), porque T1/U1/V1 têm papéis distintos nos dois. Idempotente; log `COPIAR_CONFIG_CLIENTE`.
 
-Atalho pronto: **`configurarAnigerComoDass()`** — configura `ANIGER CLIENTE` a partir de `DASS CLIENTE` (preço base RS, BA = RS − 3%, CE = RS − 3%, MG sem variação, prazo 90 dias).
+Atalho pronto: **`configurarAnigerComoDakota()`** — configura `ANIGER CLIENTE` a partir de `DAKOTA CLIENTE` (preço duplo: base RS/CE na coluna I, RS/RS e CE/CE = +14% via T1/U1). Exige `"ANIGER"` em `CLIENTES_PRECO_DUPLO` — já incluído.
 
-Nada além disso é necessário no código para um cliente novo: `getClientes` descobre automaticamente qualquer aba terminada em ` CLIENTE`, e o sistema de preço por estado é o comportamento padrão (só clientes de `CLIENTES_PRECO_DUPLO` fogem dele). Falta apenas dar acesso ao vendedor na coluna D da aba `VENDEDORES` (ou `*` para admins).
+Nada além disso é necessário no código para um cliente novo do modelo **por estado**: `getClientes` descobre automaticamente qualquer aba terminada em ` CLIENTE` e esse é o comportamento padrão. Para o modelo **preço duplo** é obrigatório também incluir o nome do cliente (sem o sufixo ` CLIENTE`) em `CLIENTES_PRECO_DUPLO` no `Codigo.gs` — é ele que troca o papel das colunas I/J/K, os rótulos da interface e a regra de "preço atual". Em ambos os casos, falta ainda dar acesso ao vendedor na coluna D da aba `VENDEDORES` (ou `*` para admins).
 
 ---
 
@@ -108,7 +109,7 @@ Preços por estado são opcionais; quando zero/ausentes, o frontend usa o Preco 
 
 **Atenção (colunas legadas N/O/P):** as abas antigas importadas trazem cabeçalhos legados `Custo/RS` (N), `Custo/BA/CE` (O) e `nov./22` (P) — e, em DASS/RAMARIM, ainda há **dados** de custo nessas colunas. `migrarSchema()` não sobrescreve cabeçalho ocupado, mas o código lê/escreve **por posição**: N é tratada como `PrecoAtivo` independentemente do texto do cabeçalho (valores legados de custo em N fazem a linha parecer "preço ativado"). O e P estão fora do schema e não são tocadas pelo código; o ideal é mover os custos legados para colunas além do schema (ex.: AA em diante) e renomear N1 para `PrecoAtivo`.
 
-### Clientes "preço duplo" (origem/destino) — ex.: DAKOTA
+### Clientes "preço duplo" (origem/destino) — DAKOTA e ANIGER
 
 Configurados na lista `CLIENTES_PRECO_DUPLO` em `Codigo.gs` (nome do cliente sem o sufixo ` CLIENTE`; helper `_ehPrecoDuplo(nomeAba)`; o frontend recebe o flag em `getReferencias().precoDuplo` e o guarda em `S.consPrecoDuplo`/`S.cadPrecoDuplo`). Nesses clientes:
 
@@ -117,7 +118,8 @@ Configurados na lista `CLIENTES_PRECO_DUPLO` em `Codigo.gs` (nome do cliente sem
 - **Botão "🔄 Aplicar em todos"** (um acima de cada percentual, visível só no modo duplo): recalcula a coluna inteira na planilha via `aplicarVariacaoColuna(nomeAba, alvo, percentual, token)` (admin; alvo `"rsrs"` = coluna J, `"cece"` = coluna K): para cada linha com base RS/CE > 0 **e que já tem preço na coluna alvo**, grava `novo = RS/CE × (1 + pct/100)` arredondado em centavos (célula vazia = item sem preço nessa modalidade, permanece vazia); o percentual também é salvo em T1/U1. Serve para reajustes para cima ou para baixo (pct negativo). Log: `APLICAR_VARIACAO_COLUNA`. O frontend pede `confirm` antes (`aplicarVariacaoColunaCad`).
 - **Regra de "preço atual" por descrição**: a variante passa a ser `Referencia + MedidaBase + Descricao` (`refVarianteKey(x, duplo)` no `Index.html`). A mesma referência com **descrições diferentes** são itens distintos — **todos ficam ativos** (cada um com seu próprio preço atual); com a **mesma descrição** vale a regra normal (só a linha vigente de DataInicio mais recente). O botão "📌 Ativar preco"/ativação manual continua funcionando normalmente.
 - **Conflito de vigência no cadastro**: `salvarReferencia` só considera conflito quando `Referencia + MedidaBase + Descricao` coincidem (descrição comparada com trim+uppercase) — cadastrar a mesma referência com descrição diferente salva direto, sem modal, e as duas linhas coexistem ativas.
-- A conferência (aba "Conferir") **já suporta DAKOTA** — arquivos-texto `.dkn`/`.dke`/`.htm`, detecção automática da modalidade RS/RS·RS/CE·CE/CE por CNPJ e o fluxo de "ensinar associação". Ver a seção **"Aba 'Conferir' — formato DAKOTA (arquivos-texto)"** abaixo.
+- A conferência (aba "Conferir") **já suporta DAKOTA** — arquivos-texto `.dkn`/`.dke`/`.htm`, detecção automática da modalidade RS/RS·RS/CE·CE/CE por CNPJ e o fluxo de "ensinar associação". Ver a seção **"Aba 'Conferir' — formato DAKOTA (arquivos-texto)"** abaixo. **Isso é específico da DAKOTA**, não do modelo de preço duplo: os CNPJs (`CONF_DAKOTA_MARFIM`, `confDakotaDestino`) e os leitores `.dkn`/`.dke`/`.htm` são daquele cliente. A **ANIGER** usa o mesmo modelo de preço, mas a conferência dos pedidos dela ainda não tem formato implementado — precisa de amostras de pedido para calibrar (a modalidade origem/destino teria de ser detectada pelos dados do pedido dela, ou escolhida no seletor do card).
+- **ANIGER** (adicionada em 2026-08): mesmo modelo da DAKOTA. Configuração da aba feita por `configurarAnigerComoDakota()` (ver "Configurar um cliente novo com o mesmo sistema de preço de outro" acima).
 
 ### Regra de "Preço atual" e ativação manual (coluna PrecoAtivo)
 

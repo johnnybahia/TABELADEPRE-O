@@ -1242,12 +1242,15 @@ function confParseItemBlocoDakotaHtm(bloco){
 // Cliente "preco duplo" como a Dakota: a modalidade origem→destino sai dos
 // CNPJs (fornecedor Marfim + comprador Aniger) e decide a coluna de preco.
 // ============================================================
-// CNPJ do comprador (raiz de 8 digitos) → filial de destino + aba do cliente.
-// O mesmo ERP atende ANIGER (Quixeramobim/CE) e MELBROS (Campo Bom/RS), que
-// compram da Marfim com a mesma ordem de compra — o CNPJ do topo do pedido e
-// que diz de quem e o pedido e para onde vai (a razao social da outra aparece
-// no texto de condicoes gerais dos dois, entao nao serve para identificar).
-var CONF_ANIGER_COMPRADOR={"94316999":{uf:"CE",cliente:"ANIGER"},"11366487":{uf:"RS",cliente:"MELBROS"}};
+// CNPJ do comprador (raiz de 8 digitos) → filial de DESTINO + aba do cliente.
+// O grupo compra com duas razoes sociais na mesma ordem de compra: ANIGER
+// (Quixeramobim/CE) e MELBROS (Campo Bom/RS). Sao o MESMO cliente comercial —
+// as duas usam a tabela de precos da aba ANIGER; o que muda entre elas e so o
+// destino (CE ou RS), que define a modalidade junto com a filial Marfim de
+// origem. O CNPJ do topo do pedido e quem decide as duas coisas: o texto de
+// condicoes gerais cita as duas razoes sociais nos pedidos das duas, entao
+// procurar o nome no texto escolheria a aba errada.
+var CONF_ANIGER_COMPRADOR={"94316999":{uf:"CE",cliente:"ANIGER"},"11366487":{uf:"RS",cliente:"ANIGER"}};
 function confAnigerComprador(cnpj){return CONF_ANIGER_COMPRADOR[String(cnpj||"").replace(/\D/g,"").slice(0,8)]||null;}
 function confAnigerDestino(cnpj,cep){
   var e=confAnigerComprador(cnpj);if(e)return e.uf;

@@ -187,7 +187,7 @@ let anigerPdfOk=false;
     "20109721.pdf":["ANIGER","CE/CE","CE","45",3],
     "80144715.pdf":["ANIGER","CE/CE","CE","45",1],
     "20116455.pdf":["ANIGER","RS/CE","RS","45",1],
-    "60001709.pdf":["MELBROS","RS/RS","BA","45",1]
+    "60001709.pdf":["ANIGER","RS/RS","BA","45",1] // Melbros (Campo Bom/RS) = mesmo cliente, tabela ANIGER
   };
   const problemas=[];const cntP={};
   for(const [nome,linhas] of Object.entries(amostras)){

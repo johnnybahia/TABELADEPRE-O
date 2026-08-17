@@ -229,11 +229,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
     <div class="panel" id="panel-conferir">
       <p class="section-title">Conferir Pedido</p>
       <div class="form-card">
-        <input type="file" id="conf-file" accept="application/pdf,.pdf,.dkn,.dke,.htm,.html,.txt" multiple style="display:none">
+        <input type="file" id="conf-file" accept="application/pdf,.pdf,.dkn,.dke,.edi,.htm,.html,.txt" multiple style="display:none">
         <div class="conf-drop" id="conf-drop">
           <div class="cd-icon">&#x1F4C4;</div>
           <div><strong>Toque para escolher um ou mais arquivos de pedido</strong></div>
-          <div class="cd-sub">Aceita PDF (DASS/RAMARIM/DILLY) e os arquivos-texto da Dakota (.dkn/.dke/.htm). Pode selecionar varios de uma vez — cada arquivo e identificado e conferido separadamente, em seu proprio bloco de resultado</div>
+          <div class="cd-sub">Aceita PDF (DASS/RAMARIM/DILLY) e os arquivos-texto da Dakota (.dkn/.dke/.htm) e da Aniger (.edi). Pode selecionar varios de uma vez — cada arquivo e identificado e conferido separadamente, em seu proprio bloco de resultado</div>
         </div>
       </div>
       <div class="conf-batch-bar" id="conf-batch-bar">
@@ -1116,11 +1116,11 @@ function confParseItemBloco(bloco){
 // confExecutarAnalise → confEscolherVigencia usa a data de hoje).
 // ============================================================
 function confArredCentPadrao(v){return Math.round(v*100+1e-9)/100;}
-var CONF_DAKOTA_MARFIM={"93825230000170":"RS","19542918000190":"CE"}; // CNPJ Marfim (fornecedor) → filial de origem
-function confDakotaOrigem(cnpj){return CONF_DAKOTA_MARFIM[cnpj]||"";}
+var CONF_MARFIM_CNPJ={"93825230000170":"RS","19542918000190":"CE"}; // CNPJ Marfim (fornecedor) → filial de origem. Compartilhado por todos os clientes de preço duplo (DAKOTA, ANIGER): é o CNPJ da própria Marfim.
+function confOrigemMarfim(cnpj){return CONF_MARFIM_CNPJ[cnpj]||"";}
 function confDakotaDestino(cnpjComprador){return /^07414643/.test(cnpjComprador)?"RS":/^00465813/.test(cnpjComprador)?"CE":"";} // 07414643=Dakota RS · 00465813=Dakota Nordeste (CE)
-function confDakotaModalidade(o,d){if(o==="CE")return "CE/CE";if(o==="RS"&&d==="RS")return "RS/RS";if(o==="RS"&&d==="CE")return "RS/CE";return "";}
-function confDakotaModalUf(m){return {"RS/CE":"RS","RS/RS":"BA","CE/CE":"CE"}[m]||"RS";} // coluna de preço (papel "preço duplo")
+function confModalidadeDuplo(o,d){if(o==="CE")return "CE/CE";if(o==="RS"&&d==="RS")return "RS/RS";if(o==="RS"&&d==="CE")return "RS/CE";return "";}
+function confModalUf(m){return {"RS/CE":"RS","RS/RS":"BA","CE/CE":"CE"}[m]||"RS";} // coluna de preço (papel "preço duplo")
 function confDakotaEhFixo(nome,texto){return /\.(dkn|dke)$/i.test(nome)||(/Arquivo XML/i.test(texto)&&/(PR|MT)\s\d{17}R\$/.test(texto));}
 function confDakotaEhHtm(nome,texto){return /\.html?$/i.test(nome)||/<html|ORDEM DE COMPRA/i.test(texto);}
 function confDakotaEhTexto(nome,texto){return confDakotaEhFixo(nome,texto)||confDakotaEhHtm(nome,texto);}
@@ -1134,8 +1134,8 @@ function confDakotaLerFixo(texto){
   var linhas=texto.split(/\r?\n/).map(function(l){return l.replace(/\t/g," ").replace(/\s+$/,"");}).filter(function(l){return /Arquivo XML/i.test(l)&&/(PR|MT)\s\d{17}R\$/.test(l);});
   var first=linhas[0]||"";
   var buyer=first.slice(0,14);var ms=first.match(/(\d{14})Arquivo XML/);var sup=ms?ms[1]:"";
-  var modal=confDakotaModalidade(confDakotaOrigem(sup),confDakotaDestino(buyer));
-  var c={ordem:"",emissao:"",marca:"",uf:confDakotaModalUf(modal),modalidade:modal,prazoPagamento:""};
+  var modal=confModalidadeDuplo(confOrigemMarfim(sup),confDakotaDestino(buyer));
+  var c={ordem:"",emissao:"",marca:"",uf:confModalUf(modal),modalidade:modal,prazoPagamento:"",clienteHint:"DAKOTA"};
   var me=first.match(/\s(\d{8})V\d/);if(me)c.emissao=me[1].slice(6,8)+"/"+me[1].slice(4,6)+"/"+me[1].slice(0,4);
   // Prazo: campo de largura FIXA de 3 digitos logo apos "R$" (ex.: "063" = 63 dias),
   // seguido de zeros de preenchimento sem significado ("063000000000000N"). Captura
@@ -1162,15 +1162,15 @@ function confParseItemBlocoDakotaFixo(linha){
 // cada item é a descrição + marcadores ###U/###P/###Q para o parser.
 function confDakotaLerHtm(texto){
   var plano=confStripTags(texto);
-  var c={ordem:"",emissao:"",marca:"",uf:"",modalidade:"",prazoPagamento:""};
+  var c={ordem:"",emissao:"",marca:"",uf:"",modalidade:"",prazoPagamento:"",clienteHint:"DAKOTA"};
   var m;
   m=plano.match(/Numero\s*:\s*([0-9A-Za-z]+)/i);if(m)c.ordem=m[1];
   m=plano.match(/Emissao\s*:\s*(\d{2}\/\d{2}\/\d{2,4})/i);if(m)c.emissao=m[1];
   m=plano.match(/Prazo\s+Pag\s*:\s*(\d+)/i);if(m)c.prazoPagamento=m[1];
-  var sup="";(plano.match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/g)||[]).forEach(function(x){var d=x.replace(/\D/g,"");if(CONF_DAKOTA_MARFIM[d])sup=d;});
+  var sup="";(plano.match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/g)||[]).forEach(function(x){var d=x.replace(/\D/g,"");if(CONF_MARFIM_CNPJ[d])sup=d;});
   var destino="";m=plano.match(/Municipio\s*:\s*[^-]*-\s*(RS|CE|BA|MG)\b/i);if(m)destino=(m[1].toUpperCase()==="RS")?"RS":"CE";
-  c.modalidade=confDakotaModalidade(confDakotaOrigem(sup),destino);
-  c.uf=confDakotaModalUf(c.modalidade);
+  c.modalidade=confModalidadeDuplo(confOrigemMarfim(sup),destino);
+  c.uf=confModalUf(c.modalidade);
   var blocos=[],trRe=/<tr[^>]*>([\s\S]*?)<\/tr>/gi,tr;
   while((tr=trRe.exec(texto))){
     var tds=[],tdRe=/<td[^>]*>([\s\S]*?)<\/td>/gi,td;
@@ -1193,6 +1193,81 @@ function confParseItemBlocoDakotaHtm(bloco){
   var cm=0,mcm=desc.match(/(\d{2,3})\s*CM/i);if(mcm)cm=parseInt(mcm[1],10);
   var mm=null,mmm=desc.match(/(\d+(?:[.,]\d+)?)\s*MM/i);if(mmm)mm=pBR(mmm[1]);
   return {seq:null,preco:preco,cm:cm,mm:mm,qtd:mq?parseFloat(mq[1]):0,unit:/^P/.test(unit)?"PR":"MT"};
+}
+
+// ============================================================
+// FORMATO ANIGER (arquivo-texto .edi de largura fixa)
+// Mesma familia EDI do .dkn da Dakota, com quatro diferencas que impedem
+// reaproveitar o leitor daquele cliente:
+//   1. A linha de item termina em "OCgerada a partir da OC <n>" (a Dakota traz
+//      "Arquivo XML ...") e a unidade vem como "P" solto, nao "PR"/"MT".
+//   2. O preco empacotado tem 4 casas decimais ("...9300" = 0,9300); na Dakota
+//      sao 2 ("...075" = 0,75). A descricao repete o valor em texto
+//      ("R$ 0,9300") e e usada como fonte preferencial, por ser inequivoca.
+//   3. O pedido NAO traz a referencia Marfim nem o tamanho: a descricao e
+//      generica ("ATACADOR POLIE REC") e o unico identificador e o codigo
+//      interno da Aniger — 11 digitos, 6 de produto + 5 de cor (nas amostras o
+//      preco varia so com os 6 primeiros). O bloco carrega COD (codigo
+//      completo) e PROD (so o produto) para o admin ensinar a associacao
+//      codigo → referencia Marfim pelo fluxo de apelidos (celula AC1) no nivel
+//      que fizer sentido: PROD vale para todas as cores daquele produto.
+//   4. Sem tamanho no pedido nao ha calculo proporcional — o parser devolve
+//      semTamanho:true e a confValidar compara o preco do pedido direto com o
+//      preco cadastrado na linha casada (o tamanho fica implicito no codigo).
+// Cliente "preco duplo" como a Dakota: a modalidade origem→destino sai dos
+// CNPJs (fornecedor Marfim + comprador Aniger) e decide a coluna de preco.
+// ============================================================
+var CONF_ANIGER_COMPRADOR={"94316999000983":"CE"}; // CNPJ Aniger (comprador) → filial de destino
+function confAnigerDestino(cnpj){return CONF_ANIGER_COMPRADOR[cnpj]||"";}
+function confAnigerEhLinhaItem(l){return /\d{9}[A-Z]{1,2}\s{1,2}\d{17}R\$/.test(l)&&/OCgerada\s+a\s+partir\s+da\s+OC/i.test(l);}
+function confAnigerEhEdi(nome,texto){return /\.edi$/i.test(nome)||confAnigerEhLinhaItem(String(texto||"").split(/\r?\n/)[0]||"");}
+
+// Le um arquivo .edi (largura fixa): cada linha valida = um item. O cabecalho
+// (comprador, fornecedor, emissao, prazo, OC) e igual em todas as linhas do
+// arquivo, entao sai da primeira. Retorna {campos, linhas, blocos}.
+function confAnigerLerEdi(texto){
+  var linhas=String(texto||"").split(/\r?\n/).map(function(l){return l.replace(/\t/g," ").replace(/\s+$/,"");}).filter(confAnigerEhLinhaItem);
+  var first=linhas[0]||"";
+  var buyer=first.slice(0,14);
+  // No fim da linha vem <CNPJ fornecedor (14)><codigo do item (13)>"OCgerada..."
+  var msup=first.match(/\s(\d{14})\d+OCgerada/i);var sup=msup?msup[1]:"";
+  var modal=confModalidadeDuplo(confOrigemMarfim(sup),confAnigerDestino(buyer));
+  var c={ordem:"",emissao:"",marca:"",uf:confModalUf(modal),modalidade:modal,prazoPagamento:"",clienteHint:"ANIGER"};
+  var mo=first.match(/OCgerada\s+a\s+partir\s+da\s+OC\s*(\d+)/i);
+  c.ordem=mo?mo[1]:first.slice(14,22).trim();
+  var me=first.match(/\s(\d{8})V\d/);if(me)c.emissao=me[1].slice(6,8)+"/"+me[1].slice(4,6)+"/"+me[1].slice(0,4);
+  // Prazo: 3 digitos de largura fixa logo apos "R$" (ex.: "045" = 45 dias),
+  // seguidos de zeros de preenchimento — mesmo campo do .dkn da Dakota.
+  var mp=first.match(/R\$\s*(\d{3})/);if(mp)c.prazoPagamento=String(parseInt(mp[1],10));
+  var blocos=linhas.map(confAnigerBlocoDaLinha).filter(Boolean);
+  return {campos:c,linhas:linhas,blocos:blocos};
+}
+// Monta o bloco de um item a partir da linha crua: descricao legivel + codigo
+// (COD/PROD, onde a confRefRegex casa os apelidos aprendidos) + marcadores
+// ###U/###P/###Q para o parser. A linha crua tem ~3075 posicoes de campos
+// empacotados, entao nao serve como bloco (ao contrario da Dakota, cuja linha
+// ja traz a referencia Marfim no texto da descricao).
+function confAnigerBlocoDaLinha(linha){
+  var mu=linha.match(/(\d{9})([A-Z]{1,2})\s{1,2}(\d{17})R\$/);if(!mu)return null;
+  var mt=linha.match(/\s(\d{14})(\d+)OCgerada/i);
+  var cod=mt?mt[2].replace(/^0+/,""):"";
+  var qtd=parseInt(mu[1],10)/1000;
+  var preco=parseInt(mu[3],10)/10000; // campo empacotado: 4 casas decimais
+  var desc="",md=linha.match(/N\s{2,}(.+?)\s{2,}\d{20,}OCgerada/i);if(md)desc=md[1].trim();
+  var mtxt=desc.match(/R\$\s*([\d.]+,\d+)/);if(mtxt){var pt=pBR(mtxt[1]);if(pt>0)preco=pt;}
+  if(!(preco>0))return null;
+  // A descricao repete qtd/unidade/preco/total/data de entrega no fim; para
+  // exibicao e sugestao de apelido interessa so o texto do produto.
+  var descCurta=desc.replace(/\s+[\d.,]+\s+[A-Z]{2}\s+R\$[\s\S]*$/i,"").trim();
+  var ident=cod?(" COD "+cod+(cod.length===11?(" PROD "+cod.slice(0,6)):"")):"";
+  return (descCurta||"ITEM")+ident+"  ###U:"+(/^M/i.test(mu[2])?"MT":"PR")+" ###P:"+preco+" ###Q:"+qtd;
+}
+function confParseItemBlocoAnigerEdi(bloco){
+  var mp=bloco.match(/###P:([\d.]+)/),mu=bloco.match(/###U:([A-Z]*)/i),mq=bloco.match(/###Q:([\d.]+)/);
+  var preco=mp?parseFloat(mp[1]):0;if(!(preco>0))return null;
+  var desc=bloco.replace(/\s*###.*/,"");
+  var cm=0,mcm=desc.match(/(\d{2,3})\s*CM\b/i);if(mcm)cm=parseInt(mcm[1],10);
+  return {seq:null,preco:preco,cm:cm,mm:null,qtd:mq?parseFloat(mq[1]):0,unit:(mu&&/^M/i.test(mu[1]))?"MT":"PR",semTamanho:!cm};
 }
 
 // Escolhe a linha da tabela cuja vigencia cobre a data de referencia;
@@ -1232,6 +1307,9 @@ function confPrecoEsperado(row,uf,item,arred){
   var baseLabel=String(row.medidaBaseLabel||"");
   var usaCm=/CM/i.test(baseLabel)?true:/MM/i.test(baseLabel)?false:!unidadeDireta(row.unidade||"metros");
   if(usaCm){
+    // Pedido sem tamanho (ex.: .edi da Aniger): preco direto do cadastro,
+    // mesma regra da confValidar.
+    if(item.semTamanho)return {esperado:precoTab,medidaLabel:(row.medidaBase>0?(row.medidaBase+"cm · "):"")+"pedido sem tamanho"};
     var medida=item.cm||0;
     if(!medida||!(row.medidaBase>0))return null;
     var e=(medida/row.medidaBase)*precoTab;
@@ -1417,7 +1495,15 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn,opts){
     // cadastrada, para corrigir cadastros legados sem o campo Unidade.
     var baseLabel=String(row.medidaBaseLabel||"");
     var usaCm=/CM/i.test(baseLabel)?true:/MM/i.test(baseLabel)?false:!unidadeDireta(res.unidade);
-    if(usaCm){
+    if(usaCm&&item.semTamanho){
+      // Formatos cujo pedido nao informa o tamanho — a Aniger identifica o item
+      // so pelo codigo interno (.edi), e o tamanho fica implicito na associacao
+      // codigo → referencia. Sem cm nao ha proporcional: compara o preco do
+      // pedido direto com o preco cadastrado na linha casada.
+      res.medida=row.medidaBase||0;
+      res.medidaLabel=(res.medida?res.medida+"cm · ":"")+"pedido sem tamanho (preco direto do cadastro)";
+      res.esperado=precoTab;
+    }else if(usaCm){
       res.medida=item.cm||0;
       res.medidaLabel=res.medida?res.medida+"cm":"";
       if(!res.medida){
@@ -1534,10 +1620,12 @@ async function confArquivosSelecionados(files){
           if(!item.linhas.length)item.erro="Nao foi possivel extrair texto deste PDF (pode ser digitalizado/imagem).";
           else item.campos=confParseCampos(item.linhas);
         }else{
-          // Arquivos-texto Dakota: .dkn/.dke (largura fixa) ou .htm (Ordem de Compra HTML)
+          // Arquivos-texto: Dakota .dkn/.dke (largura fixa) e .htm (Ordem de
+          // Compra HTML); Aniger .edi (largura fixa, outro layout da mesma familia).
           var texto=await file.text();
           var leitura=null;
           if(confDakotaEhFixo(file.name,texto)){leitura=confDakotaLerFixo(texto);item.formato="DAKOTA_FIXO";}
+          else if(confAnigerEhEdi(file.name,texto)){leitura=confAnigerLerEdi(texto);item.formato="ANIGER_EDI";}
           else if(confDakotaEhHtm(file.name,texto)){leitura=confDakotaLerHtm(texto);item.formato="DAKOTA_HTM";}
           if(!leitura||!leitura.blocos.length)item.erro="Nao foi possivel ler itens deste arquivo (formato nao reconhecido).";
           else{item.linhas=leitura.linhas;item.blocos=leitura.blocos;item.campos=leitura.campos;}
@@ -1550,10 +1638,15 @@ async function confArquivosSelecionados(files){
             var base=normTxt(c.replace(/ CLIENTE$/i,""));
             if(base.length>=3&&textoNorm.indexOf(base)>=0&&base.length>melhor){melhor=base.length;detectado=c;}
           });
-          // Arquivos Dakota são sempre do cliente DAKOTA (CNPJs identificam) — se a
-          // deteccao por texto nao pegou (htm nao repete "DAKOTA" nas linhas de item),
-          // seleciona a aba DAKOTA diretamente.
-          if(!detectado&&item.formato)detectado=clientes.filter(function(c){return /DAKOTA/i.test(c);})[0]||"";
+          // Os formatos de arquivo-texto sao exclusivos de um cliente (os CNPJs
+          // do arquivo identificam), mas nem sempre repetem o nome dele no texto
+          // (o htm da Dakota nao repete; o .edi da Aniger nao traz o nome em
+          // lugar nenhum). Nesses casos o leitor informa o cliente em
+          // campos.clienteHint e a aba correspondente e selecionada direto.
+          if(!detectado&&item.campos.clienteHint){
+            var dica=normTxt(item.campos.clienteHint);
+            detectado=clientes.filter(function(c){return normTxt(c).indexOf(dica)>=0;})[0]||"";
+          }
           item.cliente=detectado;
         }
       }catch(e){
@@ -1599,9 +1692,11 @@ async function confExecutarAnalise(item,aba,uf,cache){
   // PRECO ATUAL (emissao vazia) e a lista de itens ignorados; DILLY/RAMARIM/DASS
   // seguem o fluxo por PDF. confValidar e comum a todos.
   var blocos,parseFn;
-  if(item.formato==="DAKOTA_FIXO"||item.formato==="DAKOTA_HTM"){
+  if(item.formato==="DAKOTA_FIXO"||item.formato==="DAKOTA_HTM"||item.formato==="ANIGER_EDI"){
     blocos=item.blocos||[];
-    parseFn=(item.formato==="DAKOTA_HTM")?confParseItemBlocoDakotaHtm:confParseItemBlocoDakotaFixo;
+    parseFn=(item.formato==="DAKOTA_HTM")?confParseItemBlocoDakotaHtm
+           :(item.formato==="ANIGER_EDI")?confParseItemBlocoAnigerEdi
+           :confParseItemBlocoDakotaFixo;
     item.resultados=confValidar(blocos,r.refs,uf,"",parseFn,{arred:confArredCentPadrao,ignorados:r.ignoradosConf||[]});
   }else{
     if(confIsDilly(item.linhas)){
@@ -1662,7 +1757,9 @@ function confRenderTudo(){
 // (se ja analisado). Cada bloco e completamente independente dos demais.
 function confRenderItem(item,idx){
   var campos=item.campos||{};
-  var ehDakota=/^DAKOTA_/.test(item.formato||"");
+  // Formatos de cliente "preco duplo" (Dakota .dkn/.dke/.htm, Aniger .edi):
+  // o seletor mostra a MODALIDADE origem/destino no lugar da UF.
+  var ehDakota=/^(DAKOTA_|ANIGER_)/.test(item.formato||"");
   var metaParts=[];
   if(campos.ordem)metaParts.push("OC: <strong>"+escHtml(campos.ordem)+"</strong>");
   if(campos.marca)metaParts.push("Marca: <strong>"+escHtml(campos.marca)+"</strong>");
@@ -1693,6 +1790,7 @@ function confRenderItem(item,idx){
     }
     var avisos="";
     if(!item.cliente)avisos+="<div class=\"ref-obs\" style=\"border-left-color:var(--danger)\">Cliente nao identificado automaticamente — selecione acima e clique em Conferir Precos.</div>";
+    if(ehDakota&&!campos.modalidade)avisos+="<div class=\"ref-obs\">Modalidade (origem &rarr; destino) nao identificada pelos CNPJs do arquivo — confira o seletor ao lado antes de conferir.</div>";
     if(!campos.emissao)avisos+="<div class=\"ref-obs\">Data de emissao nao localizada — vigencia sera checada pela data de hoje.</div>";
     corpo="<div class=\"form-grid\">"
       +"<div class=\"field\" style=\"margin-bottom:0\"><label>Cliente</label>"+selCli+"</div>"
@@ -1889,6 +1987,12 @@ function confDescBloco(bloco){
 // tamanho, ponteira e marcadores. O admin ajusta antes de salvar — o apelido
 // deve valer para todas as cores/variantes, entao sem cor/tamanho especificos.
 function confAliasSugerido(bloco){
+  // Formato Aniger (.edi): a descricao e generica ("ATACADOR POLIE REC") e nao
+  // identifica nada — quem identifica e o codigo interno. Sugere o codigo de
+  // PRODUTO (6 digitos), que vale para todas as cores; o admin troca pelo COD
+  // completo se aquela cor tiver preco proprio na tabela.
+  var mProd=String(bloco||"").match(/\bPROD\s+(\d+)/i);
+  if(mProd)return mProd[1];
   var s=confDescBloco(bloco).toUpperCase();
   s=s.replace(/\b(ATACADOR|FITA|ELASTICO|ELST|CADARCO|CAD)\b/g," ");
   s=s.replace(/\b\d{2,3}\s*CM\b/g," ");

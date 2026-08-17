@@ -84,6 +84,24 @@ let ensinarOk=false;
   ensinarOk=(antesNC===6&&viraramOK===3&&viraramIgn===3);
   console.log(ensinarOk?"✅ fluxo de ensinar OK":"❌ fluxo de ensinar diverge");
 })();
+// ===== portas de entrada do arquivo (bug real: .edi era barrado antes de
+// chegar no leitor, com "Ignorado (formato nao suportado)") =====
+(function(){
+  const problemas=[];
+  const mAccept=html.match(/id="conf-file"[^>]*accept="([^"]+)"/i);
+  if(!mAccept)problemas.push("input #conf-file sem accept");
+  else if(!/(^|,)\s*\.edi\s*(,|$)/i.test(mAccept[1]))problemas.push("accept do #conf-file nao aceita .edi");
+  const mFiltro=code.match(/\/\\\.\(([a-z|]+)\)\$\/i\.test\(f\.name\)/);
+  if(!mFiltro)problemas.push("filtro de extensao de confArquivosSelecionados nao encontrado");
+  else{
+    const rx=new RegExp("\\.("+mFiltro[1]+")$","i");
+    ["pedido.edi","pedido.dkn","pedido.dke","pedido.htm"].forEach(n=>{if(!rx.test(n))problemas.push("filtro JS barra "+n);});
+  }
+  problemas.forEach(p=>console.log("   !",p));
+  console.log(problemas.length?"❌ portas de entrada do arquivo com problema":"\n[Entrada] accept + filtro JS aceitam .edi ✅");
+  if(problemas.length)process.exitCode=1;
+})();
+
 // ===== extracao do formato ANIGER (.edi) =====
 // A tabela ANIGER ainda nao existe como CSV aqui (aba nova, sem itens
 // cadastrados), entao esta parte valida a EXTRACAO — cabecalho, codigos,

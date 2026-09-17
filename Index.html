@@ -879,7 +879,15 @@ function cadExtrairMmTexto(txt){
 function confRefRegex(base){
   var n=normTxt(base);
   if(n.length<3)return null;
-  return new RegExp("(?:^|[^A-Z0-9]|\\bREF)"+n.split("").join("[\\s./\\-()]*")+"(?![0-9])","i");
+  // Separador entre caracteres: qualquer sequencia de nao-alfanumerico, nao so
+  // espaco/ponto/barra/hifen/parenteses -- inclui acento (ex.: "Código" tem
+  // "ó" entre "C" e "D") e qualquer outro simbolo que o normTxt do lado do
+  // alias ja descarta. Sem isso, um apelido sugerido/digitado a partir de um
+  // trecho do pedido com acento (achado real: "CÓDIGO ... GORGURAO REF.MFGP
+  // 7MM" da BEIRA-RIO) nunca casa de volta contra o proprio pedido que o
+  // originou. Mais permissivo que antes, nunca menos -- so pode fazer novos
+  // casos casarem, nao quebrar os ja calibrados.
+  return new RegExp("(?:^|[^A-Z0-9]|\\bREF)"+n.split("").join("[^A-Za-z0-9]*")+"(?![0-9])","i");
 }
 
 // Detecta se o conjunto de linhas extraidas pertence a uma OC da RAMARIM
@@ -2201,7 +2209,13 @@ function confAliasSugerido(bloco){
   // sem isso a sugestao viria com quantidade, preco e data no meio.
   var mMat=String(bloco||"").match(/^\s*(\d{11})\s/);
   if(mMat)return mMat[1].slice(0,6);
-  var s=confDescBloco(bloco).toUpperCase();
+  // Formato BEIRA RIO: a 1a linha do bloco e "Codigo NNNNNN - <descricao>
+  // Nomenclatura" -- sem isso a sugestao generica abaixo (40 primeiros
+  // caracteres do bloco inteiro) pegava o rotulo "Codigo NNNNNN -" (o
+  // codigo ERP da Beira Rio, que muda por cor/variante, nao e um apelido
+  // estavel) e cortava no meio da palavra "Nomenclatura".
+  var mBR=String(bloco||"").match(/^C[oó]digo\s+\d+\s*-\s*(.+?)\s*Nomenclatura\b/i);
+  var s=(mBR?mBR[1]:confDescBloco(bloco)).toUpperCase();
   s=s.replace(/\b(ATACADOR|FITA|ELASTICO|ELST|CADARCO|CAD)\b/g," ");
   s=s.replace(/\b\d{2,3}\s*CM\b/g," ");
   s=s.replace(/\+?\s*PONT\.?\s*\d+\s*MM/gi," ");

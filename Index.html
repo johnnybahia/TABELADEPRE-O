@@ -2219,13 +2219,25 @@ async function confNotificarSemPreco(id,ridx){
   if(!item||!item.resultados)return;
   var r=item.resultados[ridx];
   if(!r)return;
-  if(!confirm("Enviar email para a direcao informando que este item nao esta cadastrado na tabela de preco?"))return;
+  // Texto do confirm() e o payload variam conforme o motivo: NAO_CADASTRADO
+  // (referencia nao identificada) segue como antes; faltaCadastro (SEM_PRECO
+  // ou variante de medida ausente) a referencia JA foi encontrada, so falta
+  // uma informacao pontual — o email precisa deixar isso claro para a
+  // direcao nao procurar um item que ja existe.
+  var msgConfirm=r.status==="NAO_CADASTRADO"
+    ?"Enviar email para a direcao informando que este item nao esta cadastrado na tabela de preco?"
+    :"Enviar email para a direcao solicitando o cadastro do preco/medida que falta para esta referencia?";
+  if(!confirm(msgConfirm))return;
   var key=function(x){return (x.refNome||"?")+"|"+x.medidaLabel+"|"+(x.precoPdf!=null?x.precoPdf.toFixed(4):"")+"|"+x.status;};
   var grupo=item.resultados.filter(function(x){return key(x)===key(r);});
   var campos=item.campos||{};
   var payload={
     cliente:item.cliente||"",
-    uf:item.uf||"",
+    // rotulo real da coluna (RS/RS, nao o codigo bruto "BA") — ver confRotuloUf
+    uf:confRotuloUf(item.uf||"",!!item.precoDuplo),
+    status:r.status||"",
+    motivo:r.motivo||"",
+    refNome:r.refNome||"",
     arquivo:item.arquivo||"",
     ordem:campos.ordem||"",
     marca:campos.marca||"",

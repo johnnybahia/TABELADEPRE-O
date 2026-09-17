@@ -75,6 +75,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
 .badge.ok{background:rgba(64,192,128,.12);color:var(--success);border-color:rgba(64,192,128,.3);}
 .badge.err{background:rgba(224,80,80,.12);color:var(--danger);border-color:rgba(224,80,80,.3);}
 .ref-obs{font-size:13px;color:var(--text2);background:var(--surface2);border-radius:var(--radius);padding:8px 10px;margin-bottom:10px;border-left:3px solid var(--accent);}
+.ref-obs.alerta{background:rgba(214,48,49,.09);border-left:4px solid var(--danger);color:var(--text);font-weight:500;}
 .estados-strip{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);}
 .estados-strip-label{width:100%;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--text3,var(--text2));margin-bottom:2px;}
 .estado-pill{flex:1;min-width:64px;background:linear-gradient(135deg,var(--surface2) 0%,rgba(232,160,32,.07) 100%);border:1px solid rgba(232,160,32,.3);border-radius:var(--radius-sm);padding:8px 10px;text-align:center;}
@@ -1820,7 +1821,13 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn,opts){
       res.motivo="Preco sem vigencia na data "+(emissaoStr||"de hoje")+". Ultima tabela: "+res.vigencia+".";
     }else{
       res.status=difere?"DIVERGENTE":"OK";
-      if(difere)res.motivo="Preco do pedido difere do esperado pela tabela vigente.";
+      // Frase direta (quem errou o que), nao passiva/burocratica — e os dois
+      // valores lado a lado, para nao depender de olhar de volta pro
+      // cabecalho do card. res.motivo continua string pura (sem HTML): tambem
+      // e usada crua no email de "Comunicar a direcao" (notificarItemSemPreco).
+      if(difere)res.motivo="O cliente enviou este pedido com o preco errado. Pedido: "
+        +res.precoPdf.toLocaleString("pt-BR",{style:"currency",currency:"BRL"})
+        +" · Tabela vigente: "+res.esperado.toLocaleString("pt-BR",{style:"currency",currency:"BRL"})+".";
     }
     if(res.opcoes){
       res.motivo=(res.motivo?res.motivo+" ":"")+"Esta referencia tem "+res.opcoes.length+" precos cadastrados (variantes) para esta UF/medida — confira as opcoes abaixo"+(melhor?", o pedido confere com uma delas.":" e nenhuma confere com o pedido.");
@@ -2192,7 +2199,7 @@ function confRenderResultados(item){
       +(r.medidaLabel?"<div class=\"ref-medida\">"+escHtml(r.medidaLabel)+"</div>":"")
       +"</div>"+precoHtml+"</div>"
       +"<div class=\"ref-meta\">"+badges+"</div>"
-      +(r.motivo?"<div class=\"ref-obs\">"+escHtml(r.motivo)+"</div>":"")
+      +(r.motivo?"<div class=\"ref-obs"+(r.status==="DIVERGENTE"?" alerta":"")+"\">"+escHtml(r.motivo)+"</div>":"")
       +opcoesHtml
       +notificarHtml
       +"<details style=\"margin-top:8px\"><summary style=\"cursor:pointer;font-size:12px;color:var(--text2)\">Ver trecho do pedido"+(seqsTxt?" ("+escHtml(seqsTxt)+")":"")+"</summary><div class=\"conf-line\">"+escHtml(confDescBloco(r.bloco))+"</div></details>"

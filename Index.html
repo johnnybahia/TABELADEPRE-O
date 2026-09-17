@@ -1495,13 +1495,27 @@ function confEscolherVigencia(rows,emissao,medidaPdf){
   });
   var pool=cobrem.length?cobrem:rows;
   var vencido=!cobrem.length;
+  // medidaBateu: false so quando o pool tem MEDIDAS DISTINTAS cadastradas
+  // (variantes de tamanho com preco proprio, nao proporcional) e NENHUMA bate
+  // com a medida do pedido -- usado por confValidar para nao extrapolar o
+  // proporcional a partir de uma variante-irma sem relacao matematica com a
+  // medida pedida (ex.: pedido de 90cm quando so ha variantes de 50/60cm).
+  // pool.length>1 sozinho NAO basta: pode ser so historico de vigencias/
+  // reajustes de preco da MESMA medida (ex.: 3 linhas, todas 100cm) -- nesse
+  // caso e o modelo proporcional padrao, extrapolar e o comportamento certo.
+  var medidaBateu=true;
   if(medidaPdf>0&&pool.length>1){
     var match=pool.filter(function(r){return Math.abs((r.medidaBase||0)-medidaPdf)<0.01;});
     if(match.length)pool=match;
+    else{
+      var medidasDistintas={},qtdDistintas=0;
+      pool.forEach(function(r){if(r.medidaBase>0&&!medidasDistintas[r.medidaBase]){medidasDistintas[r.medidaBase]=1;qtdDistintas++;}});
+      if(qtdDistintas>1)medidaBateu=false;
+    }
   }
   var ord=function(a,b){return (dataBR(b.dataInicio)||0)-(dataBR(a.dataInicio)||0);};
   pool=pool.slice().sort(ord);
-  return {row:pool[0],vencido:vencido,pool:pool};
+  return {row:pool[0],vencido:vencido,pool:pool,medidaBateu:medidaBateu};
 }
 
 // Calcula o preco esperado de uma linha da tabela para a UF e o item do
@@ -1697,6 +1711,7 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn,opts){
       }else{
         res.status="SEM_PRECO";
         res.motivo="Referencia sem preco "+uf+" cadastrado na vigencia "+res.vigencia+".";
+        res.faltaCadastro=true; // habilita "Comunicar a direcao" no card (ver confRenderResultados)
         out.push(res);return;
       }
     }
@@ -1725,6 +1740,21 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn,opts){
       if(!(row.medidaBase>0)){
         res.status="SEM_MEDIDA";
         res.motivo="Referencia sem medida base cadastrada na tabela.";
+        res.faltaCadastro=true;
+        out.push(res);return;
+      }
+      if(!esc.medidaBateu){
+        // Ha mais de uma variante de tamanho cadastrada para esta referencia
+        // (precos proprios, nao proporcionais entre si — ver confEscolherVigencia)
+        // e NENHUMA bate com a medida pedida: extrapolar o proporcional a
+        // partir de uma variante-irma daria um "esperado" sem fundamento real.
+        // Trata como medida ausente em vez de calcular contra a linha errada.
+        var vistos={},medidasCadastradas=[];
+        esc.pool.forEach(function(r){if(r.medidaBase>0&&!vistos[r.medidaBase]){vistos[r.medidaBase]=1;medidasCadastradas.push(r.medidaBase);}});
+        medidasCadastradas.sort(function(a,b){return a-b;});
+        res.status="SEM_MEDIDA";
+        res.motivo="Esta referencia tem "+medidasCadastradas.length+" variante(s) de medida cadastrada(s) ("+medidasCadastradas.join("cm, ")+"cm), mas nenhuma corresponde ao tamanho "+res.medida+"cm pedido. Verifique o cadastro; se a medida realmente nao existir, comunique a direcao.";
+        res.faltaCadastro=true;
         out.push(res);return;
       }
       var espCalc=(res.medida/row.medidaBase)*precoTab;
@@ -2117,22 +2147,28 @@ function confRenderResultados(item){
       }).join("")+"</ul></div>"):"";
     // Acoes para item nao identificado: admin ENSINA a associacao (painel inline
     // -> alias no cadastro); vendedor ENVIA para analise (email + arquivo ao admin).
-    // A "Comunicar a direcao" (item/preco nao cadastrado) segue igual, a parte.
+    // "Comunicar a direcao" tambem aparece quando a referencia JA foi identificada
+    // mas falta cadastro (r.faltaCadastro — SEM_PRECO da UF ou variante de medida
+    // ausente): ali "Identificar/ensinar" nao faz sentido (nao ha o que vincular,
+    // a referencia ja e a certa), so falta o admin cadastrar aquele preco/medida.
     var ridx=item.resultados.indexOf(r);
     var isAdmin=!!(S.vendedor&&S.vendedor.clientes&&S.vendedor.clientes.indexOf("*")>=0);
     var notificarHtml="";
-    if(r.status==="NAO_CADASTRADO"){
+    if(r.status==="NAO_CADASTRADO"||r.faltaCadastro){
+      var naoIdentificado=r.status==="NAO_CADASTRADO";
       var avisos2=(r.notificado?"<div class=\"ref-obs\" style=\"border-left-color:var(--success)\">&#x2713; Direcao notificada sobre este item.</div>":"")
         +(r.enviadoAnalise?"<div class=\"ref-obs\" style=\"border-left-color:var(--success)\">&#x2713; Item enviado para analise do administrador.</div>":"");
       var botoes="<div style=\"margin-top:8px;display:flex;gap:8px;flex-wrap:wrap\">";
-      if(isAdmin){
-        botoes+="<button class=\"btn btn-sm\" style=\"background:var(--navy)\" onclick=\"confEnsinarAbrir("+item.id+","+ridx+")\">&#x1F393; Identificar / ensinar</button>";
-      }else if(!r.enviadoAnalise){
-        botoes+="<button class=\"btn btn-sm\" style=\"background:var(--navy)\" onclick=\"confEnviarAnalise("+item.id+","+ridx+")\">&#x1F4E4; Enviar item para analise</button>";
+      if(naoIdentificado){
+        if(isAdmin){
+          botoes+="<button class=\"btn btn-sm\" style=\"background:var(--navy)\" onclick=\"confEnsinarAbrir("+item.id+","+ridx+")\">&#x1F393; Identificar / ensinar</button>";
+        }else if(!r.enviadoAnalise){
+          botoes+="<button class=\"btn btn-sm\" style=\"background:var(--navy)\" onclick=\"confEnviarAnalise("+item.id+","+ridx+")\">&#x1F4E4; Enviar item para analise</button>";
+        }
       }
       if(!r.notificado)botoes+="<button class=\"btn btn-warn btn-sm\" onclick=\"confNotificarSemPreco("+item.id+","+ridx+")\">&#x1F4E7; Comunicar a direcao</button>";
       botoes+="</div>";
-      notificarHtml=avisos2+botoes+(isAdmin?confEnsinarPanel(item,r,ridx):"");
+      notificarHtml=avisos2+botoes+((isAdmin&&naoIdentificado)?confEnsinarPanel(item,r,ridx):"");
     }
     return "<div class=\"ref-card"+(r.status==="DIVERGENTE"?" conf-bad":"")+"\">"
       +"<div class=\"ref-card-header\"><div><div class=\"ref-code\">"+titulo+"</div>"

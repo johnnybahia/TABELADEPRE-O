@@ -34,7 +34,7 @@ try { vm.runInContext(code, sandbox, { timeout: 5000 }); }
 catch (e) { console.error("Erro ao avaliar script:", e.message); process.exit(1); }
 
 const F = sandbox; // funções ficam no escopo global do sandbox
-["confValidar","confDakotaLerFixo","confDakotaLerHtm","confParseItemBlocoDakotaFixo","confParseItemBlocoDakotaHtm","confDakotaEhFixo","confDakotaEhHtm","confArredCentPadrao","confAnigerEhEdi","confAnigerLerEdi","confParseItemBlocoAnigerEdi","confAliasSugerido","confIsAnigerPdf","confParseCampos","confExtrairBlocosAnigerPdf","confParseItemBlocoAnigerPdf"].forEach(fn=>{
+["confValidar","confDakotaLerFixo","confDakotaLerHtm","confParseItemBlocoDakotaFixo","confParseItemBlocoDakotaHtm","confDakotaEhFixo","confDakotaEhHtm","confArredCentPadrao","confAnigerEhEdi","confAnigerLerEdi","confParseItemBlocoAnigerEdi","confAliasSugerido","confIsAnigerPdf","confParseCampos","confExtrairBlocosAnigerPdf","confParseItemBlocoAnigerPdf","confIsBeiraRio","confExtrairBlocosBeiraRio","confParseItemBlocoBeiraRio"].forEach(fn=>{
   if(typeof F[fn]!=="function"){console.error("Função ausente no sandbox:",fn);process.exit(1);}
 });
 
@@ -217,4 +217,58 @@ let anigerPdfOk=false;
   console.log(anigerPdfOk?"✅ ANIGER/MELBROS em PDF OK":"❌ ANIGER/MELBROS em PDF com problemas");
 })();
 
-process.exit(ok&&ensinarOk&&anigerOk&&anigerPdfOk?0:1);
+// ===== formato BEIRA RIO (PDF do ERP proprio) =====
+// Roda sobre as LINHAS ja extraidas (amostras/beira_rio_pdf_linhas.json,
+// {arquivo: linhas[]}) — mesmo truque do fixture ANIGER, evita exigir pdf.js
+// instalado. Diferente da ANIGER (tabela sintetica), a aba BEIRA-RIO CLIENTE
+// ja tem cadastro real ("tabela de preços - BEIRA-RIO CLIENTE.csv" na raiz) —
+// a conferencia roda contra ele. Baseline calibrado nos 2 PDFs de amostra:
+// 47 OK, 6 DIVERGENTE (achados reais, nao bug do parser — ver CLAUDE.md,
+// seção "Aba 'Conferir' — formato BEIRA-RIO"), 3 NAO_CADASTRADO (referencia
+// "REF.MFGP" do pedido ainda sem apelido ensinado para M41565 na AC1).
+let beiraRioOk=false;
+(function(){
+  const fx=path.join(DIR,"beira_rio_pdf_linhas.json");
+  const csvPath=path.join(ROOT,"tabela de preços - BEIRA-RIO CLIENTE.csv");
+  if(!fs.existsSync(fx)||!fs.existsSync(csvPath)){console.log("\n[BEIRA RIO] fixture/tabela ausente — pulado");beiraRioOk=true;return;}
+  const amostras=JSON.parse(fs.readFileSync(fx,"utf8"));
+  const csvB=parseCSV(fs.readFileSync(csvPath,"utf8"));
+  // A tabela BEIRA-RIO tem celulas de preco digitadas como texto com prefixo
+  // de moeda ("R$ 0,98") — o pBR do harness (acima) nao trata "R$" porque a
+  // amostra DAKOTA nunca trouxe esse caso na CSV exportada; o _pN real do
+  // backend (Codigo.gs) trata. Usa um pBR local equivalente ao _pN aqui.
+  const pBRcel=v=>pBR(String(v==null?"":v).replace(/R\$/gi,"").trim());
+  const refsBeiraRio=csvB.slice(1).filter(r=>r[0]&&r[0].trim()).map((r,i)=>({
+    linha:i+2,ref:(r[0]||"").trim(),descricao:(r[1]||"").trim(),preco:pBRcel(r[2]),
+    dataInicio:(r[3]||"").trim(),dataFim:(r[4]||"").trim(),obs:(r[5]||"").trim(),
+    unidade:(r[6]||"metros").trim(),medidaBase:pBRcel(r[7]),medidaBaseLabel:(r[7]||"").trim(),
+    precoRS:pBRcel(r[8]),precoBA:pBRcel(r[9]),precoCE:pBRcel(r[10]),precoMG:pBRcel(r[11]),aliasesConf:""
+  }));
+  // esperado por arquivo: [ordem, emissao, uf, prazo, nº de itens]
+  const esperadoPdf={
+    "OrdemCompra6ee4564329e847029cbce391560cc9a7_8281.pdf":["14146396","08/09/2026","RS","7",5],
+    "OrdemComprad8d168b405ee41e699d336105716860d_8281.pdf":["14204030","15/09/2026","RS","7",51]
+  };
+  const problemas=[];const cnt={};
+  for(const [nome,linhas] of Object.entries(amostras)){
+    if(!F.confIsBeiraRio(linhas)){problemas.push(nome+": layout nao detectado");continue;}
+    const c=F.confParseCampos(linhas);
+    const blocos=F.confExtrairBlocosBeiraRio(linhas);
+    const exp=esperadoPdf[nome];
+    if(exp){
+      if(c.ordem!==exp[0])problemas.push(nome+": ordem "+c.ordem+" != "+exp[0]);
+      if(c.emissao!==exp[1])problemas.push(nome+": emissao "+c.emissao+" != "+exp[1]);
+      if(c.uf!==exp[2])problemas.push(nome+": uf "+c.uf+" != "+exp[2]);
+      if(c.prazoPagamento!==exp[3])problemas.push(nome+": prazo "+c.prazoPagamento+" != "+exp[3]);
+      if(blocos.length!==exp[4])problemas.push(nome+": "+blocos.length+" blocos != "+exp[4]);
+    }
+    F.confValidar(blocos,refsBeiraRio,c.uf||"RS",c.emissao,F.confParseItemBlocoBeiraRio)
+     .forEach(r=>{cnt[r.status]=(cnt[r.status]||0)+1;});
+  }
+  console.log("\n[BEIRA RIO] arquivos:",Object.keys(amostras).length,"| conferencia com tabela real:",JSON.stringify(cnt));
+  problemas.slice(0,10).forEach(p=>console.log("   !",p));
+  beiraRioOk=(problemas.length===0&&cnt.OK===47&&cnt.DIVERGENTE===6&&cnt.NAO_CADASTRADO===3);
+  console.log(beiraRioOk?"✅ BEIRA RIO OK":"❌ BEIRA RIO com problemas");
+})();
+
+process.exit(ok&&ensinarOk&&anigerOk&&anigerPdfOk&&beiraRioOk?0:1);

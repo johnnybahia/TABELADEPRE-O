@@ -168,20 +168,25 @@ let anigerOk=false;
 // Roda sobre as LINHAS ja extraidas (amostras/aniger_pdf_linhas.json), geradas
 // pelo mesmo confExtrairLinhas do Index.html — assim o harness nao precisa do
 // pdf.js instalado. Cobre cabecalho (OC/emissao/prazo/marca/modalidade/cliente),
-// extracao dos itens e a conferencia contra uma tabela sintetica (as abas
-// ANIGER/MELBROS ainda nao tem itens cadastrados).
+// extracao dos itens e a conferencia contra a tabela REAL da ANIGER CLIENTE
+// ("tabela de preços - ANIGER CLIENTE.csv" na raiz, subida em 2026-09).
 let anigerPdfOk=false;
 (function(){
   const fx=path.join(DIR,"aniger_pdf_linhas.json");
-  if(!fs.existsSync(fx)){console.log("\n[ANIGER PDF] fixture ausente — pulado");anigerPdfOk=true;return;}
+  const csvPathAniger=path.join(ROOT,"tabela de preços - ANIGER CLIENTE.csv");
+  if(!fs.existsSync(fx)||!fs.existsSync(csvPathAniger)){console.log("\n[ANIGER PDF] fixture/tabela ausente — pulado");anigerPdfOk=true;return;}
   const amostras=JSON.parse(fs.readFileSync(fx,"utf8"));
-  // Tabela sintetica (preco duplo: I=RS/CE, J=RS/RS, K=CE/CE). O atacador tem
-  // base 100cm a 0,89 CE/CE — os 95cm e 105cm do pedido saem do proporcional.
-  const refsFake=[
-    {linha:2,ref:"MR140019",descricao:"ATACADOR POLIESTER RECICLADO CHATO 6MM",unidade:"PAR",medidaBase:100,medidaBaseLabel:"100cm",preco:0,precoRS:0.80,precoBA:0.84,precoCE:0.89,precoMG:0,dataInicio:"01/01/2025",dataFim:"",aliasesConf:""},
-    {linha:3,ref:"M2173",descricao:"FITA GORGURAO ELASTICO 15MM",unidade:"METRO",medidaBase:15,medidaBaseLabel:"15mm",preco:0,precoRS:2.38,precoBA:2.20,precoCE:2.50,precoMG:0,dataInicio:"01/01/2025",dataFim:"",aliasesConf:""},
-    {linha:4,ref:"M41552",descricao:"FITA GORGURAO POLIESTER REFLETIVA 20MM",unidade:"METRO",medidaBase:20,medidaBaseLabel:"20mm",preco:0,precoRS:2.10,precoBA:2.18,precoCE:2.30,precoMG:0,dataInicio:"01/01/2025",dataFim:"",aliasesConf:""}
-  ];
+  // Mesma tabela usada pela BEIRA-RIO tem celulas de preco com "R$" como texto —
+  // reusa o pBRcel (definido na secao BEIRA RIO abaixo nao ajuda aqui por ordem
+  // de execucao, entao repete o mesmo padrao local).
+  const pBRcelA=v=>pBR(String(v==null?"":v).replace(/R\$/gi,"").trim());
+  const csvA=parseCSV(fs.readFileSync(csvPathAniger,"utf8"));
+  const refsAniger=csvA.slice(1).filter(r=>r[0]&&r[0].trim()).map((r,i)=>({
+    linha:i+2,ref:(r[0]||"").trim(),descricao:(r[1]||"").trim(),preco:pBRcelA(r[2]),
+    dataInicio:(r[3]||"").trim(),dataFim:(r[4]||"").trim(),obs:(r[5]||"").trim(),
+    unidade:(r[6]||"metros").trim(),medidaBase:pBRcelA(r[7]),medidaBaseLabel:(r[7]||"").trim(),
+    precoRS:pBRcelA(r[8]),precoBA:pBRcelA(r[9]),precoCE:pBRcelA(r[10]),precoMG:pBRcelA(r[11]),aliasesConf:""
+  }));
   // esperado por arquivo: [cliente, modalidade, coluna, prazo, nº de itens]
   const esperadoPdf={
     "20109721.pdf":["ANIGER","CE/CE","CE","45",3],
@@ -208,12 +213,17 @@ let anigerPdfOk=false;
       if(!it){problemas.push(nome+": bloco sem parse");return;}
       if(!(it.preco>0)||!(it.qtd>0))problemas.push(nome+": preco/qtd invalidos");
       if(it.unit==="PR"&&!it.cm)problemas.push(nome+": item PR sem tamanho em cm");});
-    F.confValidar(blocos,refsFake,c.uf,"",F.confParseItemBlocoAnigerPdf,{arred:F.confArredCentPadrao,ignorados:[]})
+    F.confValidar(blocos,refsAniger,c.uf,"",F.confParseItemBlocoAnigerPdf,{arred:F.confArredCentPadrao,ignorados:[],duplo:true})
      .forEach(r=>{cntP[r.status]=(cntP[r.status]||0)+1;});
   }
-  console.log("\n[ANIGER PDF] arquivos:",Object.keys(amostras).length,"| conferencia com tabela sintetica:",JSON.stringify(cntP));
+  // Achados reais confirmados contra a tabela real (nao bugs de parser):
+  // M2173 (RS/CE) diverge -- pedido cobra 2,38, cadastro tem 2,80 na RS/CE;
+  // M41552 (RS/RS, pedido da Melbros) fica SEM_PRECO -- a coluna RS/RS desse
+  // item nao tem preco cadastrado (so RS/CE e CE/CE), embora o pedido real
+  // mostre 2,18 pago nessa modalidade — vale cadastrar esse valor.
+  console.log("\n[ANIGER PDF] arquivos:",Object.keys(amostras).length,"| conferencia com tabela real:",JSON.stringify(cntP));
   problemas.slice(0,10).forEach(p=>console.log("   !",p));
-  anigerPdfOk=(problemas.length===0&&cntP.OK===6&&Object.keys(cntP).length===1);
+  anigerPdfOk=(problemas.length===0&&cntP.OK===4&&cntP.DIVERGENTE===1&&cntP.SEM_PRECO===1);
   console.log(anigerPdfOk?"✅ ANIGER/MELBROS em PDF OK":"❌ ANIGER/MELBROS em PDF com problemas");
 })();
 

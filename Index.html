@@ -488,6 +488,17 @@ function unidadeKg(u){u=String(u||"").toLowerCase();return u.indexOf("kg")>=0||u
 // S.cadPrecoDuplo). As colunas de preço assumem os papéis I=RS/CE, J=RS/RS, K=CE/CE
 // e a coluna MG não é usada (rótulo null = oculta).
 function rotulosPreco(duplo){return duplo?["RS/CE","RS/RS","CE/CE",null]:["RS","BA","CE","MG"];}
+// Traduz o codigo de coluna (RS/BA/CE/MG, usado internamente por confValidar
+// como "uf") para o rotulo real na tela, quando o cliente e preco duplo —
+// ali "BA" e so o codigo da coluna J (papel RS/RS), nao o estado da Bahia, e
+// mostrar "sem preco BA" pro ANIGER/DAKOTA confunde o usuario. Sem duplo,
+// o codigo ja E o rotulo (RS/BA/CE/MG reais).
+function confRotuloUf(uf,duplo){
+  if(!duplo)return uf;
+  var idx={RS:0,BA:1,CE:2,MG:3}[uf];
+  var r=rotulosPreco(true);
+  return (idx!=null&&r[idx])?r[idx]:uf;
+}
 
 async function fazerLogin(){
   var id=document.getElementById("login-id").value.trim();
@@ -1562,6 +1573,11 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn,opts){
   // tabela de preco deste cliente — deixam de ser sinalizados como divergencia.
   var arred=opts.arred||null;
   var ignorados=(opts.ignorados||[]).map(normTxt).filter(function(s){return s.length>=2;});
+  // rotuloUf: codigo de coluna traduzido pro rotulo real (ver confRotuloUf) —
+  // usado nas mensagens em vez de "uf" cru, para nao mostrar "BA" pro cliente
+  // preco duplo (ANIGER/DAKOTA) quando o codigo interno da coluna e "BA" mas
+  // o rotulo na tela e "RS/RS".
+  var rotuloUf=confRotuloUf(uf,!!opts.duplo);
   // agrupa o cadastro por codigo-base + atributo goma (variantes com e sem
   // goma do mesmo codigo sao candidatas distintas)
   var mapa={};
@@ -1707,10 +1723,10 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn,opts){
         var alt=comPreco[0];
         precoTab=alt["preco"+uf]>0?alt["preco"+uf]:alt.preco;
         res.vigenciaAnterior=(alt.dataInicio||"–")+" → "+(alt.dataFim||"Sem vencimento");
-        avisoVigencia="Atencao: a vigencia mais recente desta referencia ("+res.vigencia+") esta sem preco "+uf+" cadastrado — usado o preco "+uf+" de "+precoTab.toLocaleString("pt-BR",{style:"currency",currency:"BRL"})+" da vigencia anterior ("+res.vigenciaAnterior+"). Verifique se a vigencia mais recente deveria ter este preco preenchido.";
+        avisoVigencia="Atencao: a vigencia mais recente desta referencia ("+res.vigencia+") esta sem preco "+rotuloUf+" cadastrado — usado o preco "+rotuloUf+" de "+precoTab.toLocaleString("pt-BR",{style:"currency",currency:"BRL"})+" da vigencia anterior ("+res.vigenciaAnterior+"). Verifique se a vigencia mais recente deveria ter este preco preenchido.";
       }else{
         res.status="SEM_PRECO";
-        res.motivo="Referencia sem preco "+uf+" cadastrado na vigencia "+res.vigencia+".";
+        res.motivo="Referencia sem preco "+rotuloUf+" cadastrado na vigencia "+res.vigencia+".";
         res.faltaCadastro=true; // habilita "Comunicar a direcao" no card (ver confRenderResultados)
         out.push(res);return;
       }
@@ -1950,7 +1966,7 @@ async function confExecutarAnalise(item,aba,uf,cache){
     parseFn=(item.formato==="DAKOTA_HTM")?confParseItemBlocoDakotaHtm
            :(item.formato==="ANIGER_EDI")?confParseItemBlocoAnigerEdi
            :confParseItemBlocoDakotaFixo;
-    item.resultados=confValidar(blocos,r.refs,uf,"",parseFn,{arred:confArredCentPadrao,ignorados:r.ignoradosConf||[]});
+    item.resultados=confValidar(blocos,r.refs,uf,"",parseFn,{arred:confArredCentPadrao,ignorados:r.ignoradosConf||[],duplo:item.precoDuplo});
   }else if(confIsRamarim(item.linhas)){
     // A ordem dos testes de formato tem que ser a MESMA de confParseCampos
     // (RAMARIM → DILLY → ANIGER/MELBROS → DASS): se divergir, um PDF que
@@ -1963,7 +1979,7 @@ async function confExecutarAnalise(item,aba,uf,cache){
     // ANIGER/MELBROS em PDF: cliente de preco duplo, mesma regra da Dakota —
     // arredondamento padrao, lista de ignorados e conferencia contra o PRECO
     // ATUAL (emissao vazia), nao contra a vigencia da data do pedido.
-    item.resultados=confValidar(confExtrairBlocosAnigerPdf(item.linhas),r.refs,uf,"",confParseItemBlocoAnigerPdf,{arred:confArredCentPadrao,ignorados:r.ignoradosConf||[]});
+    item.resultados=confValidar(confExtrairBlocosAnigerPdf(item.linhas),r.refs,uf,"",confParseItemBlocoAnigerPdf,{arred:confArredCentPadrao,ignorados:r.ignoradosConf||[],duplo:item.precoDuplo});
   }else if(confIsBeiraRio(item.linhas)){
     item.resultados=confValidar(confExtrairBlocosBeiraRio(item.linhas),r.refs,uf,item.campos.emissao,confParseItemBlocoBeiraRio);
   }else{

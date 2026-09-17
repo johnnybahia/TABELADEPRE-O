@@ -1426,8 +1426,20 @@ function confExtrairBlocosBeiraRio(linhas){
     var mT=texto.match(/Tamanho\s+([\d\s]+?)(?:\n|$)/i);
     var tokens=mT?mT[1].trim().split(/\s+/).filter(Boolean):[];
     if(tokens.length>1){
-      tokens.forEach(function(tok){
-        blocos.push(texto.replace(/Tamanho\s+[\d\s]+?(?=\n|$)/i,"Tamanho "+tok));
+      // A linha de dados traz o TOTAL combinado (ex.: 400) -- a quantidade real
+      // de cada tamanho fica na sub-linha "Quantidade <n1> <n2>" (mesma ordem
+      // dos tokens de Tamanho, ex.: 200/200). Sem trocar tambem esse numero na
+      // linha de dados, os dois blocos gerados sairiam ambos com qtd=400 (o
+      // total duplicado), inflando a soma "Qtde" exibida no card.
+      var mQ=texto.match(/Quantidade\s+([\d\s]+?)(?:\n|$)/i);
+      var qtdTokens=mQ?mQ[1].trim().split(/\s+/).filter(Boolean):[];
+      tokens.forEach(function(tok,ti){
+        var b=texto.replace(/Tamanho\s+[\d\s]+?(?=\n|$)/i,"Tamanho "+tok);
+        var qtdTok=qtdTokens[ti];
+        if(qtdTok){
+          b=b.replace(/^(\d+(?:[.,]\d+)?)(\s+(?:M|PAR)\s+\d+(?:[.,]\d+)?\s+\d+(?:[.,]\d+)?\s+\d{2}\/\d{2}\/\d{4})/im,qtdTok+"$2");
+        }
+        blocos.push(b);
       });
     }else{
       blocos.push(texto);

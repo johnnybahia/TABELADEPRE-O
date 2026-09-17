@@ -1002,6 +1002,19 @@ function confParseCampos(linhas){
     // O cliente sai do CNPJ do comprador, nao do texto: a razao social da
     // ANIGER e da MELBROS aparece nas condicoes gerais dos pedidos das duas.
     var compA=confAnigerComprador(cnpjComp);if(compA)c.clienteHint=compA.cliente;
+  }else if(confIsBeiraRio(linhas)){
+    // Formato BEIRA RIO: cabecalho com Numero OC / Data de Emissao / UF da
+    // filial Marfim fornecedora (mesmo padrao MARFIM.../UF do DASS/RAMARIM).
+    // "COND. PAGTO" traz um codigo numerico de largura fixa (ex.: "007") que,
+    // calibrado contra o cadastro real (S1="7 dias"), e o proprio numero de
+    // dias com zeros a esquerda -- mesmo padrao do campo de prazo do .dkn/.edi
+    // da DAKOTA/ANIGER (3 digitos fixos apos "R$").
+    m=all.match(/N[uú]mero\s+OC\s*:\s*(\d+)/i);if(m)c.ordem=m[1];
+    m=all.match(/DATA\s+DE\s+EMISS[ÃA]O\s*:?\s*(\d{2}\/\d{2}\/\d{4})/i);if(m)c.emissao=m[1];
+    m=all.match(/COND\.\s*PAGTO\s*:\s*(\d+)/i);if(m)c.prazoPagamento=String(parseInt(m[1],10));
+    m=all.match(/MARFIM[\s\S]{0,200}?\/\s*(RS|BA|CE|MG)\b/i);
+    if(!m)m=all.match(/-\s*(RS|BA|CE|MG)\s*-\s*BRAZIL/i);
+    if(m)c.uf=m[1].toUpperCase();
   }else{
     // Formato DASS (blocos de texto)
     m=all.match(/Data da emiss\S{0,4}\s*:?\s*(\d{2}\/\d{2}\/\d{4})/i);if(m)c.emissao=m[1];
@@ -1373,6 +1386,76 @@ function confParseItemBlocoAnigerEdi(bloco){
   var desc=bloco.replace(/\s*###.*/,"");
   var cm=0,mcm=desc.match(/(\d{2,3})\s*CM\b/i);if(mcm)cm=parseInt(mcm[1],10);
   return {seq:null,preco:preco,cm:cm,mm:null,qtd:mq?parseFloat(mq[1]):0,unit:(mu&&/^M/i.test(mu[1]))?"MT":"PR",semTamanho:!cm};
+}
+
+// ============================================================
+// FORMATO BEIRA RIO (PDF do ERP proprio, layout em caixas/tabela). Cada item
+// ocupa um bloco fixo de 7 linhas apos confExtrairLinhas: "Codigo NNNNNN -
+// <descricao> Nomenclatura" / "Cor <cod> -<nome>" / cabecalho de colunas /
+// linha de dados (qtd/unidade/preco/ipi/data) / "Tamanho <n>" / "Quantidade
+// <n>" / "Sequencia <n>". A referencia Marfim vem embutida na descricao como
+// "REF.<codigo>" (ou "REF <codigo>", sem separador fixo) -- o "[^A-Z0-9]"
+// do confRefRegex ja tolera o "." ou espaco entre REF e o codigo, sem
+// precisar de ajuste. O tamanho (T1/T2 em cm) tambem vem embutido na mesma
+// descricao; o campo "Tamanho" (0=direto/metro, 1=T1, 2=T2) do bloco diz
+// qual usar. Confirmado por extracao real via pdfjs-dist contra os 2 PDFs de
+// amostra (ver amostras/beira_rio_pdf_linhas.json).
+// ============================================================
+function confIsBeiraRio(linhas){
+  return /CALCADOS\s+BEIRA\s+RIO/i.test(linhas.join(" "));
+}
+// Corta por linha-ancora "Codigo NNNNNN - ...". Caso raro: duas remessas do
+// mesmo item com preco IGUAL saem numa unica linha de dados com "Tamanho 1 2"
+// (ex.: Codigo 206250) -- em vez de adivinhar qual tamanho usar, gera um
+// bloco por tamanho, cada um conferido contra o cadastro independentemente.
+function confExtrairBlocosBeiraRio(linhas){
+  var idx=[];
+  for(var i=0;i<linhas.length;i++){if(/^C[oó]digo\s+\d+\s*-/.test(linhas[i]))idx.push(i);}
+  var blocos=[];
+  for(var j=0;j<idx.length;j++){
+    var ini=idx[j],fim=(j+1<idx.length)?idx[j+1]:linhas.length;
+    var texto=linhas.slice(ini,fim).join("\n");
+    var mT=texto.match(/Tamanho\s+([\d\s]+?)(?:\n|$)/i);
+    var tokens=mT?mT[1].trim().split(/\s+/).filter(Boolean):[];
+    if(tokens.length>1){
+      tokens.forEach(function(tok){
+        blocos.push(texto.replace(/Tamanho\s+[\d\s]+?(?=\n|$)/i,"Tamanho "+tok));
+      });
+    }else{
+      blocos.push(texto);
+    }
+  }
+  return blocos;
+}
+// Extrai unidade (M=metro direto / PAR=proporcional por cm), preco, tamanho e
+// sequencia de um bloco. Tamanho 0: mm direto da descricao, ignorando a
+// ponteira ("C/PONTEIRA 15MM" e a espessura da ponteira, nao a largura do
+// item -- mesmo cuidado ja usado na leitura da ANIGER). Tamanho 1/2: cm via
+// dois padroes de descricao vistos nas amostras -- "T1-NN A MM=CMcm"
+// (elasticos) e "TAM.1(NNaMM)CMcm" (atacadores).
+function confParseItemBlocoBeiraRio(bloco){
+  var m=bloco.match(/(\d+(?:[.,]\d+)?)\s+(M|PAR)\s+(\d+(?:[.,]\d+)?)\s+\d+(?:[.,]\d+)?\s+\d{2}\/\d{2}\/\d{4}/i);
+  if(!m)return null;
+  var qtd=pBR(m[1]),unidade=m[2].toUpperCase(),preco=pBR(m[3]);
+  if(!preco||preco<=0)return null;
+  var seq=null,mSeq=bloco.match(/Sequ[êe]ncia\s+(\d+)/i);if(mSeq)seq=+mSeq[1];
+  var mTam=bloco.match(/Tamanho\s+(\d+)/i);
+  var tamanho=mTam?+mTam[1]:0;
+  var cm=null,mm=null;
+  if(tamanho>0){
+    var reT=tamanho===1
+      ?/T(?:AM\.?)?\s*1\s*(?:\([^)]*\)|[-\s]*\d+\s*A\s*\d+)\s*=?\s*(\d+)\s*CM/i
+      :/T(?:AM\.?)?\s*2\s*(?:\([^)]*\)|[-\s]*\d+\s*A\s*\d+)\s*=?\s*(\d+)\s*CM/i;
+    var mc=bloco.match(reT);
+    if(mc)cm=parseInt(mc[1],10);
+  }else{
+    var re=/(\d+(?:[.,]\d+)?)\s*MM\b/gi,g;
+    while((g=re.exec(bloco))){
+      if(/PONT/i.test(bloco.slice(Math.max(0,g.index-10),g.index)))continue;
+      mm=pBR(g[1]);break;
+    }
+  }
+  return {seq:seq,preco:preco,cm:cm,mm:mm,qtd:qtd,unit:unidade==="PAR"?"PR":"MT"};
 }
 
 // Escolhe a linha da tabela cuja vigencia cobre a data de referencia;
@@ -1823,6 +1906,8 @@ async function confExecutarAnalise(item,aba,uf,cache){
     // arredondamento padrao, lista de ignorados e conferencia contra o PRECO
     // ATUAL (emissao vazia), nao contra a vigencia da data do pedido.
     item.resultados=confValidar(confExtrairBlocosAnigerPdf(item.linhas),r.refs,uf,"",confParseItemBlocoAnigerPdf,{arred:confArredCentPadrao,ignorados:r.ignoradosConf||[]});
+  }else if(confIsBeiraRio(item.linhas)){
+    item.resultados=confValidar(confExtrairBlocosBeiraRio(item.linhas),r.refs,uf,item.campos.emissao,confParseItemBlocoBeiraRio);
   }else{
     item.resultados=confValidar(confExtrairBlocos(item.linhas),r.refs,uf,item.campos.emissao,null); // DASS (default)
   }

@@ -1274,6 +1274,8 @@ function notificarItemSemPreco(dados, token) {
     const fmtBRL = v => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
     const nomeCliente = String(dados.cliente || "").replace(/ CLIENTE$/i, "");
+    // uf já vem traduzida do frontend (confRotuloUf) — rótulo real da coluna
+    // (ex.: "RS/RS" para ANIGER/DAKOTA), não o código interno "BA".
     const uf       = escH(String(dados.uf || ""));
     const arquivo  = escH(String(dados.arquivo || ""));
     const ordem    = escH(String(dados.ordem || ""));
@@ -1283,6 +1285,17 @@ function notificarItemSemPreco(dados, token) {
     const qtd      = pN(dados.qtd);
     const trecho   = escH(String(dados.trecho || "")).replace(/\n/g, "<br>");
     const hoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
+
+    // status/motivo/refNome: distinguem "referência não identificada" (texto
+    // original, item genuinamente não encontrado) de "referência já
+    // encontrada, só falta uma informação pontual" (SEM_PRECO da UF ou
+    // variante de medida ausente) — sem isso a direção lia "item não
+    // cadastrado" e ia procurar algo que já existe na tabela, quando na
+    // verdade só falta preencher uma célula específica.
+    const status = String(dados.status || "");
+    const motivo = escH(String(dados.motivo || ""));
+    const refNome = escH(String(dados.refNome || ""));
+    const naoCadastrado = !status || status === "NAO_CADASTRADO"; // status vazio = chamadas antigas, mantém texto padrão
 
     const attachments = [];
     let notaAnexo = "";
@@ -1304,28 +1317,37 @@ function notificarItemSemPreco(dados, token) {
       emissao ? `<strong>Emissão:</strong> ${emissao}` : ""
     ].filter(Boolean).join(" &nbsp; ");
 
+    const tituloEmail = naoCadastrado ? "Item sem preço cadastrado" : "Falta cadastro de preço/medida";
+    const introTexto = naoCadastrado
+      ? `<strong>${escH(remetenteNome)}</strong> está conferindo um pedido do cliente <strong>${escH(nomeCliente)}</strong> (tabela ${uf}) e encontrou um item que não está cadastrado na tabela de preços.`
+      : `<strong>${escH(remetenteNome)}</strong> está conferindo um pedido do cliente <strong>${escH(nomeCliente)}</strong> (tabela ${uf}) — a referência${refNome ? " <strong>" + refNome + "</strong>" : ""} já está cadastrada, mas falta uma informação para conferir o preço deste item.`;
+    const rotuloCaixa = naoCadastrado ? "ITEM NÃO ENCONTRADO NA TABELA" : "REFERÊNCIA CADASTRADA — FALTA COMPLETAR";
+    const linhaMotivo = (!naoCadastrado && motivo)
+      ? `<div style="font-size:10px;font-weight:700;color:#888;letter-spacing:.06em;margin:14px 0 6px">O QUE FALTA CADASTRAR</div>
+         <div style="font-size:13px;color:#a00;line-height:1.5">${motivo}</div>`
+      : "";
+
     const corpoHtml = `
     <div style="font-family:Arial,sans-serif;max-width:620px;margin:0 auto;color:#222">
       <div style="background:#0d0f14;padding:20px 24px;border-radius:8px 8px 0 0">
         <table width="100%" cellpadding="0" cellspacing="0"><tr>
           <td><img src="https://i.ibb.co/FGGjdsM/LOGO-MARFIM.jpg" style="height:44px;width:auto"></td>
           <td align="right" style="color:#e8a020;font-size:13px">
-            Item sem preço cadastrado<br><span style="color:#8890a8;font-size:11px">${hoje}</span>
+            ${tituloEmail}<br><span style="color:#8890a8;font-size:11px">${hoje}</span>
           </td>
         </tr></table>
       </div>
       <div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:24px 28px;border-radius:0 0 8px 8px">
         <p style="margin:0 0 6px 0">Olá, Direção.</p>
-        <p style="margin:0 0 20px 0;color:#555">
-          <strong>${escH(remetenteNome)}</strong> está conferindo um pedido do cliente <strong>${escH(nomeCliente)}</strong> (tabela ${uf}) e encontrou um item que não está cadastrado na tabela de preços.
-        </p>
+        <p style="margin:0 0 20px 0;color:#555">${introTexto}</p>
         <div style="background:#f8f9fa;border:1px solid #e5e7eb;border-left:4px solid #e8a020;border-radius:6px;padding:18px 20px;margin-bottom:20px">
-          <div style="font-size:11px;font-weight:700;color:#888;letter-spacing:.06em;margin-bottom:10px">ITEM NÃO ENCONTRADO NA TABELA</div>
+          <div style="font-size:11px;font-weight:700;color:#888;letter-spacing:.06em;margin-bottom:10px">${rotuloCaixa}</div>
           <div style="font-size:13px;color:#444;line-height:1.6">
             <strong>Arquivo:</strong> ${arquivo}<br>
             ${detalhes ? detalhes + "<br>" : ""}
             <strong>Preço no pedido:</strong> ${fmtBRL(precoPdf)} &nbsp; <strong>Quantidade:</strong> ${qtd || "–"}
           </div>
+          ${linhaMotivo}
           <div style="font-size:10px;font-weight:700;color:#888;letter-spacing:.06em;margin:14px 0 6px">TRECHO DO PEDIDO (PARA IDENTIFICAÇÃO)</div>
           <div style="background:#fff;border:1px solid #e5e7eb;border-radius:4px;padding:10px 12px;font-family:monospace;font-size:11px;color:#555;white-space:pre-wrap">${trecho}</div>
         </div>
@@ -1339,7 +1361,7 @@ function notificarItemSemPreco(dados, token) {
     const destinatarios = admins.map(a => a.email).join(",");
     const opcoesEmail = {
       to: destinatarios,
-      subject: `[Marfim] Item sem preço cadastrado — ${nomeCliente}: solicitação de ${remetenteNome}`,
+      subject: `[Marfim] ${tituloEmail} — ${nomeCliente}: solicitação de ${remetenteNome}`,
       htmlBody: corpoHtml
     };
     if (remetenteEmail && remetenteEmail.includes("@")) opcoesEmail.replyTo = remetenteEmail;

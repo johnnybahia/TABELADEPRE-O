@@ -46,7 +46,7 @@ const refs=csv.slice(1).filter(r=>r[0]&&r[0].trim()).map((r,i)=>({linha:i+2,ref:
 
 const ROOT=path.join(DIR,"..");  // os 23 arquivos-amostra e a CSV DAKOTA ficam na raiz do repo
 const files=fs.readdirSync(ROOT).filter(f=>/\.(dkn|dke|htm)$/i.test(f)).sort();
-let tot=0;const cnt={OK:0,DIVERGENTE:0,NAO_CADASTRADO:0,SEM_PRECO:0,SEM_MEDIDA:0,VENCIDO:0,IGNORADO:0};const modCnt={};
+let tot=0;const cnt={OK:0,DIVERGENTE:0,AMBIGUO:0,NAO_CADASTRADO:0,SEM_PRECO:0,SEM_MEDIDA:0,VENCIDO:0,IGNORADO:0};const modCnt={};
 for(const f of files){
   const texto=fs.readFileSync(path.join(ROOT,f),"latin1");
   let leitura,parseFn;
@@ -60,7 +60,7 @@ for(const f of files){
 console.log("(Index.html real) Arquivos:",files.length,"| Itens:",tot);
 console.log("Modalidades:",JSON.stringify(modCnt));
 console.log("Status:",JSON.stringify(cnt));
-const esperado={OK:52,DIVERGENTE:65,NAO_CADASTRADO:6,SEM_PRECO:1,SEM_MEDIDA:0,VENCIDO:0,IGNORADO:0};
+const esperado={OK:52,DIVERGENTE:56,AMBIGUO:9,NAO_CADASTRADO:6,SEM_PRECO:1,SEM_MEDIDA:0,VENCIDO:0,IGNORADO:0};
 const ok=Object.keys(esperado).every(k=>cnt[k]===esperado[k]);
 console.log(ok?"\n✅ BATE com o harness (código real do Index.html confere)":"\n❌ DIVERGE do harness — revisar portabilidade");
 

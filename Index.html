@@ -1819,6 +1819,19 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn,opts){
     if(esc.vencido){
       res.status="VENCIDO";
       res.motivo="Preco sem vigencia na data "+(emissaoStr||"de hoje")+". Ultima tabela: "+res.vigencia+".";
+    }else if(res.opcoes&&!melhor){
+      // Nenhuma das variantes cadastradas bate com o preco do pedido: em vez de
+      // assumir a primeira linha da planilha (pool[0], ordem arbitraria) como
+      // "a" resposta e marcar DIVERGENTE contra um preco que pode nem ser do
+      // item certo, fica neutro — sem "esperado" e sem descricao de uma
+      // variante especifica — e deixa o usuario comparar as opcoes (abaixo)
+      // com o pedido.
+      res.status="AMBIGUO";
+      res.esperado=null;
+      res.descricao="";
+      res.motivo="Esta referencia tem "+res.opcoes.length+" precos cadastrados para "+(res.medidaLabel||"esta medida")+" (variantes) e o preco do pedido ("
+        +res.precoPdf.toLocaleString("pt-BR",{style:"currency",currency:"BRL"})
+        +") nao bate com nenhum deles — nao e possivel identificar automaticamente qual variante o cliente pediu. Compare a descricao de cada opcao abaixo com o pedido e confirme manualmente qual preco se aplica.";
     }else{
       res.status=difere?"DIVERGENTE":"OK";
       // Frase direta (quem errou o que), nao passiva/burocratica — e os dois
@@ -1829,7 +1842,7 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn,opts){
         +res.precoPdf.toLocaleString("pt-BR",{style:"currency",currency:"BRL"})
         +" · Tabela vigente: "+res.esperado.toLocaleString("pt-BR",{style:"currency",currency:"BRL"})+".";
     }
-    if(res.opcoes){
+    if(res.opcoes&&res.status!=="AMBIGUO"){
       res.motivo=(res.motivo?res.motivo+" ":"")+"Esta referencia tem "+res.opcoes.length+" precos cadastrados (variantes) para esta UF/medida — confira as opcoes abaixo"+(melhor?", o pedido confere com uma delas.":" e nenhuma confere com o pedido.");
     }
     if(hit.goma!==blocoGoma){
@@ -1849,6 +1862,7 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn,opts){
 }
 
 var CONF_STATUS={
+  AMBIGUO:{label:"❓ Confirme a variante",cls:"warn",peso:0},
   DIVERGENTE:{label:"✗ Divergente",cls:"err",peso:0},
   VENCIDO:{label:"⚠ Preco vencido",cls:"warn",peso:1},
   SEM_PRECO:{label:"⚠ Sem preco UF",cls:"warn",peso:2},
@@ -2112,7 +2126,7 @@ function confRenderResultados(item){
   var cont={};
   res.forEach(function(r){cont[r.status]=(cont[r.status]||0)+1;});
   var campos=item.campos||{};
-  var resumo=["DIVERGENTE","VENCIDO","SEM_PRECO","SEM_MEDIDA","NAO_CADASTRADO","IGNORADO","OK"].filter(function(s){return cont[s];}).map(function(s){
+  var resumo=["AMBIGUO","DIVERGENTE","VENCIDO","SEM_PRECO","SEM_MEDIDA","NAO_CADASTRADO","IGNORADO","OK"].filter(function(s){return cont[s];}).map(function(s){
     return "<span class=\"badge "+CONF_STATUS[s].cls+"\" style=\"font-size:12px;padding:4px 12px\">"+CONF_STATUS[s].label+": "+cont[s]+"</span>";
   }).join(" ");
   var vigenciaAnteriorCount=res.filter(function(r){return r.vigenciaAnterior;}).length;
@@ -2199,7 +2213,7 @@ function confRenderResultados(item){
       +(r.medidaLabel?"<div class=\"ref-medida\">"+escHtml(r.medidaLabel)+"</div>":"")
       +"</div>"+precoHtml+"</div>"
       +"<div class=\"ref-meta\">"+badges+"</div>"
-      +(r.motivo?"<div class=\"ref-obs"+(r.status==="DIVERGENTE"?" alerta":"")+"\">"+escHtml(r.motivo)+"</div>":"")
+      +(r.motivo?"<div class=\"ref-obs"+(r.status==="DIVERGENTE"?" alerta":"")+"\""+(r.status==="AMBIGUO"?" style=\"border-left-color:var(--warn)\"":"")+">"+escHtml(r.motivo)+"</div>":"")
       +opcoesHtml
       +notificarHtml
       +"<details style=\"margin-top:8px\"><summary style=\"cursor:pointer;font-size:12px;color:var(--text2)\">Ver trecho do pedido"+(seqsTxt?" ("+escHtml(seqsTxt)+")":"")+"</summary><div class=\"conf-line\">"+escHtml(confDescBloco(r.bloco))+"</div></details>"

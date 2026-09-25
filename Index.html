@@ -592,17 +592,17 @@ async function buscarRefs(){
 
 // Chave ordenavel da data de inicio ("dd/MM/yyyy" → "yyyyMMdd")
 function refDataKey(x){return x.dataInicio?x.dataInicio.split("/").reverse().join(""):"";}
-// Referencia + MedidaBase identifica a variante: larguras/tamanhos diferentes sob o
-// mesmo codigo sao itens distintos (cada um com seu proprio "preco atual"), nao
-// versoes desatualizadas um do outro — mesmo criterio que confEscolherVigencia usa
-// na conferencia de PDF. Em clientes "preço duplo" (duplo=true) a Descricao tambem
-// compoe a variante: a mesma referencia com descricoes diferentes sao itens
-// distintos e TODOS ficam ativos; com a mesma descricao vale a regra normal (so a
-// data mais nova).
+// Referencia + MedidaBase + Descricao identifica a variante: larguras/tamanhos
+// diferentes sob o mesmo codigo, ou a mesma referencia com descricoes diferentes
+// (ex: DILLY M16063 "ponto trabalhado" x "com ponteira personalizada", mesma data)
+// sao itens distintos — cada um com seu proprio "preco atual" — nao versoes
+// desatualizadas um do outro, mesmo criterio que confEscolherVigencia usa na
+// conferencia de PDF (status AMBIGUO). Com a mesma descricao vale a regra normal
+// (so a linha vigente de data mais nova). Regra igual para todo cliente, nao so
+// "preço duplo" — o parametro duplo fica so por compatibilidade de assinatura das
+// chamadas existentes, nao afeta mais o calculo da chave.
 function refVarianteKey(x,duplo){
-  var k=String(x.ref).toUpperCase()+"|"+(x.medidaBase||0);
-  if(duplo)k+="|"+String(x.descricao||"").trim().toUpperCase();
-  return k;
+  return String(x.ref).toUpperCase()+"|"+(x.medidaBase||0)+"|"+String(x.descricao||"").trim().toUpperCase();
 }
 // Para cada variante (referencia+medidaBase[+descricao]), qual linha e o PRECO
 // ATUAL: vigente hoje com a DataInicio mais recente

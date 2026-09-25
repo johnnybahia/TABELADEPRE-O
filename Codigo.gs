@@ -42,10 +42,8 @@ const SCHEMA_CLIENTE = [
 // mudando apenas os rótulos na interface — V1 (MG) não é usada. O botão
 // "Aplicar em todos" da aba Cadastrar (aplicarVariacaoColuna) recalcula a
 // coluna inteira com o novo percentual sobre o RS/CE.
-// A regra de "preço atual" também muda: a variante é Referencia + MedidaBase
-// + Descricao — a mesma referência com descrições diferentes são itens
-// distintos e TODOS ficam ativos; com a mesma descrição vale a regra normal
-// (só a linha vigente de data mais nova).
+// (A regra de "preço atual" por Referencia+MedidaBase+Descricao vale para
+// TODO cliente, não é exclusiva daqui — ver refVarianteKey no Index.html.)
 // ============================================================
 const CLIENTES_PRECO_DUPLO = ["DAKOTA", "ANIGER"];
 
@@ -488,10 +486,10 @@ function salvarReferencia(nomeAba, dados, token, linhaEdicao, modoConflito) {
 
     if (dFim && dFim < dInicio) return { ok: false, erro: "Data de fim não pode ser anterior à data de início." };
 
-    // Verificar sobreposição de datas para a mesma variante (Referencia + MedidaBase;
-    // em clientes "preço duplo" a Descricao também compõe a variante — mesma
-    // referência com descrições diferentes são itens distintos e coexistem ativos)
-    const precoDuplo = _ehPrecoDuplo(nomeAba);
+    // Verificar sobreposição de datas para a mesma variante (Referencia + MedidaBase
+    // + Descricao — mesma referência com descrição diferente é item distinto e
+    // coexiste ativo, ex: DILLY M16063 "ponto trabalhado" x "com ponteira
+    // personalizada"; regra igual para todo cliente, não só "preço duplo")
     const fmtData = (d, vazio) => d ? Utilities.formatDate(new Date(d), Session.getScriptTimeZone(), "dd/MM/yyyy") : vazio;
     const todasLinhas = aba.getDataRange().getValues();
     const conflitos = [];
@@ -500,7 +498,7 @@ function salvarReferencia(nomeAba, dados, token, linhaEdicao, modoConflito) {
       const [rRef, rDesc, , rInicio, rFim, rObs, , rMedida] = todasLinhas[i];
       if (String(rRef).toUpperCase().trim() !== String(ref).toUpperCase().trim()) continue;
       if (pN(rMedida) !== pN(medidaBase)) continue; // outra variante de tamanho — coexiste, não conflita
-      if (precoDuplo && String(rDesc || "").trim().toUpperCase() !== String(descricao || "").trim().toUpperCase()) continue; // descrição diferente — item distinto, coexiste
+      if (String(rDesc || "").trim().toUpperCase() !== String(descricao || "").trim().toUpperCase()) continue; // descrição diferente — item distinto, coexiste
 
       const existInicio = rInicio ? new Date(rInicio) : null;
       const existFim = rFim ? new Date(rFim) : null;

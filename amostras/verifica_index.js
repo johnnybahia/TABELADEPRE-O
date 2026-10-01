@@ -297,6 +297,19 @@ let regrasOk=false;
   // apelido cortado no meio de uma palavra (confAliasSugerido corta em 40 caracteres) segue casando
   r=rodar("29000000002 FITA TESTE ESPECIAL 10,0000 M R$ 1,0000 0 0 10,00 01/01/2027\n15MM BRANCO",[mkRow({ref:"ZZ200",medidaBase:15,medidaBaseLabel:"15mm",precoRS:1.0,aliasesConf:"FITA TESTE ESPEC"})]);
   eq("apelido cortado no meio da palavra continua casando",r.status+"|"+r.refNome,"OK|ZZ200");
+  // 5) tamanhos cadastrados com precos diferentes (ANIGER MR130.010: 18cm/20cm com desconto) e
+  // nenhum e o do pedido (85cm): nao ha base unica -> nao calcula, so avisa (texto fixo definido
+  // pelo usuario; vale para o card e para o e-mail da direcao). Medida exata e base unica seguem calculando.
+  const blocoPar=cm=>"30438051262 ATACADOR POLIE MR13010 34,0000 PR R$ "+(cm===85?"0,7500":"0,1500")+" 0 0 25,50 16/10/2026\nCHATO MONOCOLOR 6MM\n"+cm+"CM BRANCO CRU 4171";
+  const rowPar=(cm,preco)=>mkRow({ref:"MR13010",unidade:"PAR",medidaBase:cm,medidaBaseLabel:cm+"cm",precoRS:preco});
+  r=rodar(blocoPar(85),[rowPar(18,0.13),rowPar(20,0.15)]);
+  eq("multi-medida sem a do pedido: status",r.status,"SEM_MEDIDA");
+  eq("multi-medida sem a do pedido: texto",r.motivo,"Este item tem tamanhos cadastrados com precos diferentes (18cm, 20cm), sem base de calculo para conferir. Informar o preco do tamanho solicitado (85cm) na tabela de precos.");
+  eq("multi-medida sem a do pedido: habilita Comunicar a direcao",r.faltaCadastro,true);
+  r=rodar(blocoPar(20),[rowPar(18,0.13),rowPar(20,0.15)]);
+  eq("multi-medida com a medida exata cadastrada: confere",r.status+"|"+r.esperado,"OK|0.15");
+  r=rodar(blocoPar(85),[rowPar(100,0.88)]);
+  eq("base unica: calcula proporcional (85/100 x 0,88 = 0,75)",r.status+"|"+r.esperado,"OK|0.75");
   falhas.slice(0,12).forEach(f=>console.log("   !",f));
   regrasOk=falhas.length===0;
   console.log(regrasOk?"\n[ANIGER destino + regras da conferencia] ✅ "+nVerif+" verificacoes OK":"\n[ANIGER destino + regras da conferencia] ❌ "+falhas.length+" falha(s)");

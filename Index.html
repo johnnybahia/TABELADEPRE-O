@@ -1791,7 +1791,9 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn,opts){
         esc.pool.forEach(function(r){if(r.medidaBase>0&&!vistos[r.medidaBase]){vistos[r.medidaBase]=1;medidasCadastradas.push(r.medidaBase);}});
         medidasCadastradas.sort(function(a,b){return a-b;});
         res.status="SEM_MEDIDA";
-        res.motivo="Esta referencia tem "+medidasCadastradas.length+" variante(s) de medida cadastrada(s) ("+medidasCadastradas.join("cm, ")+"cm), mas nenhuma corresponde ao tamanho "+res.medida+"cm pedido. Verifique o cadastro; se a medida realmente nao existir, comunique a direcao.";
+        // Mesmo texto no card (usuario) e no e-mail da direcao (campo "O QUE FALTA
+        // CADASTRAR" de notificarItemSemPreco, que usa o motivo cru).
+        res.motivo="Este item tem tamanhos cadastrados com precos diferentes ("+medidasCadastradas.join("cm, ")+"cm), sem base de calculo para conferir. Informar o preco do tamanho solicitado ("+res.medida+"cm) na tabela de precos.";
         res.faltaCadastro=true;
         out.push(res);return;
       }

@@ -888,7 +888,13 @@ function cadExtrairMmTexto(txt){
 // dentro do codigo ("MR110022" casa com "MR 110022"; "MFGP/T2" casa com
 // "MFGPT2"; apelidos ensinados como "LS 11628 PRETO (7MM)" casam com o
 // pedido mesmo com o parentese entre "PRETO" e "7MM").
-function confRefRegex(base){
+// palavraInteira (so para referencias da TABELA, nunca para apelidos): codigo
+// 100% alfabetico (MER, MFGP, MTM...) nao pode ser prefixo de uma palavra
+// maior — "MER" nao casa "MERLOT", cor de outro item (achado real: a linha
+// "M31129 20MM MERLOT 338" era identificada como o elastico MER). Apelidos
+// ficam de fora porque o sugerido pelo sistema (confAliasSugerido) corta em 40
+// caracteres e pode terminar no meio de uma palavra.
+function confRefRegex(base,palavraInteira){
   var n=normTxt(base);
   if(n.length<3)return null;
   // Separador entre caracteres: qualquer sequencia de nao-alfanumerico, nao so
@@ -899,7 +905,8 @@ function confRefRegex(base){
   // 7MM" da BEIRA-RIO) nunca casa de volta contra o proprio pedido que o
   // originou. Mais permissivo que antes, nunca menos -- so pode fazer novos
   // casos casarem, nao quebrar os ja calibrados.
-  return new RegExp("(?:^|[^A-Z0-9]|\\bREF)"+n.split("").join("[^A-Za-z0-9]*")+"(?![0-9])","i");
+  var fim=(palavraInteira&&/^[A-Z]+$/.test(n))?"(?![A-Za-z0-9])":"(?![0-9])";
+  return new RegExp("(?:^|[^A-Z0-9]|\\bREF)"+n.split("").join("[^A-Za-z0-9]*")+fim,"i");
 }
 
 // Detecta se o conjunto de linhas extraidas pertence a uma OC da RAMARIM
@@ -1289,20 +1296,25 @@ function confParseItemBlocoDakotaHtm(bloco){
 // Cliente "preco duplo" como a Dakota: a modalidade origem→destino sai dos
 // CNPJs (fornecedor Marfim + comprador Aniger) e decide a coluna de preco.
 // ============================================================
-// CNPJ do comprador (raiz de 8 digitos) → filial de DESTINO + aba do cliente.
-// O grupo compra com duas razoes sociais na mesma ordem de compra: ANIGER
-// (Quixeramobim/CE) e MELBROS (Campo Bom/RS). Sao o MESMO cliente comercial —
-// as duas usam a tabela de precos da aba ANIGER; o que muda entre elas e so o
-// destino (CE ou RS), que define a modalidade junto com a filial Marfim de
-// origem. O CNPJ do topo do pedido e quem decide as duas coisas: o texto de
-// condicoes gerais cita as duas razoes sociais nos pedidos das duas, entao
-// procurar o nome no texto escolheria a aba errada.
-var CONF_ANIGER_COMPRADOR={"94316999":{uf:"CE",cliente:"ANIGER"},"11366487":{uf:"RS",cliente:"ANIGER"}};
+// CNPJ do comprador (raiz de 8 digitos) → aba do cliente. O grupo compra com
+// duas razoes sociais na mesma ordem de compra: ANIGER (Quixeramobim/CE) e
+// MELBROS. Sao o MESMO cliente comercial — as duas usam a tabela de precos da
+// aba ANIGER. O CNPJ do topo do pedido decide o cliente: o texto de condicoes
+// gerais cita as duas razoes sociais nos pedidos das duas, entao procurar o
+// nome no texto escolheria a aba errada. A raiz NAO define o estado de destino
+// (ver CONF_ANIGER_FILIAL).
+var CONF_ANIGER_COMPRADOR={"94316999":{cliente:"ANIGER"},"11366487":{cliente:"ANIGER"}};
 function confAnigerComprador(cnpj){return CONF_ANIGER_COMPRADOR[String(cnpj||"").replace(/\D/g,"").slice(0,8)]||null;}
+// UF de DESTINO por CNPJ COMPLETO (14 digitos): a mesma raiz tem filiais em
+// estados diferentes — a MELBROS tem Campo Bom/RS (/0002-28) e Taua/CE
+// (/0001-47). Junto com a filial Marfim de origem, o destino define a
+// modalidade (RS/RS · RS/CE · CE/CE) e, com ela, a coluna de preco.
+var CONF_ANIGER_FILIAL={"94316999000983":"CE","11366487000228":"RS","11366487000147":"CE"};
 function confAnigerDestino(cnpj,cep){
-  var e=confAnigerComprador(cnpj);if(e)return e.uf;
-  // Filial ainda nao mapeada: deduz pelo CEP do bloco do comprador — os dois
-  // polos atendidos sao RS (CEP 9xxxx) e CE (CEP 60000-63999).
+  var uf=CONF_ANIGER_FILIAL[String(cnpj||"").replace(/\D/g,"")];if(uf)return uf;
+  // Filial fora do mapa: deduz pelo CEP do bloco do comprador — os dois polos
+  // atendidos sao RS (CEP 9xxxx) e CE (CEP 60000-63999). Sem CEP legivel devolve
+  // vazio (o card avisa e deixa escolher a modalidade) em vez de chutar pela raiz.
   var c=String(cep||"").replace(/\D/g,"");
   if(/^9\d/.test(c))return "RS";
   if(/^6[0-3]/.test(c))return "CE";
@@ -1596,8 +1608,8 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn,opts){
     // necessariamente logo apos o codigo principal.
     var rxBase=null,rxMm=null,codigoBase=null,medidaMm=null;
     var variante=extrairVarianteMm(base);
-    if(variante){rxBase=confRefRegex(variante.codigoBase);rxMm=confRefRegex(variante.mm);codigoBase=variante.codigoBase;medidaMm=variante.mm;}
-    if(!mapa[k])mapa[k]={nome:r.ref,norm:n,goma:goma,rx:confRefRegex(base),rxBase:rxBase,rxMm:rxMm,codigoBase:codigoBase,medidaMm:medidaMm,rows:[]};
+    if(variante){rxBase=confRefRegex(variante.codigoBase,true);rxMm=confRefRegex(variante.mm);codigoBase=variante.codigoBase;medidaMm=variante.mm;}
+    if(!mapa[k])mapa[k]={nome:r.ref,norm:n,goma:goma,rx:confRefRegex(base,true),rxBase:rxBase,rxMm:rxMm,codigoBase:codigoBase,medidaMm:medidaMm,rows:[]};
     mapa[k].rows.push(r);
   });
   // Aliases: codigos antigos mencionados como "ant.CODIGO" na descricao entre
@@ -1712,16 +1724,16 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn,opts){
     var avisoVigencia=null;
     if(!precoTab){
       // vigencia mais recente sem preco cadastrado: usa o preco da vigencia
-      // anterior mais proxima do mesmo codigo que tenha preco UF (ou base) —
-      // provavel atualizacao que nao preencheu a vigencia nova (preco ficou em
-      // branco ou foi digitado na coluna errada da planilha) — e avisa o
-      // usuario informando as duas vigencias envolvidas
-      var comPreco=rowsTipo.filter(function(r){return r!==row&&((r["preco"+uf]>0)||(r.preco>0));});
+      // anterior mais proxima do mesmo codigo E da mesma MedidaBase (largura/
+      // tamanho) que tenha preco UF (ou base) — provavel atualizacao que nao
+      // preencheu a vigencia nova (preco ficou em branco ou foi digitado na
+      // coluna errada da planilha) — e avisa o usuario informando as duas
+      // vigencias envolvidas. Preco de OUTRA medida nao serve de referencia
+      // (achado real: M5124 15mm sem preco RS/CE era conferido contra o preco
+      // da linha 22mm e saia DIVERGENTE): sem alternativa da mesma medida o
+      // item vira SEM_PRECO.
+      var comPreco=rowsTipo.filter(function(r){return r!==row&&((r["preco"+uf]>0)||(r.preco>0))&&Math.abs((r.medidaBase||0)-(row.medidaBase||0))<0.01;});
       if(comPreco.length){
-        // prefere alternativas com a mesma MedidaBase da linha escolhida —
-        // evita misturar o preco de uma variante de tamanho diferente
-        var mesmaMedida=comPreco.filter(function(r){return Math.abs((r.medidaBase||0)-(row.medidaBase||0))<0.01;});
-        if(mesmaMedida.length)comPreco=mesmaMedida;
         comPreco.sort(function(a,b){return (dataBR(b.dataInicio)||0)-(dataBR(a.dataInicio)||0);});
         var alt=comPreco[0];
         precoTab=alt["preco"+uf]>0?alt["preco"+uf]:alt.preco;
@@ -1729,7 +1741,14 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn,opts){
         avisoVigencia="Atencao: a vigencia mais recente desta referencia ("+res.vigencia+") esta sem preco "+rotuloUf+" cadastrado — usado o preco "+rotuloUf+" de "+precoTab.toLocaleString("pt-BR",{style:"currency",currency:"BRL"})+" da vigencia anterior ("+res.vigenciaAnterior+"). Verifique se a vigencia mais recente deveria ter este preco preenchido.";
       }else{
         res.status="SEM_PRECO";
-        res.motivo="Referencia sem preco "+rotuloUf+" cadastrado na vigencia "+res.vigencia+".";
+        // Diz o que o pedido esta pedindo: referencia + medida da linha casada +
+        // coluna de preco (a medida so entra se ainda nao faz parte da referencia,
+        // ex.: "M21020 8MM").
+        var refPede=confBaseRef(row.ref||res.refNome);
+        var medPede=String(row.medidaBaseLabel||"").trim();
+        if(medPede&&normTxt(refPede).indexOf(normTxt(medPede))>=0)medPede="";
+        res.medidaLabel=medPede;
+        res.motivo="A tabela nao tem preco "+rotuloUf+" para "+refPede+(medPede?" "+medPede:"")+" (vigencia "+res.vigencia+"). O pedido pede "+res.precoPdf.toLocaleString("pt-BR",{style:"currency",currency:"BRL"})+".";
         res.faltaCadastro=true; // habilita "Comunicar a direcao" no card (ver confRenderResultados)
         out.push(res);return;
       }

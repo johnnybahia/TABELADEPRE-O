@@ -192,7 +192,8 @@ let anigerPdfOk=false;
     "20109721.pdf":["ANIGER","CE/CE","CE","45",3],
     "80144715.pdf":["ANIGER","CE/CE","CE","45",1],
     "20116455.pdf":["ANIGER","RS/CE","RS","45",1],
-    "60001709.pdf":["ANIGER","RS/RS","BA","45",1] // Melbros (Campo Bom/RS) = mesmo cliente, tabela ANIGER
+    "60001709.pdf":["ANIGER","RS/RS","BA","45",1], // Melbros filial /0002-28 (Campo Bom/RS) = mesmo cliente, tabela ANIGER
+    "60002935.pdf":["ANIGER","RS/CE","RS","45",29] // Melbros filial /0001-47 (Taua/CE): MESMA raiz de CNPJ do anterior, destino CE
   };
   const problemas=[];const cntP={};
   for(const [nome,linhas] of Object.entries(amostras)){
@@ -218,13 +219,87 @@ let anigerPdfOk=false;
   }
   // Achados reais confirmados contra a tabela real (nao bugs de parser):
   // M2173 (RS/CE) diverge -- pedido cobra 2,38, cadastro tem 2,80 na RS/CE;
-  // M41552 (RS/RS, pedido da Melbros) fica SEM_PRECO -- a coluna RS/RS desse
-  // item nao tem preco cadastrado (so RS/CE e CE/CE), embora o pedido real
-  // mostre 2,18 pago nessa modalidade — vale cadastrar esse valor.
+  // M41552 (RS/RS, pedido da Melbros Campo Bom) fica SEM_PRECO -- a coluna
+  // RS/RS desse item nao tem preco cadastrado (so RS/CE e CE/CE), embora o
+  // pedido real mostre 2,18 pago nessa modalidade — vale cadastrar esse valor.
+  // Pedido da Melbros Taua/CE (60002935, RS/CE): 12 OK (M2173, M41552, M51100);
+  // M5124 15mm SEM_PRECO x7 -- a linha 15mm so tem preco na coluna RS/RS (J), a
+  // RS/CE (I) esta vazia; MR13010, M31129 e J31180 nao existem na tabela
+  // (NAO_CADASTRADO x10, incluindo a cor MERLOT de M31129, que NAO e o elastico MER).
   console.log("\n[ANIGER PDF] arquivos:",Object.keys(amostras).length,"| conferencia com tabela real:",JSON.stringify(cntP));
+  // Pedido 60002935 em detalhe: modalidade correta, aviso de SEM_PRECO e falso match MER<-MERLOT.
+  (function(){
+    const nome="60002935.pdf",linhas=amostras[nome];
+    if(!linhas){problemas.push(nome+": fixture ausente");return;}
+    const c=F.confParseCampos(linhas),blocos=F.confExtrairBlocosAnigerPdf(linhas);
+    const res=F.confValidar(blocos,refsAniger,c.uf,"",F.confParseItemBlocoAnigerPdf,{arred:F.confArredCentPadrao,ignorados:[],duplo:true});
+    const por=ref=>res.filter(r=>r.refNome===ref);
+    ["M2173","M41552","M51100"].forEach(ref=>{const l=por(ref);if(!l.length||l.some(r=>r.status!=="OK"))problemas.push(nome+": "+ref+" deveria ser OK em RS/CE");});
+    const m5124=res.filter(r=>/M5124/.test(r.bloco));
+    if(m5124.length!==7)problemas.push(nome+": esperados 7 itens M5124, achou "+m5124.length);
+    m5124.forEach(r=>{
+      if(r.status!=="SEM_PRECO")problemas.push(nome+": M5124 15mm deveria ser SEM_PRECO (era comparado com o preco da linha 22mm), veio "+r.status);
+      else if(r.motivo.indexOf("A tabela nao tem preco RS/CE para M5124 15mm (vigencia 17/09/2026")!==0)problemas.push(nome+": aviso de SEM_PRECO inesperado: "+r.motivo);
+      else if(!r.faltaCadastro||r.medidaLabel!=="15mm")problemas.push(nome+": SEM_PRECO sem faltaCadastro/medidaLabel");
+    });
+    const merlot=res.filter(r=>/MERLOT/.test(r.bloco));
+    if(merlot.length!==1||merlot[0].status!=="NAO_CADASTRADO"||merlot[0].refNome!=="")problemas.push(nome+": 'M31129 ... MERLOT' nao pode casar com a referencia MER");
+  })();
   problemas.slice(0,10).forEach(p=>console.log("   !",p));
-  anigerPdfOk=(problemas.length===0&&cntP.OK===4&&cntP.DIVERGENTE===1&&cntP.SEM_PRECO===1);
+  anigerPdfOk=(problemas.length===0&&cntP.OK===16&&cntP.DIVERGENTE===1&&cntP.SEM_PRECO===8&&cntP.NAO_CADASTRADO===10);
   console.log(anigerPdfOk?"✅ ANIGER/MELBROS em PDF OK":"❌ ANIGER/MELBROS em PDF com problemas");
+})();
+
+// ===== destino ANIGER/MELBROS (CNPJ da filial / CEP), referencia so-letras e
+// fallback de vigencia anterior (mesma MedidaBase) =====
+// Achados reais da OC Melbros 60002935 (filial /0001-47, Taua/CE): a MESMA raiz
+// de CNPJ (11366487) tem filial no RS (/0002-28) e no CE; o destino vinha so da
+// raiz e o pedido saia RS/RS (coluna errada, "sem preco RS/RS") em vez de RS/CE.
+let regrasOk=false;
+(function(){
+  const falhas=[];let nVerif=0;
+  const eq=(rotulo,obtido,esperado)=>{nVerif++;if(obtido!==esperado)falhas.push(rotulo+": obtido "+JSON.stringify(obtido)+" != esperado "+JSON.stringify(esperado));};
+  // 1) destino: CNPJ completo -> CEP -> vazio (nunca chuta pela raiz)
+  eq("destino Melbros Taua/CE",F.confAnigerDestino("11.366.487/0001-47","63660-000"),"CE");
+  eq("destino Melbros Campo Bom/RS",F.confAnigerDestino("11366487000228","93712-075"),"RS");
+  eq("destino Aniger Quixeramobim/CE (.edi, sem CEP)",F.confAnigerDestino("94316999000983",""),"CE");
+  eq("filial nova so pelo CEP (CE)",F.confAnigerDestino("11366487000999","63660-000"),"CE");
+  eq("filial nova so pelo CEP (RS)",F.confAnigerDestino("11366487000999","93712075"),"RS");
+  eq("filial nova sem CEP -> vazio",F.confAnigerDestino("94316999000100",""),"");
+  eq("estado fora de RS/CE -> vazio",F.confAnigerDestino("11366487000999","40000-000"),"");
+  // 2) caminho do CEP no parse real do PDF: CNPJ de filial desconhecida (trocado no fixture)
+  const fx=JSON.parse(fs.readFileSync(path.join(DIR,"aniger_pdf_linhas.json"),"utf8"));
+  const troca=(nome,de,para)=>fx[nome].map(l=>l.split(de).join(para));
+  const ceDesc=troca("60002935.pdf","11.366.487/0001-47","11.366.487/0009-99");
+  eq("parse: filial desconhecida no CE, pelo CEP",F.confParseCampos(ceDesc).modalidade,"RS/CE");
+  eq("parse: filial desconhecida no RS, pelo CEP",F.confParseCampos(troca("60001709.pdf","11.366.487/0002-28","11.366.487/0009-99")).modalidade,"RS/RS");
+  eq("parse: filial desconhecida sem CEP -> modalidade vazia",F.confParseCampos(ceDesc.map(l=>l.replace("CEP:63660-000","CEP:"))).modalidade,"");
+  eq("parse: cliente segue ANIGER (raiz mapeada) em filial desconhecida",F.confParseCampos(ceDesc).clienteHint,"ANIGER");
+  // 3) referencia 100% alfabetica da tabela nao casa prefixo de palavra; apelido (legado) casa
+  eq("MER (tabela) nao casa MERLOT",F.confRefRegex("MER",true).test("29171404698 FITA GORGURAO POLIE M31129 20MM MERLOT 338"),false);
+  eq("MER (tabela) casa a palavra inteira",F.confRefRegex("MER",true).test("ELASTICO REDONDO MER 3MM"),true);
+  eq("MER (tabela) casa no fim do texto",F.confRefRegex("MER",true).test("ELASTICO MER"),true);
+  eq("MFGP (tabela) casa 'MFGP 15MM'",F.confRefRegex("MFGP",true).test("FITA MFGP 15MM"),true);
+  eq("codigo com digito segue casando (M2173)",F.confRefRegex("M2173",true).test("FITA ELAS M2173 15MM"),true);
+  eq("codigo com digito: digito a mais = outro codigo",F.confRefRegex("M2173",true).test("FITA ELAS M21730 15MM"),false);
+  eq("apelido (sem palavraInteira) continua casando prefixo de palavra",F.confRefRegex("MER").test("FITA MERLOT 338"),true);
+  // 4) confValidar sintetico: fallback de vigencia anterior so com a MESMA MedidaBase
+  const mkRow=o=>Object.assign({linha:2,ref:"ZZ100",descricao:"TESTE",unidade:"METRO",preco:0,precoRS:0,precoBA:0,precoCE:0,precoMG:0,dataInicio:"01/01/2023",dataFim:"",obs:"",aliasesConf:""},o);
+  const bloco=(cod,preco)=>"29000000001 FITA TESTE "+cod+" 10,0000 M R$ "+preco+" 0 0 10,00 01/01/2027\n15MM BRANCO";
+  const opts={arred:F.confArredCentPadrao,ignorados:[]};
+  const rodar=(blocoTxt,rows)=>F.confValidar([blocoTxt],rows,"RS","",F.confParseItemBlocoAnigerPdf,opts)[0];
+  let r=rodar(bloco("ZZ100","1,0000"),[mkRow({medidaBase:15,medidaBaseLabel:"15mm",dataInicio:"01/09/2024"}),mkRow({medidaBase:15,medidaBaseLabel:"15mm",precoRS:1.0,dataInicio:"01/01/2023"})]);
+  eq("fallback mesma largura: status",r.status,"OK");
+  eq("fallback mesma largura: usa a vigencia anterior",!!r.vigenciaAnterior,true);
+  r=rodar(bloco("ZZ100","1,3600"),[mkRow({medidaBase:15,medidaBaseLabel:"15mm",dataInicio:"01/09/2024"}),mkRow({medidaBase:22,medidaBaseLabel:"22mm",precoRS:1.9,dataInicio:"01/01/2023"})]);
+  eq("fallback outra largura: status (nao compara com o preco da outra largura)",r.status,"SEM_PRECO");
+  eq("fallback outra largura: aviso",r.motivo.replace(/\u00a0/g," "),"A tabela nao tem preco RS para ZZ100 15mm (vigencia 01/09/2024 → Sem vencimento). O pedido pede R$ 1,36.");
+  // apelido cortado no meio de uma palavra (confAliasSugerido corta em 40 caracteres) segue casando
+  r=rodar("29000000002 FITA TESTE ESPECIAL 10,0000 M R$ 1,0000 0 0 10,00 01/01/2027\n15MM BRANCO",[mkRow({ref:"ZZ200",medidaBase:15,medidaBaseLabel:"15mm",precoRS:1.0,aliasesConf:"FITA TESTE ESPEC"})]);
+  eq("apelido cortado no meio da palavra continua casando",r.status+"|"+r.refNome,"OK|ZZ200");
+  falhas.slice(0,12).forEach(f=>console.log("   !",f));
+  regrasOk=falhas.length===0;
+  console.log(regrasOk?"\n[ANIGER destino + regras da conferencia] ✅ "+nVerif+" verificacoes OK":"\n[ANIGER destino + regras da conferencia] ❌ "+falhas.length+" falha(s)");
 })();
 
 // ===== formato BEIRA RIO (PDF do ERP proprio) =====
@@ -281,4 +356,4 @@ let beiraRioOk=false;
   console.log(beiraRioOk?"✅ BEIRA RIO OK":"❌ BEIRA RIO com problemas");
 })();
 
-process.exit(ok&&ensinarOk&&anigerOk&&anigerPdfOk&&beiraRioOk?0:1);
+process.exit(ok&&ensinarOk&&anigerOk&&anigerPdfOk&&regrasOk&&beiraRioOk?0:1);

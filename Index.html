@@ -1541,6 +1541,18 @@ function confEscolherVigencia(rows,emissao,medidaPdf){
   }
   var ord=function(a,b){return (dataBR(b.dataInicio)||0)-(dataBR(a.dataInicio)||0);};
   pool=pool.slice().sort(ord);
+  // Reajuste antigo (mesma ref+medida+descricao, DataInicio menor, ainda sem
+  // DataFim) esta superado pela linha mais nova: nao e variante concorrente.
+  // Mantem a mais recente de cada variante (empate de data = duplicata real) e
+  // as linhas com PrecoAtivo (ativacao manual do admin).
+  if(pool.length>1&&!vencido){
+    var topo={};
+    pool.forEach(function(r){
+      var k=refVarianteKey(r),d=+(dataBR(r.dataInicio)||0);
+      if(topo[k]===undefined||d>topo[k])topo[k]=d;
+    });
+    pool=pool.filter(function(r){return r.precoAtivo||+(dataBR(r.dataInicio)||0)===topo[refVarianteKey(r)];});
+  }
   return {row:pool[0],vencido:vencido,pool:pool,medidaBateu:medidaBateu};
 }
 

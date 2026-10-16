@@ -310,6 +310,19 @@ let regrasOk=false;
   eq("multi-medida com a medida exata cadastrada: confere",r.status+"|"+r.esperado,"OK|0.15");
   r=rodar(blocoPar(85),[rowPar(100,0.88)]);
   eq("base unica: calcula proporcional (85/100 x 0,88 = 0,75)",r.status+"|"+r.esperado,"OK|0.75");
+  // 6) apelido ensinado na referencia sem espessura ("MR130.010=MR13010", linhas 18/20cm) vale tambem
+  // para a variante "MR130.010 6MM" (100cm, cadastrada depois): o pedido 6MM de 85cm calcula pela
+  // base de 100cm; sem 6MM no pedido, ou com 20cm exato, segue nas linhas 18/20cm.
+  const rowMr=(ref,cm,preco,alias)=>mkRow({ref:ref,unidade:"PAR",medidaBase:cm,medidaBaseLabel:cm+"cm",precoRS:preco,aliasesConf:alias||""});
+  const tabMr=[rowMr("MR130.010",20,0.48,"MR13010"),rowMr("MR130.010",18,0.38,"MR13010"),rowMr("MR130.010 6MM",100,0.88)];
+  r=rodar(blocoPar(85),tabMr);
+  eq("apelido herdado pela variante 6MM: 85cm calcula pela base de 100cm",r.status+"|"+r.esperado+"|"+r.refNome,"OK|0.75|MR130.010 6MM");
+  r=rodar(blocoPar(20).replace("0,1500","0,4800"),tabMr);
+  eq("apelido herdado: 20cm exato segue na linha de 20cm",r.status+"|"+r.esperado+"|"+r.refNome,"OK|0.48|MR130.010");
+  r=rodar(blocoPar(85).replace("CHATO MONOCOLOR 6MM","CHATO MONOCOLOR"),tabMr);
+  eq("apelido herdado: pedido sem 6MM nao cai na variante 6MM",r.status+"|"+r.refNome,"SEM_MEDIDA|MR130.010");
+  r=rodar(blocoPar(85).replace("6MM","8MM"),tabMr);
+  eq("apelido herdado: pedido 8MM nao cai na variante 6MM",r.status+"|"+r.refNome,"SEM_MEDIDA|MR130.010");
   falhas.slice(0,12).forEach(f=>console.log("   !",f));
   regrasOk=falhas.length===0;
   console.log(regrasOk?"\n[ANIGER destino + regras da conferencia] ✅ "+nVerif+" verificacoes OK":"\n[ANIGER destino + regras da conferencia] ❌ "+falhas.length+" falha(s)");

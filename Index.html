@@ -1621,8 +1621,23 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn,opts){
     var rxBase=null,rxMm=null,codigoBase=null,medidaMm=null;
     var variante=extrairVarianteMm(base);
     if(variante){rxBase=confRefRegex(variante.codigoBase,true);rxMm=confRefRegex(variante.mm);codigoBase=variante.codigoBase;medidaMm=variante.mm;}
-    if(!mapa[k])mapa[k]={nome:r.ref,norm:n,goma:goma,rx:confRefRegex(base,true),rxBase:rxBase,rxMm:rxMm,codigoBase:codigoBase,medidaMm:medidaMm,rows:[]};
+    if(!mapa[k])mapa[k]={nome:r.ref,norm:n,goma:goma,rx:confRefRegex(base,true),rxBase:rxBase,rxMm:rxMm,codigoBase:codigoBase,medidaMm:medidaMm,baseNorm:variante?normTxt(variante.codigoBase):n,rows:[]};
     mapa[k].rows.push(r);
+  });
+  // Apelidos ensinados (AC1) sao anexados pelo backend so as linhas cuja
+  // Referencia e IGUAL ao codigo ensinado — a variante "MR130.010 6MM" nao
+  // recebia o apelido ensinado em "MR130.010" e nunca virava candidata (achado
+  // real ANIGER: pedido "MR13010 ... 6MM 85CM" caia nas linhas 18/20cm e dava
+  // SEM_MEDIDA, com a base de 100cm cadastrada como "MR130.010 6MM"). Agrupa os
+  // apelidos ensinados por codigo-base (+ goma) para as variantes de espessura
+  // herdarem os das irmas.
+  var ensinadosPorBase={};
+  Object.keys(mapa).forEach(function(k){
+    var e=mapa[k],bk=e.baseNorm+"|"+(e.goma?1:0);
+    e.rows.forEach(function(r){String(r.aliasesConf||"").split("|").forEach(function(a){
+      a=a.trim();
+      if(a)(ensinadosPorBase[bk]=ensinadosPorBase[bk]||{})[a]=true;
+    });});
   });
   // Aliases: codigos antigos mencionados como "ant.CODIGO" na descricao entre
   // parenteses — ex: "M12192(cad.tear... ant.M1308)" cria alias M1308 apontando
@@ -1647,6 +1662,22 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn,opts){
       // veio direto da referencia (o pedido do cliente usa outro texto).
       if(!mapa[ak])mapa[ak]={nome:entry.nome,norm:an,goma:entry.goma,rx:confRefRegex(t.alias),rows:entry.rows,viaAlias:true,alias:t.alias,origemAlias:t.origem};
     });
+    // Variante de espessura ("MR130.010 6MM"): herda os apelidos ensinados nas
+    // irmas do mesmo codigo-base, exigindo tambem a espessura no bloco (rxMm) —
+    // so assim um pedido 6MM cai nesta variante e um sem 6MM segue nas irmas.
+    // O "norm" inclui o MM para vencer, no desempate, a irma sem espessura.
+    if(entry.rxMm){
+      var mmNorm=normTxt(entry.medidaMm);
+      Object.keys(ensinadosPorBase[entry.baseNorm+"|"+(entry.goma?1:0)]||{}).forEach(function(alias){
+        var an=normTxt(alias);
+        if(an.length<3)return;
+        var ak=an+"|"+mmNorm+"|"+(entry.goma?1:0);
+        if(!mapa[ak]){
+          var rxA=confRefRegex(alias);
+          mapa[ak]={nome:entry.nome,norm:an+mmNorm,goma:entry.goma,rx:rxA,rxBase:rxA,rxMm:entry.rxMm,rows:entry.rows,viaAlias:true,alias:alias,origemAlias:"ensinado"};
+        }
+      });
+    }
   });
   var cands=Object.keys(mapa).map(function(k){return mapa[k];});
   var emissao=dataBR(emissaoStr);

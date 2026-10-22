@@ -2493,6 +2493,17 @@ function confAliasSugerido(bloco){
   // caracteres do bloco inteiro) pegava o rotulo "Codigo NNNNNN -" (o
   // codigo ERP da Beira Rio, que muda por cor/variante, nao e um apelido
   // estavel) e cortava no meio da palavra "Nomenclatura".
+  // Formato BIBI: o bloco comeca na linha-ancora "<item> <seq> <descricao> <NCM/Seq>
+  // <MT|PR> ...". Item/seq/NCM nao identificam o produto (o seq muda a cada
+  // pedido) e, como o apelido precisa ser um trecho CONTINUO do pedido
+  // (confRefRegex nao pula palavras), a sugestao generica abaixo -- que tirava
+  // "ELASTICO" do meio -- nunca casava de volta. Sugere so a descricao da
+  // ancora, tirando apenas a categoria do INICIO (nao quebra a continuidade).
+  var primeiraLinha=String(bloco||"").split("\n")[0];
+  var mBI=confBibiEhAncora(primeiraLinha)&&primeiraLinha.match(/^\d+\s+\d+\s+(.+?)\s+\d{8}\/\d+\s/);
+  if(mBI){
+    return mBI[1].toUpperCase().replace(/^(?:(?:ATACADOR|ATAC|FITA|ELASTICO|ELAST|CADARCO|CAD|CORD[ÃA]O)\b\.?\s*)+/,"").slice(0,40).trim();
+  }
   var mBR=String(bloco||"").match(/^C[oó]digo\s+\d+\s*-\s*(.+?)\s*Nomenclatura\b/i);
   var s=(mBR?mBR[1]:confDescBloco(bloco)).toUpperCase();
   s=s.replace(/\b(ATACADOR|FITA|ELASTICO|ELST|CADARCO|CAD)\b/g," ");
@@ -2500,6 +2511,13 @@ function confAliasSugerido(bloco){
   s=s.replace(/\+?\s*PONT\.?\s*\d+\s*MM/gi," ");
   s=s.replace(/\s+/g," ").trim();
   return s.slice(0,40).trim();
+}
+// O apelido so vale se casar de volta no texto do proprio item do pedido (e o
+// mesmo teste que confValidar faz: confRefRegex sobre o bloco). Trecho que pula
+// palavras ou inclui seq/NCM/quantidade nao casa — salvar assim "funciona" mas o
+// item continua nao cadastrado, sem nenhum aviso.
+function confAliasCasaBloco(alias,bloco){
+  return normTxt(alias).length>=3&&confRefRegex(alias).test(String(bloco||""));
 }
 // Painel inline de "Identificar / ensinar" (admin), oculto ate o clique.
 function confEnsinarPanel(item,r,ridx){
@@ -2532,6 +2550,10 @@ async function confSalvarAlias(id,ridx){
   var linha=refSel.value,alias=(aliasEl.value||"").trim();
   if(!linha){toast("Selecione a referencia da tabela.","error");return;}
   if(normTxt(alias).length<3){toast("Apelido muito curto (min. 3 letras/numeros).","error");return;}
+  var rItem=item.resultados&&item.resultados[ridx];
+  if(rItem&&rItem.bloco&&!confAliasCasaBloco(alias,rItem.bloco)){
+    toast("Apelido nao salvo: ele nao aparece no texto deste item do pedido. Use um trecho continuo (sem pular palavras), ex.: so o codigo/medida do produto.","error");return;
+  }
   loading(true,"Salvando apelido...");
   try{
     var re=await gas("salvarAliasConf",item.cliente,parseInt(linha,10),alias,S.token);
@@ -2547,6 +2569,7 @@ async function confMarcarIgnorado(id,ridx){
   var aliasEl=document.getElementById("conf-ens-"+id+"-"+ridx+"-alias");
   var chave=(aliasEl&&aliasEl.value.trim())||confAliasSugerido(r.bloco);
   if(normTxt(chave).length<3){toast("Trecho muito curto para marcar como fora da tabela.","error");return;}
+  if(r.bloco&&normTxt(r.bloco).indexOf(normTxt(chave))<0){toast("Nao salvo: o trecho nao aparece no texto deste item do pedido. Use um trecho continuo do pedido.","error");return;}
   if(!confirm("Marcar itens com \""+chave+"\" como FORA da tabela de preco deste cliente? Eles deixarao de ser sinalizados na conferencia."))return;
   loading(true,"Salvando...");
   try{

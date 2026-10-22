@@ -34,7 +34,7 @@ try { vm.runInContext(code, sandbox, { timeout: 5000 }); }
 catch (e) { console.error("Erro ao avaliar script:", e.message); process.exit(1); }
 
 const F = sandbox; // funções ficam no escopo global do sandbox
-["confValidar","confDakotaLerFixo","confDakotaLerHtm","confParseItemBlocoDakotaFixo","confParseItemBlocoDakotaHtm","confDakotaEhFixo","confDakotaEhHtm","confArredCentPadrao","confAnigerEhEdi","confAnigerLerEdi","confParseItemBlocoAnigerEdi","confAliasSugerido","confIsAnigerPdf","confParseCampos","confExtrairBlocosAnigerPdf","confParseItemBlocoAnigerPdf","confIsBeiraRio","confExtrairBlocosBeiraRio","confParseItemBlocoBeiraRio","confIsBibi","confExtrairBlocosBibi","confParseItemBlocoBibi","confBibiModalidade","confBibiModalUf"].forEach(fn=>{
+["confValidar","confDakotaLerFixo","confDakotaLerHtm","confParseItemBlocoDakotaFixo","confParseItemBlocoDakotaHtm","confDakotaEhFixo","confDakotaEhHtm","confArredCentPadrao","confAnigerEhEdi","confAnigerLerEdi","confParseItemBlocoAnigerEdi","confAliasSugerido","confIsAnigerPdf","confParseCampos","confExtrairBlocosAnigerPdf","confParseItemBlocoAnigerPdf","confIsBeiraRio","confExtrairBlocosBeiraRio","confParseItemBlocoBeiraRio","confIsBibi","confExtrairBlocosBibi","confParseItemBlocoBibi","confBibiModalidade","confBibiModalUf","confAliasCasaBloco","confBibiEhAncora"].forEach(fn=>{
   if(typeof F[fn]!=="function"){console.error("Função ausente no sandbox:",fn);process.exit(1);}
 });
 
@@ -453,6 +453,27 @@ let bibiOk=false;
     const refsEns=refsBibi.map(r=>Object.assign({},r,{aliasesConf:r.ref==="M4027"?"REF4027":""}));
     const o=F.confValidar(F.confExtrairBlocosBibi(l),refsEns,"CE","",F.confParseItemBlocoBibi,{arred:F.confArredCentPadrao,ignorados:[],rotulos:["RS/BA","RS/RS","BA/BA",null]});
     if(o[2].status!=="OK"||o[2].esperado!==0.75)problemas.push("apelido REF4027→M4027: "+o[2].status+" esperado "+o[2].esperado);
+  })();
+  // "Identificar / ensinar": o apelido sugerido tem que casar de volta no proprio
+  // item (achado real 2026-10: sugeria "8141 3 MARINHO-063 SU-15MM 58062000/1 MT",
+  // com seq e NCM e sem o "ELASTICO" do meio -> salvava e o item voltava a pedir
+  // associacao). Vale para todos os itens das 3 OCs; o apelido antigo (nao
+  // continuo) e rejeitado pela trava; ensinando "SU-15MM" o item vira MTM 15MM
+  // e o preco do pedido (2,19) diverge do cadastrado (1,65 na coluna RS/RS).
+  (function(){
+    Object.entries(amostras).forEach(([oc,l])=>{
+      F.confExtrairBlocosBibi(l).forEach((b,i)=>{
+        const sug=F.confAliasSugerido(b);
+        if(!F.confAliasCasaBloco(sug,b))problemas.push(oc+" item "+(i+1)+": apelido sugerido nao casa o bloco: "+JSON.stringify(sug));
+        if(/\b\d{8}\/\d|^\d+\s+\d\s/.test(sug))problemas.push(oc+" item "+(i+1)+": apelido com NCM/seq: "+JSON.stringify(sug));
+      });
+    });
+    const b3=F.confExtrairBlocosBibi(amostras["3827105"])[2];
+    if(F.confAliasCasaBloco("8141 3 MARINHO-063 SU-15MM 58062000/1 MT",b3))problemas.push("apelido nao continuo deveria ser rejeitado pela trava");
+    if(!F.confAliasCasaBloco("SU-15MM",b3))problemas.push("apelido SU-15MM deveria casar o bloco");
+    const refsSu=refsBibi.map(r=>Object.assign({},r,{aliasesConf:r.ref==="MTM 15MM"?"SU-15MM":""}));
+    const o=F.confValidar([b3],refsSu,"BA","",F.confParseItemBlocoBibi,{arred:F.confArredCentPadrao,ignorados:[],rotulos:["RS/BA","RS/RS","BA/BA",null]});
+    if(o[0].status!=="DIVERGENTE"||o[0].refNome!=="MTM 15MM"||o[0].esperado!==1.65)problemas.push("apelido SU-15MM: "+o[0].status+" "+o[0].refNome+" esperado "+o[0].esperado);
   })();
   // modalidade nao mapeada: filial desconhecida cai no seletor (vazio), nao chuta
   if(F.confBibiModalidade("RS","")!=="")problemas.push("modalidade com destino desconhecido deveria ser vazia");

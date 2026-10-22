@@ -494,10 +494,12 @@ function rotulosPreco(duplo){return duplo?["RS/CE","RS/RS","CE/CE",null]:["RS","
 // ali "BA" e so o codigo da coluna J (papel RS/RS), nao o estado da Bahia, e
 // mostrar "sem preco BA" pro ANIGER/DAKOTA confunde o usuario. Sem duplo,
 // o codigo ja E o rotulo (RS/BA/CE/MG reais).
+// "duplo" tambem pode ser um array de rotulos proprio do cliente (ex.: BIBI,
+// onde as colunas I/J/K sao RS/BA, RS/RS e BA/BA).
 function confRotuloUf(uf,duplo){
   if(!duplo)return uf;
   var idx={RS:0,BA:1,CE:2,MG:3}[uf];
-  var r=rotulosPreco(true);
+  var r=Array.isArray(duplo)?duplo:rotulosPreco(true);
   return (idx!=null&&r[idx])?r[idx]:uf;
 }
 
@@ -972,6 +974,32 @@ function confParseCampos(linhas){
     // Fallback: qualquer /ESTADO no bloco apos FORNECEDOR (evita capturar endereco do cliente)
     if(!m){var forn=all.split(/FORNECEDOR\s*:?\s*/i);if(forn[1])m=forn[1].match(/\/\s*(RS|BA|CE|MG)\b/i);}
     if(m)c.uf=m[1].toUpperCase();
+  }else if(confIsBibi(linhas)){
+    // Formato BIBI (ERP Safetech, mesmo da DILLY mas com outra tabela de itens).
+    // Modalidade origem→destino (RS/RS · RS/BA · BA/BA) pelo CNPJ da filial
+    // Marfim fornecedora + CNPJ da filial BIBI compradora; define a coluna.
+    m=all.match(/Ordem\s+Compra\s*:?\s*(\d+)/i);if(m)c.ordem=m[1];
+    m=all.match(/Data\s+Emiss\S+\s*:?\s*(\d{2}\/\d{2}\/\d{4})/i);if(m)c.emissao=m[1];
+    // Prazo: tabela "Previsao Pagamento" (Dias Parcela / Valor Parcela). Aqui o
+    // valor vem sem "R$" ("60 396.00"), e pode haver texto colado na mesma linha.
+    var idxDiasB=-1;
+    for(var dib=0;dib<linhas.length;dib++){if(/Dias\s+Parcela/i.test(linhas[dib])){idxDiasB=dib;break;}}
+    if(idxDiasB>=0){
+      var diasB=[];
+      for(var pib=idxDiasB+1;pib<linhas.length;pib++){
+        if(/^Total\b/i.test(linhas[pib]))break;
+        var pmb=linhas[pib].match(/^(\d{2,3})\s+[\d.,]+(?:\s|$)/);
+        if(pmb)diasB.push(pmb[1]);
+      }
+      if(diasB.length)c.prazoPagamento=diasB.join("/");
+    }
+    var supB="";(all.match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/g)||[]).forEach(function(x){var d=x.replace(/\D/g,"");if(CONF_MARFIM_CNPJ[d])supB=d;});
+    var blocoComp=all.split(/Dados\s+do\s+Fornecedor/i)[0];
+    var mcn=blocoComp.match(/CNPJ\s*:\s*(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})/i);
+    var muf=blocoComp.match(/-\s*(RS|BA|CE|MG)\s+CEP/i);
+    c.modalidade=confBibiModalidade(confOrigemMarfim(supB),confBibiDestino(mcn?mcn[1].replace(/\D/g,""):"",muf?muf[1].toUpperCase():""));
+    c.uf=confBibiModalUf(c.modalidade);
+    c.clienteHint="BIBI";
   }else if(confIsDilly(linhas)){
     // Formato DILLY (ERP Safetech): cabecalho com Nº OC, Data Emissao e Marca.
     m=all.match(/Ordem\s+Compra\s+(\d+)/i);if(m)c.ordem=m[1];
@@ -1195,7 +1223,8 @@ function confArredCentPadrao(v){return Math.round(v*100+1e-9)/100;}
 // clientes de preço duplo (DAKOTA, ANIGER/MELBROS): é o CNPJ da própria Marfim.
 // A Marfim tem mais de uma razão social no RS — 93825230000170 (pedidos DAKOTA)
 // e 12954695000120 ("Marfim Textil RS Ltda", pedidos ANIGER/MELBROS).
-var CONF_MARFIM_CNPJ={"93825230000170":"RS","12954695000120":"RS","19542918000190":"CE"};
+// A Marfim Bahia (05645301000196) so aparece nos pedidos da BIBI (filial BA).
+var CONF_MARFIM_CNPJ={"93825230000170":"RS","12954695000120":"RS","19542918000190":"CE","05645301000196":"BA"};
 function confOrigemMarfim(cnpj){return CONF_MARFIM_CNPJ[cnpj]||"";}
 function confDakotaDestino(cnpjComprador){return /^07414643/.test(cnpjComprador)?"RS":/^00465813/.test(cnpjComprador)?"CE":"";} // 07414643=Dakota RS · 00465813=Dakota Nordeste (CE)
 function confModalidadeDuplo(o,d){if(o==="CE")return "CE/CE";if(o==="RS"&&d==="RS")return "RS/RS";if(o==="RS"&&d==="CE")return "RS/CE";return "";}
@@ -1504,6 +1533,78 @@ function confParseItemBlocoBeiraRio(bloco){
   return {seq:seq,preco:preco,cm:cm,mm:mm,qtd:qtd,unit:unidade==="PAR"?"PR":"MT"};
 }
 
+// ============================================================
+// FORMATO BIBI (PDF do ERP Safetech, o mesmo da DILLY, porem com outra tabela
+// de itens). Cabecalho "Forma de abertura" + CALCADOS BIBI nas primeiras linhas
+// (a DILLY nao cita BIBI; o rodape da BIBI cita "CALCADOS BIBI NORDESTE", por
+// isso o nome so vale no topo). Cada item:
+//   <item> <seq> <descricao> <NCM/Seq> <MT|PR> <agrup> <qtd> <preco> [%desc] [%ipi] <data> <situacao> <cancelada>
+//   <continuacao da descricao: cor, "C/GOMA", comprimento, ponteira...>
+// Numeros em formato US (qtd "1,000.000", preco "1.270000" com 6 casas). O
+// cabecalho da tabela se repete entre itens ("Dif. Unid." / "Item Item NCM/Seq")
+// e fecha o bloco do item anterior.
+// Cliente por modalidade origem→destino, mas NAO e "preco duplo" no backend: as
+// colunas I/J/K da aba sao RS/BA (RS→BA), RS/RS e BA/BA — o codigo de coluna que
+// confValidar usa e RS/BA→"RS", RS/RS→"BA", BA/BA→"CE". Conferencia sempre contra
+// o PRECO ATUAL (emissao vazia), decisao do usuario.
+// ============================================================
+// Filial BIBI compradora (CNPJ completo) → UF de destino.
+var CONF_BIBI_FILIAL={"97748958000105":"RS","97748958003031":"BA"};
+var CONF_BIBI_MODAIS=[["RS/BA","RS"],["RS/RS","BA"],["BA/BA","CE"]];
+var CONF_BIBI_ROTULOS=["RS/BA","RS/RS","BA/BA",null];
+function confIsBibi(linhas){
+  return /CAL[CÇ]ADOS\s+BIBI/i.test(linhas.slice(0,8).join(" "))&&/Forma\s+de\s+abertura/i.test(linhas.join(" "));
+}
+// Filial fora do mapa: deduz pela UF impressa no bloco do comprador ("PAROBE - RS
+// CEP: ..."); so RS e BA tem tabela. Sem sinal devolve vazio (o card avisa e
+// deixa escolher a modalidade).
+function confBibiDestino(cnpj,ufBloco){
+  var uf=CONF_BIBI_FILIAL[String(cnpj||"").replace(/\D/g,"")];if(uf)return uf;
+  return (ufBloco==="RS"||ufBloco==="BA")?ufBloco:"";
+}
+function confBibiModalidade(o,d){
+  if(o==="RS"&&d==="RS")return "RS/RS";
+  if(o==="RS"&&d==="BA")return "RS/BA";
+  if(o==="BA"&&d==="BA")return "BA/BA";
+  return "";
+}
+function confBibiModalUf(m){return {"RS/BA":"RS","RS/RS":"BA","BA/BA":"CE"}[m]||"RS";}
+function confBibiEhAncora(l){return /^\d{3,8}\s+\d{1,3}\s+\S.*\s\d{8}\/\d+\s+[A-Z]{2}\s/.test(l);}
+function confExtrairBlocosBibi(linhas){
+  var blocos=[],buf=null;
+  var fechar=function(){if(buf){blocos.push(buf.join("\n"));buf=null;}};
+  linhas.forEach(function(l){
+    if(confBibiEhAncora(l)){fechar();buf=[l];return;}
+    if(!buf)return;
+    if(/^(Dif\.|Item\s+Item|Qtd\.\s*Total|Previs)/i.test(l)){fechar();return;}
+    buf.push(l);
+  });
+  fechar();
+  return blocos;
+}
+// Preco/qtd da linha-ancora (ponto decimal); espessura = primeiro "<n>MM" menor
+// que 100 fora de ponteira; para pares (PR), comprimento em cm = "<n>CM" ou o
+// "<NNN>MM" de 3-4 digitos (ex.: "470MM" = 47cm).
+function confParseItemBlocoBibi(bloco){
+  var linhas=bloco.split("\n"),a=linhas[0];
+  var m=a.match(/\s\d{8}\/\d+\s+([A-Z]{2})\s+\d+\s+[A-Z][A-Z ]*?\s+([\d.,]+)\s+(\d+\.\d{2,6})(?:\s+\d+\.\d{2}){0,2}\s+\d{2}\/\d{2}\/\d{4}/);
+  if(!m)return null;
+  var preco=parseFloat(m[3]);if(!(preco>0))return null;
+  var qtd=parseFloat(m[2].replace(/,/g,""))||0;
+  var unit=(m[1]==="PR"||m[1]==="PC")?"PR":"MT";
+  var desc=a.replace(/^\d+\s+\d+\s+/,"").split(/\s\d{8}\/\d+\s/)[0]+" "+linhas.slice(1).join(" ");
+  var mm=null,cm=null,re=/(\d+(?:[.,]\d+)?)\s*MM\b/gi,g;
+  while((g=re.exec(desc))){
+    if(/PONT/i.test(desc.slice(Math.max(0,g.index-10),g.index)))continue;
+    var v=parseFloat(g[1].replace(",","."));
+    if(v<100){if(mm===null)mm=v;}
+    else if(unit==="PR"&&cm===null)cm=v/10;
+  }
+  var mc=desc.match(/(\d+(?:[.,]\d+)?)\s*CM\b/i);if(mc)cm=parseFloat(mc[1].replace(",","."));
+  var ms=a.match(/^\d+\s+(\d{1,3})\s/);
+  return {seq:ms?+ms[1]:null,preco:preco,cm:unit==="PR"?cm:null,mm:mm,qtd:qtd,unit:unit};
+}
+
 // Escolhe a linha da tabela cuja vigencia cobre a data de referencia;
 // se nenhuma cobre, retorna a mais atual e marca como vencida.
 // Quando ha mais de uma linha vigente para a mesma referencia/goma —
@@ -1604,7 +1705,7 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn,opts){
   // usado nas mensagens em vez de "uf" cru, para nao mostrar "BA" pro cliente
   // preco duplo (ANIGER/DAKOTA) quando o codigo interno da coluna e "BA" mas
   // o rotulo na tela e "RS/RS".
-  var rotuloUf=confRotuloUf(uf,!!opts.duplo);
+  var rotuloUf=confRotuloUf(uf,opts.rotulos||!!opts.duplo);
   // agrupa o cadastro por codigo-base + atributo goma (variantes com e sem
   // goma do mesmo codigo sao candidatas distintas)
   var mapa={};
@@ -1972,6 +2073,7 @@ async function confArquivosSelecionados(files){
             // Marca o PDF do ERP da ANIGER/MELBROS: cliente de preco duplo, o
             // card mostra a MODALIDADE origem→destino no lugar da UF.
             if(confIsAnigerPdf(item.linhas))item.formato="ANIGER_PDF";
+            else if(confIsBibi(item.linhas))item.formato="BIBI_PDF";
           }
         }else{
           // Arquivos-texto: Dakota .dkn/.dke (largura fixa) e .htm (Ordem de
@@ -2043,6 +2145,7 @@ async function confExecutarAnalise(item,aba,uf,cache){
   if(!r.ok){item.erroAnalise=r.erro;return;}
   item.refsCadastro=r.refs;        // guardado para o fluxo de "Identificar / ensinar" (admin)
   item.precoDuplo=!!r.precoDuplo;
+  item.rotulosCol=null;
   // Seleciona extrator + parser conforme o formato. Dakota (arquivos-texto) tem os
   // blocos ja extraidos na leitura, arredondamento padrao, conferencia contra o
   // PRECO ATUAL (emissao vazia) e a lista de itens ignorados; DILLY/RAMARIM/DASS
@@ -2060,6 +2163,11 @@ async function confExecutarAnalise(item,aba,uf,cache){
     // casasse com dois detectores teria o cabecalho lido por um formato e os
     // itens por outro.
     item.resultados=confValidar(confExtrairBlocosRamarim(item.linhas),r.refs,uf,item.campos.emissao,confParseItemBlocoRamarim);
+  }else if(confIsBibi(item.linhas)){
+    // BIBI (ERP Safetech): colunas I/J/K = RS/BA · RS/RS · BA/BA; rotulos proprios
+    // nas mensagens. Conferencia contra o PRECO ATUAL (emissao vazia).
+    item.rotulosCol=CONF_BIBI_ROTULOS;
+    item.resultados=confValidar(confExtrairBlocosBibi(item.linhas),r.refs,uf,"",confParseItemBlocoBibi,{arred:confArredCentPadrao,ignorados:r.ignoradosConf||[],rotulos:CONF_BIBI_ROTULOS});
   }else if(confIsDilly(item.linhas)){
     item.resultados=confValidar(confExtrairBlocosDilly(item.linhas),r.refs,uf,item.campos.emissao,confParseItemBlocoDilly);
   }else if(confIsAnigerPdf(item.linhas)){
@@ -2123,7 +2231,7 @@ function confRenderItem(item,idx){
   var campos=item.campos||{};
   // Formatos de cliente "preco duplo" (Dakota .dkn/.dke/.htm, Aniger .edi):
   // o seletor mostra a MODALIDADE origem/destino no lugar da UF.
-  var ehDakota=/^(DAKOTA_|ANIGER_)/.test(item.formato||"");
+  var ehDakota=/^(DAKOTA_|ANIGER_|BIBI_)/.test(item.formato||"");
   var metaParts=[];
   if(campos.ordem)metaParts.push("OC: <strong>"+escHtml(campos.ordem)+"</strong>");
   if(campos.marca)metaParts.push("Marca: <strong>"+escHtml(campos.marca)+"</strong>");
@@ -2142,7 +2250,7 @@ function confRenderItem(item,idx){
     // confAnalisarItem le o mesmo id e passa a coluna certa a confValidar.
     var selUf;
     if(ehDakota){
-      var mods=[["RS/CE","RS"],["RS/RS","BA"],["CE/CE","CE"]];
+      var mods=item.formato==="BIBI_PDF"?CONF_BIBI_MODAIS:[["RS/CE","RS"],["RS/RS","BA"],["CE/CE","CE"]];
       selUf="<select id=\"conf-uf-"+item.id+"\">"
         +mods.map(function(m){return "<option value=\""+m[1]+"\""+(m[1]===item.uf?" selected":"")+">"+m[0]+"</option>";}).join("")
         +"</select>";
@@ -2321,7 +2429,7 @@ async function confNotificarSemPreco(id,ridx){
   var payload={
     cliente:item.cliente||"",
     // rotulo real da coluna (RS/RS, nao o codigo bruto "BA") — ver confRotuloUf
-    uf:confRotuloUf(item.uf||"",!!item.precoDuplo),
+    uf:confRotuloUf(item.uf||"",item.rotulosCol||!!item.precoDuplo),
     status:r.status||"",
     motivo:r.motivo||"",
     refNome:r.refNome||"",

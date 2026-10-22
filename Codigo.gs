@@ -52,6 +52,20 @@ function _ehPrecoDuplo(nomeAba) {
   return CLIENTES_PRECO_DUPLO.indexOf(nome) >= 0;
 }
 
+// Clientes com ROTULOS PROPRIOS nas colunas de preco I/J/K/L (RS/BA/CE/MG), sem o
+// comportamento "preço duplo" (preço base, T1/U1 sobre a coluna I, "Aplicar em
+// todos"). BIBI: I = RS/BA, J = RS/RS, K = BA/BA (o texto do cabeçalho da planilha
+// é só visual — o código lê por posição). MG mantém o rótulo padrão.
+// Retorna o array de 4 rótulos ou null (cliente comum).
+const ROTULOS_PRECO_CLIENTE = {
+  "BIBI": ["RS/BA", "RS/RS", "BA/BA", "MG"]
+};
+
+function _rotulosPrecoCliente(nomeAba) {
+  const nome = String(nomeAba || "").toUpperCase().replace(/ CLIENTE$/, "").trim();
+  return ROTULOS_PRECO_CLIENTE[nome] || null;
+}
+
 // ============================================================
 // PARSER NUMÉRICO (pN) — usar em TODO valor numérico lido da planilha
 // ou de input do usuário. Aceita número puro, texto com vírgula decimal
@@ -326,7 +340,8 @@ function _getReferencias(nomeAba, busca, vendedorId) {
     return {
       ok: true, refs: resultado, prazoPagamento: prazoRaw, prazoPagamentoDias, prazoPagamentoDiasTodos,
       descontoBA, descontoCE, descontoMG, ignoradosConf,
-      precoDuplo: _ehPrecoDuplo(nomeAba)
+      precoDuplo: _ehPrecoDuplo(nomeAba),
+      rotulosPreco: _rotulosPrecoCliente(nomeAba)
     };
   } catch (e) {
     return { ok: false, erro: e.message };
@@ -1010,12 +1025,15 @@ function enviarEmailAtualizacao(nomeAba, token) {
     const fmtBRL = v => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
     // Cliente "preço duplo": rótulos origem/destino nas colunas I/J/K; MG não é usada.
     const duploEmail = _ehPrecoDuplo(nomeAba);
+    const rotCliEmail = _rotulosPrecoCliente(nomeAba); // rótulos próprios (ex.: BIBI)
     const linhasTabela = vigentes.map(r => {
       const unidLabel = r.unidade === "pares" ? "par" : r.unidade === "pecas" ? "peça" : r.unidade === "kg" ? "kg" : "metro";
       const medLabel = r.medidaBase > 0 ? ` (${r.medidaBase}${r.unidade === "metros" ? "mm" : "cm"})` : "";
       const estados = (duploEmail
         ? [["RS/CE", r.precoRS], ["RS/RS", r.precoBA], ["CE/CE", r.precoCE]]
-        : [["RS", r.precoRS], ["BA", r.precoBA], ["CE", r.precoCE], ["MG", r.precoMG]])
+        : rotCliEmail
+          ? [[rotCliEmail[0], r.precoRS], [rotCliEmail[1], r.precoBA], [rotCliEmail[2], r.precoCE], [rotCliEmail[3], r.precoMG]]
+          : [["RS", r.precoRS], ["BA", r.precoBA], ["CE", r.precoCE], ["MG", r.precoMG]])
         .filter(([, p]) => p > 0)
         .map(([uf, p]) => `<span style="background:#f5f5f5;border-radius:4px;padding:1px 6px;font-size:11px">${uf}: ${fmtBRL(p)}</span>`)
         .join(" ");
@@ -1147,9 +1165,12 @@ function enviarEmailReferencia(nomeAba, refDados, token) {
     const medLabel   = medidaBase > 0 ? ` (base: ${medidaBase}${medSufixo})` : "";
 
     // Cliente "preço duplo": rótulos origem/destino (I=RS/CE, J=RS/RS, K=CE/CE); MG não é usada.
+    const rotCliItem = _rotulosPrecoCliente(nomeAba); // rótulos próprios (ex.: BIBI)
     const estadosCells = (_ehPrecoDuplo(nomeAba)
       ? [["RS/CE", precoRS], ["RS/RS", precoBA], ["CE/CE", precoCE]]
-      : [["RS", precoRS], ["BA", precoBA], ["CE", precoCE], ["MG", precoMG]])
+      : rotCliItem
+        ? [[rotCliItem[0], precoRS], [rotCliItem[1], precoBA], [rotCliItem[2], precoCE], [rotCliItem[3], precoMG]]
+        : [["RS", precoRS], ["BA", precoBA], ["CE", precoCE], ["MG", precoMG]])
       .filter(([, p]) => p > 0)
       .map(([uf, p]) => `<td style="padding:10px 14px;text-align:center;border-right:1px solid #e5e7eb">
           <div style="font-size:10px;font-weight:700;color:#888;letter-spacing:.08em;margin-bottom:4px">${uf}</div>

@@ -462,7 +462,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
 <div id="print-output"></div>
 
 <script>
-var S={vendedor:null,token:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],confItens:[],descontosEstado:{ba:0,ce:0,mg:0},cadPrecoDuplo:false,consPrecoDuplo:false,admVendedores:[],cadConflito:null};
+var S={vendedor:null,token:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],confItens:[],descontosEstado:{ba:0,ce:0,mg:0},cadPrecoDuplo:false,consPrecoDuplo:false,cadRotulos:null,consRotulos:null,admVendedores:[],cadConflito:null};
 
 function gas(fn){
   var args=Array.prototype.slice.call(arguments,1);
@@ -488,7 +488,9 @@ function unidadeKg(u){u=String(u||"").toLowerCase();return u.indexOf("kg")>=0||u
 // Codigo.gs; o flag chega em getReferencias.precoDuplo e fica em S.consPrecoDuplo /
 // S.cadPrecoDuplo). As colunas de preço assumem os papéis I=RS/CE, J=RS/RS, K=CE/CE
 // e a coluna MG não é usada (rótulo null = oculta).
-function rotulosPreco(duplo){return duplo?["RS/CE","RS/RS","CE/CE",null]:["RS","BA","CE","MG"];}
+// "custom" = rotulos proprios do cliente (array de 4, vindo de getReferencias.rotulosPreco —
+// ex.: BIBI: RS/BA, RS/RS, BA/BA), sem o comportamento "preco duplo".
+function rotulosPreco(duplo,custom){return custom||(duplo?["RS/CE","RS/RS","CE/CE",null]:["RS","BA","CE","MG"]);}
 // Traduz o codigo de coluna (RS/BA/CE/MG, usado internamente por confValidar
 // como "uf") para o rotulo real na tela, quando o cliente e preco duplo —
 // ali "BA" e so o codigo da coluna J (papel RS/RS), nao o estado da Bahia, e
@@ -527,7 +529,7 @@ async function fazerLogin(){
 document.getElementById("login-senha").addEventListener("keydown",function(e){if(e.key==="Enter")fazerLogin();});
 
 function fazerLogout(){
-  S={vendedor:null,token:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],confItens:[],descontosEstado:{ba:0,ce:0,mg:0},cadPrecoDuplo:false,consPrecoDuplo:false,admVendedores:[]};
+  S={vendedor:null,token:null,clienteSelecionado:null,buscarTimer:null,printMode:null,refsCad:[],confItens:[],descontosEstado:{ba:0,ce:0,mg:0},cadPrecoDuplo:false,consPrecoDuplo:false,cadRotulos:null,consRotulos:null,admVendedores:[]};
   document.getElementById("screen-main").classList.remove("active");
   document.getElementById("screen-login").classList.add("active");
   document.getElementById("login-id").value="";
@@ -586,7 +588,7 @@ async function buscarRefs(){
   S.buscarTimer=setTimeout(async function(){
     var busca=document.getElementById("busca-input").value.trim();
     loading(true,"Buscando...");
-    try{var r=await gas("getReferencias",S.clienteSelecionado,busca,S.token);S.consPrecoDuplo=!!(r&&r.precoDuplo);renderRefs(r,"ref-list",false);}
+    try{var r=await gas("getReferencias",S.clienteSelecionado,busca,S.token);S.consPrecoDuplo=!!(r&&r.precoDuplo);S.consRotulos=(r&&r.rotulosPreco)||null;renderRefs(r,"ref-list",false);}
     catch(e){toast("Erro ao buscar.","error");}
     loading(false);
   },400);
@@ -643,7 +645,7 @@ function renderRefs(r,containerId,modoEdicao){
   // Modo "preço duplo" do cliente exibido: flag gravado quando a lista foi buscada
   // (S.cadPrecoDuplo para a aba Cadastrar, S.consPrecoDuplo para a consulta).
   var duplo=containerId==="ref-list-cad"?!!S.cadPrecoDuplo:!!S.consPrecoDuplo;
-  var rot=rotulosPreco(duplo);
+  var rot=rotulosPreco(duplo,containerId==="ref-list-cad"?S.cadRotulos:S.consRotulos);
   var atualPorRef=calcAtualPorRef(r.refs,duplo);
   var isAdmin=!!(S.vendedor&&S.vendedor.clientes&&S.vendedor.clientes.includes("*"));
   var d=new Date();
@@ -675,7 +677,7 @@ function renderRefs(r,containerId,modoEdicao){
     var obsHtml=ref.obs?"<div class=\"ref-obs\">&#x1F4DD; "+escHtml(ref.obs)+"</div>":"";
     var refJson=escHtml(JSON.stringify(ref));
     var acoes=modoEdicao?"<div class=\"ref-actions\"><button class=\"btn btn-ghost btn-sm\" onclick=\"verHistorico('"+escHtml(ref.ref.replace(/'/g,"\\'"))+"')\">&#x1F4C8; Historico</button><button class=\"btn btn-ghost btn-sm\" onclick=\"editarRef("+refJson+")\">&#x270F;&#xFE0F; Editar</button>"+(isAtual?"<button class=\"btn btn-ghost btn-sm\" style=\"color:var(--accent);border-color:var(--accent)\" onclick=\"abrirModalAtualizar("+refJson+")\">&#x1F504; Atualizar Preco</button><button class=\"btn btn-ghost btn-sm\" style=\"color:var(--navy);border-color:var(--navy)\" onclick=\"notificarRef("+refJson+")\">&#x1F4E7; Notificar</button>":"")+"</div>":"";
-    var calcArgs="'"+parseInt(ref.linha,10)+"',"+medidaBase+","+rs+","+ba+","+ce+","+mg+","+(duplo?1:0);
+    var calcArgs="'"+parseInt(ref.linha,10)+"',"+medidaBase+","+rs+","+ba+","+ce+","+mg+","+(duplo?1:0)+",'"+escHtml(rot.map(function(x){return x||"";}).join("|"))+"'";
     var usaCalc=/mm/i.test(medidaLabel)?false:/cm/i.test(medidaLabel)?true:!unidadeDireta(unidade);
     var calcHtml=(isAtual&&usaCalc)?"<div class=\"calc-row\"><input type=\"text\" inputmode=\"decimal\" placeholder=\""+calcPlaceholder+"\" id=\"calc-"+ref.linha+"\" oninput=\"calcular("+calcArgs+")\" style=\"width:120px\"><button class=\"btn btn-ghost btn-sm\" onclick=\"calcular("+calcArgs+")\">Calcular</button></div><div id=\"estados-"+ref.linha+"\" style=\"display:flex;flex-wrap:wrap;gap:6px;margin-top:6px\"></div>":"";
     // Botao de ativacao manual (somente admins, somente linhas vigentes): ativa
@@ -691,14 +693,14 @@ function renderRefs(r,containerId,modoEdicao){
   }).join("");
 }
 
-function calcular(id,medidaBase,precoRS,precoBA,precoCE,precoMG,duplo){
+function calcular(id,medidaBase,precoRS,precoBA,precoCE,precoMG,duplo,rotStr){
   var raw=document.getElementById("calc-"+id).value.trim().replace(",",".");
   var input=parseFloat(raw);
   var elEst=document.getElementById("estados-"+id);
   if(!raw||isNaN(input)||input<=0){if(elEst)elEst.innerHTML="";return;}
   var c=function(p){return medidaBase>0?(input/medidaBase)*p:p*input;};
   if(elEst){
-    var rot=rotulosPreco(!!duplo);
+    var rot=rotStr?rotStr.split("|").map(function(x){return x||null;}):rotulosPreco(!!duplo);
     var tags=[[rot[0],precoRS],[rot[1],precoBA],[rot[2],precoCE],[rot[3],precoMG]]
       .filter(function(e){return e[0]&&e[1]>0;})
       .map(function(e){return "<span class=\"badge\">"+e[0]+": "+fmt(c(e[1]))+"</span>";});
@@ -750,7 +752,7 @@ async function gerarImpressao(){
   try{
     var r=await gas("getReferencias",S.clienteSelecionado,"",S.token);
     if(!r.ok){toast(r.erro,"error");loading(false);return;}
-    S.consPrecoDuplo=!!r.precoDuplo;
+    S.consPrecoDuplo=!!r.precoDuplo;S.consRotulos=r.rotulosPreco||null;
     var lista=r.refs;
     if(S.printMode==="vigentes")lista=lista.filter(function(x){return x.vigente;});
     if(S.printMode==="item")lista=lista.filter(function(x){return x.ref.toUpperCase().includes(buscaRef.toUpperCase());});
@@ -765,7 +767,7 @@ function montarPrint(lista,cliente,modo,refFiltro){
   // Modo "preço duplo" do cliente impresso (flag atualizado por gerarImpressao ao
   // buscar a lista). O PrecoBase informativo NAO sai na impressao.
   var duplo=!!S.consPrecoDuplo;
-  var rot=rotulosPreco(duplo);
+  var rot=rotulosPreco(duplo,S.consRotulos);
   var atualPorRef=calcAtualPorRef(lista,duplo);
   var dHoje=new Date();
   var hojeKey=dHoje.getFullYear()+("0"+(dHoje.getMonth()+1)).slice(-2)+("0"+dHoje.getDate()).slice(-2);
@@ -2630,7 +2632,7 @@ async function recarregarListaCad(aba){
   loading(true,"Carregando...");
   var r=await gas("getReferencias",aba,"",S.token);
   S.refsCad=r.ok?r.refs:[];
-  S.cadPrecoDuplo=!!(r.ok&&r.precoDuplo);
+  S.cadPrecoDuplo=!!(r.ok&&r.precoDuplo);S.cadRotulos=(r.ok&&r.rotulosPreco)||null;
   document.getElementById("cad-busca").value="";
   document.getElementById("cad-prazo-pagamento").value=(r.ok&&r.prazoPagamentoDiasTodos&&r.prazoPagamentoDiasTodos.length)?r.prazoPagamentoDiasTodos.join("/"):"";
   // Nos clientes "preço duplo" as mesmas celulas T1/U1 valem com rotulos trocados:
@@ -2648,16 +2650,17 @@ async function recarregarListaCad(aba){
 // BA→RS/RS, CE→CE/CE) e das variacoes (BA→RS/RS, CE→CE/CE, sobre o preco base
 // RS/CE) e mostra os botoes "Aplicar em todos" acima de cada percentual.
 function aplicarModoPrecoCad(){
-  var duplo=!!S.cadPrecoDuplo,rot=rotulosPreco(duplo);
+  var custom=S.cadRotulos,duplo=!!S.cadPrecoDuplo,rot=rotulosPreco(duplo,custom);
   document.getElementById("cad-preco-base-hint").style.display=duplo?"":"none";
   document.getElementById("cad-preco-mg-wrap").style.display=duplo?"none":"";
   document.getElementById("cad-lbl-precos").textContent=duplo?"Precos Origem/Destino * (RS/CE e o preco base)":"Precos por Estado *";
   document.getElementById("cad-lbl-rs").innerHTML=rot[0]+"&nbsp;(R$)";
   document.getElementById("cad-lbl-ba").innerHTML=rot[1]+"&nbsp;(R$)";
   document.getElementById("cad-lbl-ce").innerHTML=rot[2]+"&nbsp;(R$)";
-  document.getElementById("cad-var-titulo").innerHTML=duplo?"Variação sobre o preço base RS/CE&nbsp;(%):":"Variação por estado&nbsp;(% sobre RS):";
-  document.getElementById("cad-var-lbl-1").textContent=duplo?rot[1]:"BA";
-  document.getElementById("cad-var-lbl-2").textContent=duplo?rot[2]:"CE";
+  document.getElementById("cad-var-titulo").innerHTML=duplo?"Variação sobre o preço base RS/CE&nbsp;(%):":custom?"Variação por coluna&nbsp;(% sobre "+rot[0]+"):":"Variação por estado&nbsp;(% sobre RS):";
+  document.getElementById("cad-var-lbl-1").textContent=(duplo||custom)?rot[1]:"BA";
+  document.getElementById("cad-var-lbl-2").textContent=(duplo||custom)?rot[2]:"CE";
+  document.getElementById("cad-var-lbl-3").textContent=custom?rot[3]:"MG";
   document.getElementById("cad-var-grupo-3").style.display=duplo?"none":"flex";
   document.getElementById("cad-var-aplicar-1").style.display=duplo?"":"none";
   document.getElementById("cad-var-aplicar-2").style.display=duplo?"":"none";
@@ -2906,7 +2909,7 @@ function verHistorico(refCode){
     var medLabel=/[a-zA-Z]/.test(r.medidaBaseLabel||"")?r.medidaBaseLabel:(r.medidaBase>0?r.medidaBase+medSufixo:"");
     var vigClass=r.vigente?"color:var(--success)":"color:var(--text3)";
     var vigTxt=r.vigente?"&#x2713; Vigente":"Vencido";
-    var rotH=rotulosPreco(!!S.cadPrecoDuplo);
+    var rotH=rotulosPreco(!!S.cadPrecoDuplo,S.cadRotulos);
     var paresH=[[rotH[0],r.precoRS],[rotH[1],r.precoBA],[rotH[2],r.precoCE],[rotH[3],r.precoMG]];
     var estadoTags=paresH
       .filter(function(e){return e[0]&&e[1]>0;})
@@ -2936,7 +2939,7 @@ function abrirModalAtualizar(ref){
   ["atu-inicio","atu-fim","atu-rs","atu-ba","atu-ce","atu-mg"].forEach(function(id){document.getElementById(id).value="";});
   // Modal usado so na aba Cadastrar → o modo do cliente e S.cadPrecoDuplo:
   // esconde MG e aplica os rotulos origem/destino (RS/CE e o preco base).
-  var duplo=!!S.cadPrecoDuplo,rot=rotulosPreco(duplo);
+  var duplo=!!S.cadPrecoDuplo,rot=rotulosPreco(duplo,S.cadRotulos);
   document.getElementById("atu-mg-wrap").style.display=duplo?"none":"";
   document.getElementById("atu-lbl-rs").innerHTML=rot[0]+"&nbsp;(R$)";
   document.getElementById("atu-lbl-ba").innerHTML=rot[1]+"&nbsp;(R$)";

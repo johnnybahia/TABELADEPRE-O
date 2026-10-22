@@ -34,7 +34,7 @@ try { vm.runInContext(code, sandbox, { timeout: 5000 }); }
 catch (e) { console.error("Erro ao avaliar script:", e.message); process.exit(1); }
 
 const F = sandbox; // funções ficam no escopo global do sandbox
-["confValidar","confDakotaLerFixo","confDakotaLerHtm","confParseItemBlocoDakotaFixo","confParseItemBlocoDakotaHtm","confDakotaEhFixo","confDakotaEhHtm","confArredCentPadrao","confAnigerEhEdi","confAnigerLerEdi","confParseItemBlocoAnigerEdi","confAliasSugerido","confIsAnigerPdf","confParseCampos","confExtrairBlocosAnigerPdf","confParseItemBlocoAnigerPdf","confIsBeiraRio","confExtrairBlocosBeiraRio","confParseItemBlocoBeiraRio"].forEach(fn=>{
+["confValidar","confDakotaLerFixo","confDakotaLerHtm","confParseItemBlocoDakotaFixo","confParseItemBlocoDakotaHtm","confDakotaEhFixo","confDakotaEhHtm","confArredCentPadrao","confAnigerEhEdi","confAnigerLerEdi","confParseItemBlocoAnigerEdi","confAliasSugerido","confIsAnigerPdf","confParseCampos","confExtrairBlocosAnigerPdf","confParseItemBlocoAnigerPdf","confIsBeiraRio","confExtrairBlocosBeiraRio","confParseItemBlocoBeiraRio","confIsBibi","confExtrairBlocosBibi","confParseItemBlocoBibi","confBibiModalidade","confBibiModalUf"].forEach(fn=>{
   if(typeof F[fn]!=="function"){console.error("Função ausente no sandbox:",fn);process.exit(1);}
 });
 
@@ -382,4 +382,88 @@ let beiraRioOk=false;
   console.log(beiraRioOk?"✅ BEIRA RIO OK":"❌ BEIRA RIO com problemas");
 })();
 
-process.exit(ok&&ensinarOk&&anigerOk&&anigerPdfOk&&regrasOk&&beiraRioOk?0:1);
+
+// ===== formato BIBI (PDF do ERP Safetech, layout proprio) =====
+// Roda sobre as LINHAS ja extraidas (amostras/bibi_pdf_linhas.json, gerado com o
+// mesmo algoritmo de confExtrairLinhas via pdfjs-dist) contra a tabela REAL
+// ("tabela de preços - BIBI CLIENTE.csv" na raiz). Colunas da aba: I=RS/BA ·
+// J=RS/RS · K=BA/BA (codigos de coluna RS · BA · CE). Conferencia sempre contra o
+// PRECO ATUAL (emissao vazia). Achados reais esperados (nao sao bug de parser):
+//  - 3827105 (RS→RS): J31133 OK · M9043 DIVERGENTE (1,66 x 0,54) · "MEER-2MM" e
+//    "SU-15MM" NAO_CADASTRADO (codigos do pedido != cadastro: MER 2MM / MTM 15MM)
+//  - 3813667 (BA→BA): MEER 6MM AMBIGUO x2 (varias descricoes vigentes) · "REF4027"
+//    NAO_CADASTRADO (cadastro M4027, sem o "M")
+//  - 3826047 (RS→BA): M5163 20MM SEM_PRECO (coluna RS/BA vazia no cadastro)
+let bibiOk=false;
+(function(){
+  const fx=path.join(DIR,"bibi_pdf_linhas.json");
+  const csvPath=path.join(ROOT,"tabela de preços - BIBI CLIENTE.csv");
+  if(!fs.existsSync(fx)||!fs.existsSync(csvPath)){console.log("\n[BIBI] fixture/tabela ausente — pulado");bibiOk=true;return;}
+  const amostras=JSON.parse(fs.readFileSync(fx,"utf8"));
+  const csvB=parseCSV(fs.readFileSync(csvPath,"utf8"));
+  const pBRcel=v=>pBR(String(v==null?"":v).replace(/R\$/gi,"").trim());
+  const refsBibi=csvB.slice(1).filter(r=>r[0]&&r[0].trim()).map((r,i)=>({
+    linha:i+2,ref:(r[0]||"").trim(),descricao:(r[1]||"").trim(),preco:pBRcel(r[2]),
+    dataInicio:(r[3]||"").trim(),dataFim:(r[4]||"").trim(),obs:(r[5]||"").trim(),
+    unidade:(r[6]||"metros").trim(),medidaBase:pBRcel(r[7]),medidaBaseLabel:(r[7]||"").trim(),
+    precoRS:pBRcel(r[8]),precoBA:pBRcel(r[9]),precoCE:pBRcel(r[10]),precoMG:pBRcel(r[11]),aliasesConf:""
+  }));
+  // esperado por OC: [emissao, modalidade, coluna, prazo, status por item na ordem do pedido]
+  const esperado={
+    "3827105":["14/05/2026","RS/RS","BA","60",["NAO_CADASTRADO","DIVERGENTE","NAO_CADASTRADO","OK"]],
+    "3813667":["05/11/2025","BA/BA","CE","60",["AMBIGUO","AMBIGUO","NAO_CADASTRADO"]],
+    "3826047":["04/05/2026","RS/BA","RS","60",["SEM_PRECO"]]
+  };
+  const problemas=[];
+  for(const [oc,linhas] of Object.entries(amostras)){
+    const exp=esperado[oc];
+    if(!F.confIsBibi(linhas)){problemas.push(oc+": layout nao detectado");continue;}
+    const c=F.confParseCampos(linhas);
+    const blocos=F.confExtrairBlocosBibi(linhas);
+    if(!exp){problemas.push(oc+": sem esperado");continue;}
+    if(c.ordem!==oc)problemas.push(oc+": ordem "+c.ordem);
+    if(c.emissao!==exp[0])problemas.push(oc+": emissao "+c.emissao+" != "+exp[0]);
+    if(c.modalidade!==exp[1])problemas.push(oc+": modalidade "+c.modalidade+" != "+exp[1]);
+    if(c.uf!==exp[2])problemas.push(oc+": coluna "+c.uf+" != "+exp[2]);
+    if(c.prazoPagamento!==exp[3])problemas.push(oc+": prazo "+c.prazoPagamento+" != "+exp[3]);
+    if(c.clienteHint!=="BIBI")problemas.push(oc+": clienteHint "+c.clienteHint);
+    if(blocos.length!==exp[4].length)problemas.push(oc+": "+blocos.length+" blocos != "+exp[4].length);
+    const out=F.confValidar(blocos,refsBibi,c.uf,"",F.confParseItemBlocoBibi,{arred:F.confArredCentPadrao,ignorados:[],rotulos:["RS/BA","RS/RS","BA/BA",null]});
+    const st=out.map(r=>r.status);
+    if(JSON.stringify(st)!==JSON.stringify(exp[4]))problemas.push(oc+": status "+st.join(",")+" != "+exp[4].join(","));
+    out.forEach(r=>{if(/ sem preco | preco (RS|BA|CE) /i.test(r.motivo||"")&&/\b(BA|CE)\b(?!\/)/.test(r.motivo||"")&&!/RS\/|BA\/BA/.test(r.motivo||""))problemas.push(oc+": rotulo cru no motivo: "+r.motivo);});
+    if(oc==="3826047"&&!/RS\/BA/.test(out[0].motivo||""))problemas.push(oc+": motivo sem rotulo RS/BA: "+out[0].motivo);
+    // itens conferidos: preco e medida lidos do pedido
+    if(oc==="3827105"){
+      const p=blocos.map(F.confParseItemBlocoBibi);
+      if(p[0].unit!=="PR"||p[0].cm!==47||p[0].mm!==2)problemas.push(oc+": item 1 (atacador PR) -> "+JSON.stringify(p[0]));
+      if(p[1].preco!==1.66||p[1].mm!==1.5||p[1].qtd!==700)problemas.push(oc+": item 2 -> "+JSON.stringify(p[1]));
+      if(p[3].preco!==2.86||p[3].mm!==15)problemas.push(oc+": item 4 -> "+JSON.stringify(p[3]));
+    }
+    if(oc==="3813667"){
+      const p=blocos.map(F.confParseItemBlocoBibi);
+      if(p[0].qtd!==1000||p[1].qtd!==2000)problemas.push(oc+": qtd US (1,000.000) -> "+p[0].qtd+"/"+p[1].qtd);
+    }
+  }
+  // apelido ensinado (AC1): "REF4027" do pedido = M4027 do cadastro (sem o "M").
+  // Item 3 da OC 3813667 (BA/BA, C/GOMA, 15mm) passa de NAO_CADASTRADO para OK
+  // com 0,75 — o desconto de 14/07/2025 da linha c/goma, coluna K (BA/BA).
+  (function(){
+    const l=amostras["3813667"];if(!l)return;
+    const refsEns=refsBibi.map(r=>Object.assign({},r,{aliasesConf:r.ref==="M4027"?"REF4027":""}));
+    const o=F.confValidar(F.confExtrairBlocosBibi(l),refsEns,"CE","",F.confParseItemBlocoBibi,{arred:F.confArredCentPadrao,ignorados:[],rotulos:["RS/BA","RS/RS","BA/BA",null]});
+    if(o[2].status!=="OK"||o[2].esperado!==0.75)problemas.push("apelido REF4027→M4027: "+o[2].status+" esperado "+o[2].esperado);
+  })();
+  // modalidade nao mapeada: filial desconhecida cai no seletor (vazio), nao chuta
+  if(F.confBibiModalidade("RS","")!=="")problemas.push("modalidade com destino desconhecido deveria ser vazia");
+  if(F.confBibiModalUf("RS/BA")!=="RS"||F.confBibiModalUf("RS/RS")!=="BA"||F.confBibiModalUf("BA/BA")!=="CE")problemas.push("mapa modalidade→coluna");
+  // a DILLY (mesmo ERP) nao pode ser capturada como BIBI
+  const dillyLinhas=["Ordem Compra 435918","Forma de Abertura Normal Data Emissão: 10/10/2025","CALCADOS DILLY LTDA","Dias Parcela Valor Parcela"];
+  if(F.confIsBibi(dillyLinhas))problemas.push("DILLY detectada como BIBI");
+  console.log("\n[BIBI] arquivos:",Object.keys(amostras).length);
+  problemas.slice(0,10).forEach(p=>console.log("   !",p));
+  bibiOk=problemas.length===0;
+  console.log(bibiOk?"✅ BIBI OK":"❌ BIBI com problemas");
+})();
+
+process.exit(ok&&ensinarOk&&anigerOk&&anigerPdfOk&&regrasOk&&beiraRioOk&&bibiOk?0:1);

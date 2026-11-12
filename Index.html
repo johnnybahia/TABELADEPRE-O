@@ -128,7 +128,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
 .conf-pdf-meta{font-size:12px;color:var(--text2);margin-top:4px;}
 .conf-pdf-body{padding:16px;}
 .conf-batch-bar{display:none;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;font-size:13px;color:var(--text2);flex-wrap:wrap;}
-@media print{
+@media print{#versao-faixa{display:none !important}
   body{background:#fff !important;color:#000 !important;}
   #app{display:none !important;}
   #print-output{display:block !important;}
@@ -143,6 +143,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
 </style>
 </head>
 <body>
+<div id="versao-faixa" class="no-print" style="text-align:center;font-size:11px;color:var(--text2);padding:4px 0">Versão {{VERSAO}} · atualizado em {{VERSAO_DATA}}</div>
 <div id="app">
 <div class="loading-overlay" id="loading"><div class="spinner"></div><p id="loading-msg">Aguarde...</p></div>
 <div class="toast" id="toast"></div>
@@ -303,7 +304,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:sans-se
             <div class="field"><label id="cad-medida-label">Largura base (mm) *</label><input type="number" id="cad-medida-base" placeholder="Ex: 10" step="0.01" min="0"></div>
             <div class="field"><label>Data de Inicio *</label><input type="date" id="cad-inicio"></div>
             <div class="field"><label>Data de Fim (vazio = sem vencimento)</label><input type="date" id="cad-fim"></div>
-            <div class="field"><label>Peso (opcional)</label><input type="text" inputmode="decimal" id="cad-peso" placeholder="Ex: 25"></div>
+            <div class="field"><label>Peso / observacao de peso (texto livre)</label><input type="text" id="cad-peso" maxlength="120" placeholder="Ex: 25 g/m  ou  1mt = 0,0028gr = 356 mts p/kg"></div>
             <div class="field full"><label>Observacoes</label><textarea id="cad-obs" rows="3" placeholder="Ex: Valido para pedidos acima de 500m"></textarea></div>
             <div class="field full">
               <label id="cad-lbl-precos">Precos por Estado *</label>
@@ -671,7 +672,7 @@ function renderRefs(r,containerId,modoEdicao){
       :ref.vigente?"<span class=\"badge warn\">&#x26A0; Ha preco mais recente</span>"
       :futura?"<span class=\"badge warn\">&#x1F552; Programado p/ "+escHtml(ref.dataInicio||"")+"</span>"
       :"<span class=\"badge err\">&#x2717; Fora de vigencia</span>";
-    var pesoBadge=ref.peso>0?"<span class=\"badge\">&#x2696;&#xFE0F; "+escHtml(String(ref.peso))+"g</span>":"";
+    var pesoTxt=String(ref.peso==null?"":ref.peso).trim();var pesoBadge=!pesoTxt||/^0*([.,]0*)?$/.test(pesoTxt)?"":"<span class=\"badge\">&#x2696;&#xFE0F; "+escHtml(pesoTxt)+(/^\d+([.,]\d+)?$/.test(pesoTxt)?"g":"")+"</span>";
     var medidaLabel=/[a-zA-Z]/.test(ref.medidaBaseLabel||"")?ref.medidaBaseLabel:(medidaBase>0?medidaBase+medSufixo:"");
     var medidaHtml=medidaLabel?"<div class=\"ref-medida\">"+escHtml(medidaLabel)+"</div>":"";
     var obsHtml=ref.obs?"<div class=\"ref-obs\">&#x1F4DD; "+escHtml(ref.obs)+"</div>":"";

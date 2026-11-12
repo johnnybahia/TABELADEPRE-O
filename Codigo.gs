@@ -2,6 +2,8 @@
 // TABELA DE PREÇOS MARFIM — Google Apps Script Backend
 // ============================================================
 
+const VERSAO = "1.1.1";
+const VERSAO_DATA = "12/11/2026";
 const SHEET_ID = SpreadsheetApp.getActiveSpreadsheet().getId();
 const SUFIXO_CLIENTE = " CLIENTE";
 const ABA_VENDEDORES = "VENDEDORES";
@@ -84,7 +86,9 @@ function _pN(v) {
 // PONTO DE ENTRADA WEB
 // ============================================================
 function doGet(e) {
-  return HtmlService.createHtmlOutputFromFile("Index")
+  const html = HtmlService.createHtmlOutputFromFile("Index").getContent()
+    .replace("{{VERSAO}}", VERSAO).replace("{{VERSAO_DATA}}", VERSAO_DATA);
+  return HtmlService.createHtmlOutput(html)
     .setTitle("Tabela de Preços")
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
@@ -307,7 +311,7 @@ function _getReferencias(nomeAba, busca, vendedorId) {
         precoBA: pN(precoBA),
         precoCE: pN(precoCE),
         precoMG: pN(precoMG),
-        peso: pN(peso),
+        peso: String(peso == null ? "" : peso).trim(),
         precoAtivo: pN(precoAtivo) > 0,
         aliasesConf: (aliasMap[String(ref).trim().toUpperCase()] || []).join("|"), // apelidos aprendidos (aba Conferir), anexados por código
         vigente
@@ -578,7 +582,7 @@ function salvarReferencia(nomeAba, dados, token, linhaEdicao, modoConflito) {
       pN(precoBA),
       pN(precoCE),
       pN(precoMG),
-      pN(peso),
+      String(peso == null ? "" : peso).trim().slice(0, 200),
       precoAtivoExistente || ""
     ];
 
@@ -650,7 +654,7 @@ function renovarReferencia(nomeAba, linhaOrigem, dados, token) {
       pN(precoBA),
       pN(precoCE),
       pN(precoMG),
-      rowData[12] || 0,                  // peso (copiado)
+      rowData[12] || "",                 // peso (copiado)
       "",                                // PrecoAtivo: marcação manual não é herdada — a nova vigência já é o preço atual automático
     ];
 
@@ -979,6 +983,14 @@ function salvarVendedor(token, dados, linhaEdicao) {
 // ============================================================
 // ADMIN: ENVIAR EMAIL DE ATUALIZAÇÃO DE PREÇOS
 // ============================================================
+// Texto do campo Peso para emails: vazio/zero → ""; número puro → "25g"; texto livre → como digitado. Já escapado para HTML.
+function _pesoEmailHtml(peso) {
+  const t = String(peso == null ? "" : peso).trim();
+  if (!t || /^0*([.,]0*)?$/.test(t)) return "";
+  const txt = /^\d+([.,]\d+)?$/.test(t) ? t + "g" : t;
+  return txt.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
 function enviarEmailAtualizacao(nomeAba, token) {
   try {
     const vendedorIdRemetente = _exigirSessao(token);
@@ -1049,7 +1061,7 @@ function enviarEmailAtualizacao(nomeAba, token) {
         <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:12px;color:#888">
           ${r.dataInicio || "–"} → ${r.dataFim}
         </td>
-        <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;font-size:12px;color:#777">${r.obs || ""}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;font-size:12px;color:#777">${_pesoEmailHtml(r.peso) ? `<div><strong>Peso:</strong> ${_pesoEmailHtml(r.peso)}</div>` : ""}${r.obs || ""}</td>
       </tr>`;
     }).join("");
 
@@ -1159,6 +1171,7 @@ function enviarEmailReferencia(nomeAba, refDados, token) {
     const dataInicio = escH(String(refDados.dataInicio || "–"));
     const dataFim    = escH(String(refDados.dataFim || "Sem vencimento"));
     const obs        = escH(String(refDados.obs || ""));
+    const pesoHtml   = _pesoEmailHtml(refDados.peso);
 
     const unidLabel  = unidade === "pares" ? "par" : unidade === "pecas" ? "peça" : unidade === "kg" ? "kg" : "metro";
     const medSufixo  = unidade === "metros" ? "mm" : "cm";
@@ -1211,6 +1224,7 @@ function enviarEmailReferencia(nomeAba, refDados, token) {
             </div>` : ""}
             <div style="font-size:12px;color:#666;border-top:1px solid #e5e7eb;padding-top:12px">
               <strong>Vigência:</strong>&nbsp;${dataInicio} &rarr; ${dataFim}
+              ${pesoHtml ? `<br><strong>Peso:</strong>&nbsp;${pesoHtml}` : ""}
               ${obs ? `<br><strong>Obs:</strong>&nbsp;${obs}` : ""}
             </div>
           </div>

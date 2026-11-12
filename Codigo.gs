@@ -2,6 +2,8 @@
 // TABELA DE PREÇOS MARFIM — Google Apps Script Backend
 // ============================================================
 
+const VERSAO = "1.1.0";
+const VERSAO_DATA = "12/11/2026";
 const SHEET_ID = SpreadsheetApp.getActiveSpreadsheet().getId();
 const SUFIXO_CLIENTE = " CLIENTE";
 const ABA_VENDEDORES = "VENDEDORES";
@@ -84,7 +86,9 @@ function _pN(v) {
 // PONTO DE ENTRADA WEB
 // ============================================================
 function doGet(e) {
-  return HtmlService.createHtmlOutputFromFile("Index")
+  const html = HtmlService.createHtmlOutputFromFile("Index").getContent()
+    .replace("{{VERSAO}}", VERSAO).replace("{{VERSAO_DATA}}", VERSAO_DATA);
+  return HtmlService.createHtmlOutput(html)
     .setTitle("Tabela de Preços")
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
@@ -307,7 +311,7 @@ function _getReferencias(nomeAba, busca, vendedorId) {
         precoBA: pN(precoBA),
         precoCE: pN(precoCE),
         precoMG: pN(precoMG),
-        peso: pN(peso),
+        peso: String(peso == null ? "" : peso).trim(),
         precoAtivo: pN(precoAtivo) > 0,
         aliasesConf: (aliasMap[String(ref).trim().toUpperCase()] || []).join("|"), // apelidos aprendidos (aba Conferir), anexados por código
         vigente
@@ -578,7 +582,7 @@ function salvarReferencia(nomeAba, dados, token, linhaEdicao, modoConflito) {
       pN(precoBA),
       pN(precoCE),
       pN(precoMG),
-      pN(peso),
+      String(peso == null ? "" : peso).trim().slice(0, 200),
       precoAtivoExistente || ""
     ];
 
@@ -650,7 +654,7 @@ function renovarReferencia(nomeAba, linhaOrigem, dados, token) {
       pN(precoBA),
       pN(precoCE),
       pN(precoMG),
-      rowData[12] || 0,                  // peso (copiado)
+      rowData[12] || "",                 // peso (copiado)
       "",                                // PrecoAtivo: marcação manual não é herdada — a nova vigência já é o preço atual automático
     ];
 

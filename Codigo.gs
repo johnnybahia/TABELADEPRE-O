@@ -2,7 +2,7 @@
 // TABELA DE PREÇOS MARFIM — Google Apps Script Backend
 // ============================================================
 
-const VERSAO = "1.1.2";
+const VERSAO = "1.2.0";
 const VERSAO_DATA = "25/11/2026";
 const SHEET_ID = SpreadsheetApp.getActiveSpreadsheet().getId();
 const SUFIXO_CLIENTE = " CLIENTE";

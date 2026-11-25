@@ -68,6 +68,8 @@ O usuário deve abrir o Apps Script e executar uma destas funções:
 
 Ambas são **idempotentes** — podem ser executadas múltiplas vezes sem risco de perda de dados.
 
+Para as datas gravadas com o erro de fuso até a 1.1.1 (recuavam 1 dia a cada salvamento), há também **`revisarDatasDeslocadas()`** (só lista) e **`corrigirDatasDeslocadas()`** — ver "Regra crítica: datas".
+
 ### Configurar um cliente novo com o mesmo sistema de preço de outro
 
 `copiarConfigCliente(nomeAbaOrigem, nomeAbaDestino)` (rodar pelo editor do Apps Script, sem token) copia de uma aba de cliente para outra os metadados que definem **como o preço é calculado** — e **nada de preços/itens**:
@@ -256,6 +258,26 @@ parseFloat(String(valor).trim().replace(",", ".")) || 0
 2. No frontend, `calcular()` já faz `.replace(",", ".")` antes do `parseFloat` — mantenha esse padrão em qualquer nova função de cálculo.
 3. Inputs de preço no formulário devem ter `type="text" inputmode="decimal"` (não `type="number"`) para aceitar vírgula.
 4. Ao injetar valores numéricos em strings HTML (ex: atributos `onclick`), garanta que vieram de `pN()` no backend — isso assegura que são JS Numbers puros, sem vírgula ou símbolo de moeda.
+
+---
+
+## Regra crítica: datas (DataInicio/DataFim)
+
+**Nunca use `new Date(<texto vindo do formulário>)` no `Codigo.gs`.** O `<input type="date">` envia `"aaaa-mm-dd"`, e o JavaScript lê esse texto como **meia-noite UTC** = 21:00 do **dia anterior** em UTC−3 (fuso da planilha e do script). Até a 1.1.1 era assim: a planilha mostrava o dia anterior e cada nova edição regravava o dia já errado, recuando mais um (achado real BIBI, 11/2026: `MEER 6MM` 06/04→05/04; `M5163` 16/01→14/01 depois de duas edições; linha nova gravada como `24/11/2026 21:00:00`).
+
+Helpers no topo do `Codigo.gs` (bloco "DATAS"):
+- **Gravar:** `_dataDoForm(v)` → meio-dia local do dia informado (`"aaaa-mm-dd"`, `"dd/mm/aaaa"` ou Date); `null` se vazio/inválido (ex.: 31/02). O meio-dia tolera até ±11h de diferença entre o fuso do script e o da planilha. Véspera (DataFim de vigência encerrada): `_diaAnterior(v)`. Ao gravar, aplicar `setNumberFormat("dd/MM/yyyy")` em D:E.
+- **Comparar:** `_diaNum(v)` → número `aaaammdd` do dia exibido (Date no fuso do script, o mesmo de `getReferencias`; aceita também texto `dd/mm/aaaa`). **Nunca comparar instantes (`getTime()`)**: datas digitadas na planilha ficam à meia-noite e as gravadas pelo app ao meio-dia — um início no mesmo dia de um fim digitado à mão passaria sem conflito. `_datasSeOverlapam` e o bloqueio "início igual ou posterior" do modo `"atualizar"` já comparam por dia.
+- **Exibir:** `_fmtDia(v, vazio)` → `"dd/MM/yyyy"`.
+
+**Reparo das datas já gravadas com o erro** (rodar no editor do Apps Script, logo depois de publicar a 1.1.2, fora do expediente):
+- **`revisarDatasDeslocadas()`** — só lista (aba, linha, referência, data atual → corrigida, aviso). Não altera nada.
+- **`corrigirDatasDeslocadas()`** — grava o dia certo (meio-dia, `dd/MM/yyyy`) e registra `CORRIGIR_DATAS` no LOG. Idempotente.
+- A gravação antiga deixa uma **assinatura exata**: instante `00:00:00.000 UTC` cujo dia no fuso do script é anterior ao dia em UTC (`_corrigirDataDeslocada`). Datas digitadas à mão (meia-noite local) e as gravadas pela 1.1.2+ (meio-dia) não têm a assinatura e ficam intocadas.
+- **Limitação:** a assinatura só prova a última gravação — a correção devolve **1 dia**. Linha salva N vezes recuou N dias: o relatório avisa quando a referência aparece gravada mais de uma vez no LOG (`gravada N vezes pelo app`), para conferir à mão. Linha cuja correção deixaria Fim antes do Início é pulada e listada. Com fusos de script e planilha diferentes, `corrigir` recusa.
+- Editar uma linha deslocada **antes** do reparo regrava o dia errado já ao meio-dia (perde a assinatura) — por isso rodar logo após publicar.
+
+**Validação:** `node amostras/verifica_datas.js` carrega o `Codigo.gs` real com uma planilha simulada em `America/Sao_Paulo` (52 verificações: cadastrar + editar 3× mantém a data, "Atualizar preço" deixa Fim na véspera, conflito no mesmo dia, reparo só nas células com a assinatura, idempotência, fusos diferentes). Rodado contra o `Codigo.gs` da 1.1.1, reproduz o recuo (06/04 → 05/04 → 04/04 → 03/04).
 
 ---
 

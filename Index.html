@@ -859,6 +859,13 @@ function extrairVarianteMm(base){
   if(!m||normTxt(m[1]).length<3)return null;
   return {codigoBase:m[1].trim(),mm:m[2].replace(/\s+/g,"").toUpperCase()};
 }
+// Texto depois da espessura na referencia ("MEER 6MM NORMAL" → "NORMAL"); "" se
+// nao houver. Goma (C/GOMA, ENGOMADO...) e o trecho entre parenteses nao contam
+// (confBaseRef ja os remove). Usado pelo alerta do cadastro (salvarRef).
+function confTextoAposMm(ref){
+  var m=confBaseRef(ref).match(/\d+(?:[.,]\d+)?\s*MM\s+(.+)$/i);
+  return m?m[1].trim():"";
+}
 // Extrai a largura em MM mencionada na Descricao/Observacoes de um item de
 // pares/pecas, para corrigir cadastros onde o usuario esqueceu a largura na
 // referencia (ela vira sufixo: "M21020" + desc "...6mm..." → "M21020 6MM").
@@ -1863,6 +1870,20 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn,opts){
     }
     var esc=confEscolherVigencia(rowsTipo,emissao,medidaPdf);
     var row=esc.row;
+    var temPrecoUf=function(r){return (r["preco"+uf]>0)||(r.preco>0);};
+    // A variante mais recente nao tem preco na coluna do pedido, mas outra variante
+    // VIGENTE da mesma referencia/medida (outra Descricao = outro item) tem: confere
+    // por ela e avisa. Nao e "vigencia anterior" — achado real BIBI (pedido 3842008):
+    // "MEER 6MM" lurex (sem BA/BA) x "IGUAL MERR" (BA/BA 1,23); o card mostrava a
+    // descricao do lurex com o preco do IGUAL MERR e dizia que era vigencia anterior.
+    var avisoVariante=null;
+    if(!temPrecoUf(row)){
+      var outraVar=esc.pool.filter(function(r){return r!==row&&temPrecoUf(r)&&refVarianteKey(r)!==refVarianteKey(row);})[0];
+      if(outraVar){
+        avisoVariante="Atencao: a variante \""+(row.descricao||row.ref)+"\" ("+(row.dataInicio||"–")+" → "+(row.dataFim||"Sem vencimento")+") nao tem preco "+rotuloUf+" cadastrado — conferido pela variante \""+(outraVar.descricao||outraVar.ref)+"\", que tem.";
+        row=outraVar;
+      }
+    }
     res.refNome=row.ref||res.refNome;
     res.descricao=row.descricao||"";
     res.unidade=row.unidade||"metros";
@@ -1875,11 +1896,13 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn,opts){
       // tamanho) que tenha preco UF (ou base) — provavel atualizacao que nao
       // preencheu a vigencia nova (preco ficou em branco ou foi digitado na
       // coluna errada da planilha) — e avisa o usuario informando as duas
-      // vigencias envolvidas. Preco de OUTRA medida nao serve de referencia
-      // (achado real: M5124 15mm sem preco RS/CE era conferido contra o preco
-      // da linha 22mm e saia DIVERGENTE): sem alternativa da mesma medida o
-      // item vira SEM_PRECO.
-      var comPreco=rowsTipo.filter(function(r){return r!==row&&((r["preco"+uf]>0)||(r.preco>0))&&Math.abs((r.medidaBase||0)-(row.medidaBase||0))<0.01;});
+      // vigencias envolvidas. So vale para o MESMO item (Referencia + MedidaBase +
+      // Descricao — refVarianteKey): preco de OUTRA medida (achado real: M5124
+      // 15mm sem preco RS/CE era conferido contra o preco da linha 22mm e saia
+      // DIVERGENTE) ou de outra descricao (outro item; a variante vigente com
+      // preco ja foi tratada acima) nao serve de referencia: o item vira SEM_PRECO.
+      var chaveRow=refVarianteKey(row);
+      var comPreco=rowsTipo.filter(function(r){return r!==row&&temPrecoUf(r)&&refVarianteKey(r)===chaveRow;});
       if(comPreco.length){
         comPreco.sort(function(a,b){return (dataBR(b.dataInicio)||0)-(dataBR(a.dataInicio)||0);});
         var alt=comPreco[0];
@@ -2025,6 +2048,9 @@ function confValidar(blocos,refs,uf,emissaoStr,parseFn,opts){
     }
     if(avisoVigencia){
       res.motivo=(res.motivo?res.motivo+" ":"")+avisoVigencia;
+    }
+    if(avisoVariante){
+      res.motivo=(res.motivo?res.motivo+" ":"")+avisoVariante;
     }
     out.push(res);
   });
@@ -2781,6 +2807,12 @@ async function salvarRef(){
       }
     }
   }
+  // Alerta (nao bloqueia): texto depois da espessura na referencia. A conferencia
+  // de pedidos exige TODO o texto da referencia no pedido do cliente — achado real
+  // BIBI (pedido 3842008): "MEER 6MM NORMAL" nunca era encontrado, porque o pedido
+  // traz "MEER-6MM" sem "NORMAL". Para diferenciar itens, a Descricao ja basta.
+  var aposMm=confTextoAposMm(dados.ref);
+  if(aposMm&&!confirm("A referencia \""+dados.ref.toUpperCase().trim()+"\" tem \""+aposMm+"\" depois da espessura.\n\nNa conferencia de pedidos, todo o texto da referencia precisa aparecer no pedido do cliente: se o pedido nao trouxer \""+aposMm+"\", o item nao sera encontrado. Para diferenciar itens com a mesma referencia, use a Descricao.\n\nSalvar assim mesmo?"))return;
   await cadSalvarReferencia(aba,dados,linhaEdicao,refCorrigida,"");
 }
 // Envia o salvarReferencia ao backend e trata a resposta de conflito de

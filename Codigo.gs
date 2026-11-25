@@ -2,8 +2,8 @@
 // TABELA DE PREÇOS MARFIM — Google Apps Script Backend
 // ============================================================
 
-const VERSAO = "1.1.1";
-const VERSAO_DATA = "12/11/2026";
+const VERSAO = "1.2.0";
+const VERSAO_DATA = "25/11/2026";
 const SHEET_ID = SpreadsheetApp.getActiveSpreadsheet().getId();
 const SUFIXO_CLIENTE = " CLIENTE";
 const ABA_VENDEDORES = "VENDEDORES";
@@ -80,6 +80,66 @@ function _pN(v) {
   let s = String(v == null ? "" : v).replace(/R\$/gi, "").trim();
   if (s.indexOf(",") >= 0) s = s.replace(/\./g, "").replace(",", ".");
   return parseFloat(s) || 0;
+}
+
+// ============================================================
+// DATAS — regra única para GRAVAR e COMPARAR DataInicio/DataFim
+// O <input type="date"> do formulário envia "aaaa-mm-dd", e new Date("aaaa-mm-dd")
+// é meia-noite UTC (regra do JavaScript) = 21:00 do DIA ANTERIOR em UTC−3: a
+// planilha mostrava o dia anterior e cada nova edição regravava esse dia,
+// recuando mais um (achado real BIBI, 11/2026: MEER 6MM 06/04→05/04; M5163
+// 16/01→14/01 depois de duas edições). Regras:
+//   - gravar: _dataDoForm(texto) → meio-dia local do dia digitado (o meio-dia
+//     tolera até ±11h de diferença entre o fuso do script e o da planilha);
+//   - comparar: _diaNum(valor) → aaaammdd do dia exibido. Nunca comparar
+//     instantes (getTime): datas digitadas na planilha ficam à meia-noite e as
+//     gravadas pelo app, ao meio-dia.
+// Nunca usar new Date(<texto vindo do formulário>).
+// ============================================================
+function _tzScript() {
+  return Session.getScriptTimeZone();
+}
+
+// "aaaa-mm-dd" ou "dd/mm/aaaa" → {a, mes, d}; data inexistente (31/02) ou texto
+// sem data → null.
+function _partesDataTexto(v) {
+  const s = String(v == null ? "" : v).trim();
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?!\d)/), a, mes, d;
+  if (m) { a = +m[1]; mes = +m[2]; d = +m[3]; }
+  else if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?!\d)/))) { d = +m[1]; mes = +m[2]; a = +m[3]; }
+  else return null;
+  const t = new Date(Date.UTC(a, mes - 1, d));
+  if (t.getUTCFullYear() !== a || t.getUTCMonth() !== mes - 1 || t.getUTCDate() !== d) return null;
+  return { a, mes, d };
+}
+
+// Dia exibido como número aaaammdd (Date: no fuso do script, o mesmo usado por
+// getReferencias para mostrar as datas). Vazio/inválido → null.
+function _diaNum(v) {
+  if (v instanceof Date) return isNaN(v.getTime()) ? null : Number(Utilities.formatDate(v, _tzScript(), "yyyyMMdd"));
+  const p = _partesDataTexto(v);
+  return p ? p.a * 10000 + p.mes * 100 + p.d : null;
+}
+
+// Data para gravar na planilha: meio-dia local do dia informado ("aaaa-mm-dd",
+// "dd/mm/aaaa" ou Date). Vazio/inválido → null.
+function _dataDoForm(v) {
+  const n = _diaNum(v);
+  return n ? new Date(Math.floor(n / 10000), Math.floor(n / 100) % 100 - 1, n % 100, 12) : null;
+}
+
+// Véspera (meio-dia) — DataFim da vigência encerrada por uma nova DataInicio.
+function _diaAnterior(v) {
+  const d = _dataDoForm(v);
+  return d ? new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1, 12) : null;
+}
+
+// "dd/MM/yyyy" do dia exibido (aceita Date ou texto com data); senão `vazio`.
+function _fmtDia(v, vazio) {
+  const n = _diaNum(v);
+  if (!n) return vazio;
+  const dois = x => String(x).padStart(2, "0");
+  return `${dois(n % 100)}/${dois(Math.floor(n / 100) % 100)}/${Math.floor(n / 10000)}`;
 }
 
 // ============================================================
@@ -500,16 +560,18 @@ function salvarReferencia(nomeAba, dados, token, linhaEdicao, modoConflito) {
     if (!ref || !dataInicio) return { ok: false, erro: "Referência e data de início são obrigatórios." };
     if (unidade !== "kg" && (!medidaBase || pN(medidaBase) <= 0)) return { ok: false, erro: "Informe a medida base (valor maior que zero)." };
 
-    const dInicio = new Date(dataInicio);
-    const dFim = dataFim ? new Date(dataFim) : null;
+    const dInicio = _dataDoForm(dataInicio);
+    const dFim = dataFim ? _dataDoForm(dataFim) : null;
+    if (!dInicio) return { ok: false, erro: "Data de início inválida." };
+    if (dataFim && !dFim) return { ok: false, erro: "Data de fim inválida." };
 
-    if (dFim && dFim < dInicio) return { ok: false, erro: "Data de fim não pode ser anterior à data de início." };
+    if (dFim && _diaNum(dFim) < _diaNum(dInicio)) return { ok: false, erro: "Data de fim não pode ser anterior à data de início." };
 
     // Verificar sobreposição de datas para a mesma variante (Referencia + MedidaBase
     // + Descricao — mesma referência com descrição diferente é item distinto e
     // coexiste ativo, ex: DILLY M16063 "ponto trabalhado" x "com ponteira
     // personalizada"; regra igual para todo cliente, não só "preço duplo")
-    const fmtData = (d, vazio) => d ? Utilities.formatDate(new Date(d), Session.getScriptTimeZone(), "dd/MM/yyyy") : vazio;
+    const fmtData = _fmtDia;
     const todasLinhas = aba.getDataRange().getValues();
     const conflitos = [];
     for (let i = 1; i < todasLinhas.length; i++) {
@@ -519,10 +581,10 @@ function salvarReferencia(nomeAba, dados, token, linhaEdicao, modoConflito) {
       if (pN(rMedida) !== pN(medidaBase)) continue; // outra variante de tamanho — coexiste, não conflita
       if (String(rDesc || "").trim().toUpperCase() !== String(descricao || "").trim().toUpperCase()) continue; // descrição diferente — item distinto, coexiste
 
-      const existInicio = rInicio ? new Date(rInicio) : null;
-      const existFim = rFim ? new Date(rFim) : null;
+      // Data ilegível na planilha (texto sem data): fica de fora, como antes.
+      if ((rInicio && !_diaNum(rInicio)) || (rFim && !_diaNum(rFim))) continue;
 
-      if (_datasSeOverlapam(dInicio, dFim, existInicio, existFim)) {
+      if (_datasSeOverlapam(dInicio, dFim, rInicio || null, rFim || null)) {
         conflitos.push({
           linha: i + 1,
           ref: String(rRef),
@@ -530,7 +592,7 @@ function salvarReferencia(nomeAba, dados, token, linhaEdicao, modoConflito) {
           obs: String(rObs || ""),
           dataInicio: fmtData(rInicio, ""),
           dataFim: fmtData(rFim, "Sem vencimento"),
-          _inicio: existInicio
+          _inicioNum: _diaNum(rInicio)
         });
       }
     }
@@ -539,11 +601,10 @@ function salvarReferencia(nomeAba, dados, token, linhaEdicao, modoConflito) {
     if (conflitos.length) {
       if (modoConflito === "atualizar") {
         if (linhaEdicao) return { ok: false, erro: "Atualizar preço não se aplica à edição de linha — cadastre como nova referência." };
-        if (conflitos.some(c => c._inicio && c._inicio.getTime() >= dInicio.getTime()))
+        if (conflitos.some(c => c._inicioNum && c._inicioNum >= _diaNum(dInicio)))
           return { ok: false, erro: "Já existe registro com data de início igual ou posterior à nova. Ajuste as datas ou cadastre como item repetido." };
         // Encerra a vigência das linhas antigas: DataFim = nova DataInicio − 1 dia
-        const dataFimAntiga = new Date(dInicio);
-        dataFimAntiga.setDate(dataFimAntiga.getDate() - 1);
+        const dataFimAntiga = _diaAnterior(dInicio);
         conflitos.forEach(c => {
           const cel = aba.getRange(c.linha, 5);
           cel.setValue(dataFimAntiga);
@@ -591,6 +652,9 @@ function salvarReferencia(nomeAba, dados, token, linhaEdicao, modoConflito) {
     } else {
       aba.appendRow(linha);
     }
+    // Formato de data em DataInicio/DataFim (sem ele a linha nova aparecia como
+    // "24/11/2026 21:00:00" e, agora, mostraria a hora do meio-dia).
+    aba.getRange(linhaEdicao || aba.getLastRow(), 4, 1, 2).setNumberFormat("dd/MM/yyyy");
 
     // Item repetido deliberado: marca também as linhas conflitantes, para que o
     // preço antigo continue ativo mesmo com a linha nova tendo data mais recente.
@@ -627,15 +691,19 @@ function renovarReferencia(nomeAba, linhaOrigem, dados, token) {
     if (!pN(precoRS) && !pN(precoBA) && !pN(precoCE) && !pN(precoMG))
       return { ok: false, erro: "Informe pelo menos um preço por estado." };
 
-    const novaDataInicio = new Date(dataInicio);
+    const novaDataInicio = _dataDoForm(dataInicio);
+    const novaDataFim = dataFim ? _dataDoForm(dataFim) : null;
+    if (!novaDataInicio) return { ok: false, erro: "Data de início inválida." };
+    if (dataFim && !novaDataFim) return { ok: false, erro: "Data de fim inválida." };
+    if (novaDataFim && _diaNum(novaDataFim) < _diaNum(novaDataInicio))
+      return { ok: false, erro: "Data de fim não pode ser anterior à data de início." };
 
     // Lê a linha existente para copiar dados base
     const linha = Number(linhaOrigem);
     const rowData = aba.getRange(linha, 1, 1, SCHEMA_CLIENTE.length).getValues()[0];
 
     // Fecha período atual: DataFim = novaDataInicio − 1 dia
-    const dataFimAntiga = new Date(novaDataInicio);
-    dataFimAntiga.setDate(dataFimAntiga.getDate() - 1);
+    const dataFimAntiga = _diaAnterior(novaDataInicio);
     const celFim = aba.getRange(linha, 5);
     celFim.setValue(dataFimAntiga);
     celFim.setNumberFormat("dd/MM/yyyy");
@@ -646,7 +714,7 @@ function renovarReferencia(nomeAba, linhaOrigem, dados, token) {
       rowData[1],                        // descricao
       pN(preco),                         // preco
       novaDataInicio,                    // dataInicio
-      dataFim ? new Date(dataFim) : "",  // dataFim
+      novaDataFim || "",                 // dataFim
       rowData[5],                        // obs
       rowData[6],                        // unidade
       rowData[7],                        // medidaBase
@@ -1431,11 +1499,12 @@ function _ehAdmin(vendedorId) {
 }
 
 function _datasSeOverlapam(ini1, fim1, ini2, fim2) {
-  // Trata null/undefined como infinito
-  const s1 = ini1 ? ini1.getTime() : -Infinity;
-  const e1 = fim1 ? fim1.getTime() : Infinity;
-  const s2 = ini2 ? ini2.getTime() : -Infinity;
-  const e2 = fim2 ? fim2.getTime() : Infinity;
+  // Compara por DIA (aaaammdd — ver _diaNum), não por instante: datas digitadas
+  // na planilha ficam à meia-noite e as gravadas pelo app ao meio-dia. Vazio = sem limite.
+  const s1 = _diaNum(ini1) || -Infinity;
+  const e1 = _diaNum(fim1) || Infinity;
+  const s2 = _diaNum(ini2) || -Infinity;
+  const e2 = _diaNum(fim2) || Infinity;
   return s1 <= e2 && s2 <= e1;
 }
 
@@ -1743,6 +1812,108 @@ function configurarAnigerComoDakota() {
   const r = copiarConfigCliente("DAKOTA CLIENTE", "ANIGER CLIENTE");
   Logger.log(JSON.stringify(r));
   return r;
+}
+
+// ============================================================
+// REPARO DAS DATAS GRAVADAS COM O ERRO DE FUSO (rodar pelo editor do Apps Script)
+// Até a versão 1.1.1, salvarReferencia / renovarReferencia (inclusive o
+// "Atualizar preço" do modal de conflito) gravavam a data do formulário como
+// meia-noite UTC = 21:00 do dia anterior em UTC−3 (ver bloco DATAS no topo).
+// Essa gravação deixa uma assinatura exata na célula: instante 00:00:00.000 UTC
+// cujo dia, no fuso do script, é anterior ao dia em UTC. Datas digitadas direto
+// na planilha ficam à meia-noite local e as gravadas a partir da 1.1.2 ao
+// meio-dia — nenhuma das duas tem a assinatura, então ficam intocadas.
+//   revisarDatasDeslocadas()  → só lista (não altera nada)
+//   corrigirDatasDeslocadas() → grava o dia certo (meio-dia, formato dd/MM/yyyy)
+// Idempotente: a célula corrigida perde a assinatura e não volta a ser listada.
+// Limitação: cada edição recuava mais um dia, mas a assinatura só prova a
+// ÚLTIMA gravação — a correção devolve 1 dia. Referência gravada mais de uma vez
+// pelo app (contagem na aba LOG) pode ter recuado mais: conferir à mão.
+// Rodar logo depois de publicar a 1.1.2 (editar uma linha deslocada antes do
+// reparo regrava o dia errado já ao meio-dia, e ele deixa de ser encontrado),
+// de preferência fora do expediente (salvar não usa trava).
+// ============================================================
+function revisarDatasDeslocadas() {
+  return _repararDatasDeslocadas(false);
+}
+
+function corrigirDatasDeslocadas() {
+  return _repararDatasDeslocadas(true);
+}
+
+// Célula gravada com o erro de fuso → Date do dia certo (meio-dia local); senão null.
+function _corrigirDataDeslocada(v) {
+  if (!(v instanceof Date) || isNaN(v.getTime())) return null;
+  if (v.getUTCHours() || v.getUTCMinutes() || v.getUTCSeconds() || v.getUTCMilliseconds()) return null;
+  const a = v.getUTCFullYear(), mes = v.getUTCMonth() + 1, d = v.getUTCDate();
+  if (_diaNum(v) >= a * 10000 + mes * 100 + d) return null; // fuso em UTC ou a leste: o dia não recuou
+  return new Date(a, mes - 1, d, 12);
+}
+
+function _repararDatasDeslocadas(aplicar) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const fusoScript = _tzScript();
+  const fusoPlanilha = ss.getSpreadsheetTimeZone();
+  if (aplicar && fusoScript !== fusoPlanilha) {
+    const erro = `Fuso do script (${fusoScript}) diferente do fuso da planilha (${fusoPlanilha}). ` +
+      "Iguale os dois (Configurações do projeto / Arquivo > Configurações da planilha) antes de corrigir.";
+    Logger.log(erro);
+    return { ok: false, erro, fusoScript, fusoPlanilha };
+  }
+
+  // Quantas vezes cada referência foi gravada pelo app (aba LOG, detalhe
+  // "<aba> | <ref>...") — pista de linha que pode ter recuado mais de um dia.
+  const gravacoes = {};
+  const abaLog = ss.getSheetByName(ABA_LOG);
+  if (abaLog && abaLog.getLastRow() > 1) {
+    const acoes = ["CADASTRAR", "CADASTRAR_DUPLICADO", "ATUALIZAR_PRECO", "EDITAR", "RENOVAR"];
+    abaLog.getRange(2, 1, abaLog.getLastRow() - 1, 4).getValues().forEach(r => {
+      if (acoes.indexOf(String(r[2]).trim()) < 0) return;
+      const p = String(r[3] || "").split(" | ");
+      if (p.length < 2) return;
+      const k = p[0].trim().toUpperCase() + "|" + p[1].trim().toUpperCase();
+      gravacoes[k] = (gravacoes[k] || 0) + 1;
+    });
+  }
+
+  const itens = [];
+  let celulas = 0, puladas = 0;
+  const abasCliente = ss.getSheets().filter(s => s.getName().toUpperCase().endsWith(SUFIXO_CLIENTE.toUpperCase()));
+  for (const aba of abasCliente) {
+    const n = aba.getLastRow() - 1;
+    if (n < 1) continue;
+    const nome = aba.getName();
+    aba.getRange(2, 1, n, 5).getValues().forEach((row, i) => { // A (Referencia) .. E (DataFim)
+      const ref = String(row[0] || "").trim();
+      if (!ref) return;
+      const novoIni = _corrigirDataDeslocada(row[3]);
+      const novoFim = _corrigirDataDeslocada(row[4]);
+      if (!novoIni && !novoFim) return;
+      const nIni = _diaNum(novoIni || row[3]), nFim = _diaNum(novoFim || row[4]);
+      const invertida = !!(nIni && nFim && nFim < nIni);
+      const qtd = gravacoes[nome.toUpperCase() + "|" + ref.toUpperCase()] || 0;
+      const avisos = [];
+      if (invertida) avisos.push("NÃO corrigida: ficaria com Fim antes do Início — ajustar à mão");
+      if (qtd > 1) avisos.push(`gravada ${qtd} vezes pelo app (LOG): pode ter recuado mais de 1 dia — conferir`);
+      [[4, "Início", row[3], novoIni], [5, "Fim", row[4], novoFim]].forEach(([col, rotulo, atual, novo]) => {
+        if (!novo) return;
+        itens.push({ aba: nome, linha: i + 2, ref, coluna: rotulo, atual: _fmtDia(atual, ""),
+                     corrigida: _fmtDia(novo, ""), gravacoesLog: qtd, aviso: avisos.join("; ") });
+        if (invertida) { puladas++; return; }
+        if (aplicar) aba.getRange(i + 2, col).setValue(novo).setNumberFormat("dd/MM/yyyy");
+        celulas++;
+      });
+    });
+  }
+
+  Logger.log(`${aplicar ? "CORRIGIR DATAS" : "REVISAR DATAS (nada foi alterado)"} — fuso do script: ${fusoScript} · ` +
+             `fuso da planilha: ${fusoPlanilha}${fusoScript !== fusoPlanilha ? " · ATENÇÃO: fusos diferentes" : ""}`);
+  itens.forEach(t => Logger.log(`${t.aba} L${t.linha} ${t.ref} · ${t.coluna}: ${t.atual} → ${t.corrigida}${t.aviso ? " · " + t.aviso : ""}`));
+  Logger.log(aplicar
+    ? `${celulas} célula(s) corrigida(s); ${puladas} para ajustar à mão.`
+    : `${celulas} célula(s) a corrigir; ${puladas} para ajustar à mão. Para aplicar: corrigirDatasDeslocadas()`);
+  if (aplicar && (celulas || puladas)) _log("SISTEMA", "CORRIGIR_DATAS", `${celulas} célula(s) corrigida(s); ${puladas} para ajustar à mão`);
+  return { ok: true, aplicado: aplicar, fusoScript, fusoPlanilha, celulas, puladas, itens };
 }
 
 // ============================================================

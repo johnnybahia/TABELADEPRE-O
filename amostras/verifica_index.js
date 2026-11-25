@@ -34,7 +34,7 @@ try { vm.runInContext(code, sandbox, { timeout: 5000 }); }
 catch (e) { console.error("Erro ao avaliar script:", e.message); process.exit(1); }
 
 const F = sandbox; // funções ficam no escopo global do sandbox
-["confValidar","confDakotaLerFixo","confDakotaLerHtm","confParseItemBlocoDakotaFixo","confParseItemBlocoDakotaHtm","confDakotaEhFixo","confDakotaEhHtm","confArredCentPadrao","confAnigerEhEdi","confAnigerLerEdi","confParseItemBlocoAnigerEdi","confAliasSugerido","confIsAnigerPdf","confParseCampos","confExtrairBlocosAnigerPdf","confParseItemBlocoAnigerPdf","confIsBeiraRio","confExtrairBlocosBeiraRio","confParseItemBlocoBeiraRio","confIsBibi","confExtrairBlocosBibi","confParseItemBlocoBibi","confBibiModalidade","confBibiModalUf","confAliasCasaBloco","confBibiEhAncora"].forEach(fn=>{
+["confValidar","confDakotaLerFixo","confDakotaLerHtm","confParseItemBlocoDakotaFixo","confParseItemBlocoDakotaHtm","confDakotaEhFixo","confDakotaEhHtm","confArredCentPadrao","confAnigerEhEdi","confAnigerLerEdi","confParseItemBlocoAnigerEdi","confAliasSugerido","confIsAnigerPdf","confParseCampos","confExtrairBlocosAnigerPdf","confParseItemBlocoAnigerPdf","confIsBeiraRio","confExtrairBlocosBeiraRio","confParseItemBlocoBeiraRio","confIsBibi","confExtrairBlocosBibi","confParseItemBlocoBibi","confBibiModalidade","confBibiModalUf","confAliasCasaBloco","confBibiEhAncora","confTextoAposMm"].forEach(fn=>{
   if(typeof F[fn]!=="function"){console.error("Função ausente no sandbox:",fn);process.exit(1);}
 });
 
@@ -323,6 +323,19 @@ let regrasOk=false;
   eq("apelido herdado: pedido sem 6MM nao cai na variante 6MM",r.status+"|"+r.refNome,"SEM_MEDIDA|MR130.010");
   r=rodar(blocoPar(85).replace("6MM","8MM"),tabMr);
   eq("apelido herdado: pedido 8MM nao cai na variante 6MM",r.status+"|"+r.refNome,"SEM_MEDIDA|MR130.010");
+  // 7) preco ausente na coluna do pedido: outra variante VIGENTE (outra Descricao) com preco
+  // -> confere por ela, sem chamar de "vigencia anterior" (achado real BIBI 3842008: MEER 6MM
+  // lurex sem BA/BA x "IGUAL MERR"). A "vigencia anterior" so vale para o MESMO item
+  // (Referencia+MedidaBase+Descricao): linha vencida de outra descricao nao serve -> SEM_PRECO.
+  const v15=o=>mkRow(Object.assign({ref:"ZZ300",medidaBase:15,medidaBaseLabel:"15mm"},o));
+  r=rodar(bloco("ZZ300","1,0000"),[v15({descricao:"LUREX",dataInicio:"01/09/2024"}),v15({descricao:"NORMAL",precoRS:1.0,dataInicio:"01/01/2023"})]);
+  eq("outra variante vigente com preco: confere por ela",r.status+"|"+r.esperado+"|"+r.descricao,"OK|1|NORMAL");
+  eq("outra variante vigente com preco: nao e vigencia anterior",!!r.vigenciaAnterior||/vigencia anterior/.test(r.motivo),false);
+  eq("outra variante vigente com preco: aviso cita as duas",/variante "LUREX".*variante "NORMAL"/.test(r.motivo),true);
+  r=rodar(bloco("ZZ300","1,0000"),[v15({descricao:"NOVA",dataInicio:"01/09/2024"}),v15({descricao:"ANTIGA",precoRS:1.0,dataInicio:"01/01/2023",dataFim:"31/08/2024"})]);
+  eq("linha vencida de outra descricao nao vira vigencia anterior",r.status,"SEM_PRECO");
+  r=rodar(bloco("ZZ300","1,0000"),[v15({descricao:"NOVA",dataInicio:"01/09/2024"}),v15({descricao:"NOVA",precoRS:1.0,dataInicio:"01/01/2023",dataFim:"31/08/2024"})]);
+  eq("mesmo item: vigencia anterior continua",r.status+"|"+!!r.vigenciaAnterior,"OK|true");
   falhas.slice(0,12).forEach(f=>console.log("   !",f));
   regrasOk=falhas.length===0;
   console.log(regrasOk?"\n[ANIGER destino + regras da conferencia] ✅ "+nVerif+" verificacoes OK":"\n[ANIGER destino + regras da conferencia] ❌ "+falhas.length+" falha(s)");
@@ -391,9 +404,16 @@ let beiraRioOk=false;
 // PRECO ATUAL (emissao vazia). Achados reais esperados (nao sao bug de parser):
 //  - 3827105 (RS→RS): J31133 OK · M9043 DIVERGENTE (1,66 x 0,54) · "MEER-2MM" e
 //    "SU-15MM" NAO_CADASTRADO (codigos do pedido != cadastro: MER 2MM / MTM 15MM)
-//  - 3813667 (BA→BA): MEER 6MM AMBIGUO x2 (varias descricoes vigentes) · "REF4027"
-//    NAO_CADASTRADO (cadastro M4027, sem o "M")
-//  - 3826047 (RS→BA): M5163 20MM SEM_PRECO (coluna RS/BA vazia no cadastro)
+//  - 3813667 (BA→BA): MEER 6MM DIVERGENTE x2 (pedido 1,27 x BA/BA 1,23 do "IGUAL
+//    MERR") · "REF4027" NAO_CADASTRADO (cadastro M4027, sem o "M")
+//  - 3826047 (RS→BA): M5163 20MM DIVERGENTE (1,98 x RS/BA 1,75 — a linha ganhou
+//    preco RS/BA no snapshot de 11/2026; antes era SEM_PRECO)
+//  - 3842008 (BA→BA, 11/2026): MEER 6MM DIVERGENTE x3 (0,89 x 1,23). O preco 0,89
+//    esta na linha renomeada para "MEER 6MM NORMAL": o pedido nao traz "NORMAL" e
+//    ela nunca vira candidata. A variante mais recente ("lurex irize") nao tem BA/BA:
+//    confere pela variante "IGUAL MERR" (nao e "vigencia anterior"). Corrigindo a
+//    planilha (renomear para "MEER 6MM" + DataFim na IGUAL MERR) os 3 viram OK.
+//    "REF4027" NAO_CADASTRADO sem o apelido.
 let bibiOk=false;
 (function(){
   const fx=path.join(DIR,"bibi_pdf_linhas.json");
@@ -411,8 +431,9 @@ let bibiOk=false;
   // esperado por OC: [emissao, modalidade, coluna, prazo, status por item na ordem do pedido]
   const esperado={
     "3827105":["14/05/2026","RS/RS","BA","60",["NAO_CADASTRADO","DIVERGENTE","NAO_CADASTRADO","OK"]],
-    "3813667":["05/11/2025","BA/BA","CE","60",["AMBIGUO","AMBIGUO","NAO_CADASTRADO"]],
-    "3826047":["04/05/2026","RS/BA","RS","60",["SEM_PRECO"]]
+    "3813667":["05/11/2025","BA/BA","CE","60",["DIVERGENTE","DIVERGENTE","NAO_CADASTRADO"]],
+    "3826047":["04/05/2026","RS/BA","RS","60",["DIVERGENTE"]],
+    "3842008":["25/11/2026","BA/BA","CE","60",["DIVERGENTE","DIVERGENTE","DIVERGENTE","NAO_CADASTRADO"]]
   };
   const problemas=[];
   for(const [oc,linhas] of Object.entries(amostras)){
@@ -432,7 +453,13 @@ let bibiOk=false;
     const st=out.map(r=>r.status);
     if(JSON.stringify(st)!==JSON.stringify(exp[4]))problemas.push(oc+": status "+st.join(",")+" != "+exp[4].join(","));
     out.forEach(r=>{if(/ sem preco | preco (RS|BA|CE) /i.test(r.motivo||"")&&/\b(BA|CE)\b(?!\/)/.test(r.motivo||"")&&!/RS\/|BA\/BA/.test(r.motivo||""))problemas.push(oc+": rotulo cru no motivo: "+r.motivo);});
-    if(oc==="3826047"&&!/RS\/BA/.test(out[0].motivo||""))problemas.push(oc+": motivo sem rotulo RS/BA: "+out[0].motivo);
+    // rotulo real da coluna na mensagem de preco ausente ("RS/BA", nao o codigo cru
+    // "RS"): simula a linha M5163 sem RS/BA, como no snapshot anterior da tabela
+    if(oc==="3826047"){
+      const semRsBa=refsBibi.map(r=>r.ref==="M5163"?Object.assign({},r,{precoRS:0}):r);
+      const o=F.confValidar(blocos,semRsBa,c.uf,"",F.confParseItemBlocoBibi,{arred:F.confArredCentPadrao,ignorados:[],rotulos:["RS/BA","RS/RS","BA/BA",null]});
+      if(o[0].status!=="SEM_PRECO"||!/RS\/BA/.test(o[0].motivo||""))problemas.push(oc+": M5163 sem RS/BA -> "+o[0].status+" "+o[0].motivo);
+    }
     // itens conferidos: preco e medida lidos do pedido
     if(oc==="3827105"){
       const p=blocos.map(F.confParseItemBlocoBibi);
@@ -454,6 +481,37 @@ let bibiOk=false;
     const o=F.confValidar(F.confExtrairBlocosBibi(l),refsEns,"CE","",F.confParseItemBlocoBibi,{arred:F.confArredCentPadrao,ignorados:[],rotulos:["RS/BA","RS/RS","BA/BA",null]});
     if(o[2].status!=="OK"||o[2].esperado!==0.75)problemas.push("apelido REF4027→M4027: "+o[2].status+" esperado "+o[2].esperado);
   })();
+  // 3842008 (11/2026): o preco certo (0,89) esta na linha "MEER 6MM NORMAL" — o texto
+  // depois da espessura impede o casamento. A variante mais recente ("lurex irize") nao
+  // tem BA/BA: confere pela variante "IGUAL MERR" (1,23), com a descricao DELA e sem
+  // chamar de "vigencia anterior". Corrigida a planilha, os 3 itens viram OK.
+  (function(){
+    const l=amostras["3842008"];if(!l)return;
+    const blocos=F.confExtrairBlocosBibi(l);
+    const opt={arred:F.confArredCentPadrao,ignorados:[],rotulos:["RS/BA","RS/RS","BA/BA",null]};
+    const rodar=refs=>F.confValidar(blocos,refs,"CE","",F.confParseItemBlocoBibi,opt);
+    let o=rodar(refsBibi);
+    o.slice(0,3).forEach((r,i)=>{
+      if(r.esperado!==1.23||r.descricao!=="(IGUAL MERR)"||r.vigenciaAnterior||/vigencia anterior/i.test(r.motivo)
+        ||!/variante "\(elast\.tear pol\.c\/lurex irize\)".*variante "\(IGUAL MERR\)"/.test(r.motivo))
+        problemas.push("3842008 item "+(i+1)+" (planilha atual): "+JSON.stringify({st:r.status,esp:r.esperado,desc:r.descricao,vigAnt:r.vigenciaAnterior,motivo:r.motivo}));
+    });
+    // planilha corrigida: "MEER 6MM NORMAL" -> "MEER 6MM" e DataFim na "IGUAL MERR"
+    const renomeada=refsBibi.map(r=>r.ref==="MEER 6MM NORMAL"?Object.assign({},r,{ref:"MEER 6MM"}):r);
+    const corrigida=renomeada.map(r=>r.ref==="MEER 6MM"&&r.descricao==="(IGUAL MERR)"?Object.assign({},r,{dataFim:"04/04/2026"}):r);
+    o=rodar(corrigida);
+    o.slice(0,3).forEach((r,i)=>{if(r.status!=="OK"||r.esperado!==0.89||r.opcoes)problemas.push("3842008 item "+(i+1)+" (planilha corrigida): "+r.status+" "+r.esperado+" opcoes "+JSON.stringify(r.opcoes));});
+    // so renomeada (IGUAL MERR ainda vigente): OK, mas o card lista as 2 opcoes
+    o=rodar(renomeada);
+    o.slice(0,3).forEach((r,i)=>{if(r.status!=="OK"||r.esperado!==0.89||!r.opcoes||r.opcoes.length!==2)problemas.push("3842008 item "+(i+1)+" (so renomeada): "+r.status+" "+r.esperado+" opcoes "+JSON.stringify(r.opcoes));});
+    // apelido da AC1 real da aba ("M4027=REF4027 15MM"): item 4 OK 0,75 (c/goma, BA/BA)
+    o=rodar(refsBibi.map(r=>Object.assign({},r,{aliasesConf:r.ref==="M4027"?"REF4027 15MM":""})));
+    if(o[3].status!=="OK"||o[3].esperado!==0.75)problemas.push("3842008 item 4 com apelido: "+o[3].status+" "+o[3].esperado);
+  })();
+  // alerta do cadastro: texto depois da espessura (goma e parenteses nao contam)
+  [["MEER 6MM NORMAL","NORMAL"],["MEER 6MM",""],["MTM 100MM ENGOMADO",""],["MTM 20MM C/GOMA",""],
+   ["M21048(elást.red.2,5mm tranç.16f.)",""],["LS 11628 PRETO (7MM)",""],["M2173 6MM BRANCO","BRANCO"]]
+    .forEach(([ref,esp])=>{const v=F.confTextoAposMm(ref);if(v!==esp)problemas.push("confTextoAposMm("+ref+") = "+JSON.stringify(v)+" != "+JSON.stringify(esp));});
   // "Identificar / ensinar": o apelido sugerido tem que casar de volta no proprio
   // item (achado real 2026-10: sugeria "8141 3 MARINHO-063 SU-15MM 58062000/1 MT",
   // com seq e NCM e sem o "ELASTICO" do meio -> salvava e o item voltava a pedir
